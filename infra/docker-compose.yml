@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+psycopg2://lunaris:lunaris_secret@postgres:5432/lunaris_db
+      - SECRET_KEY=lunaris_production_secret_key_change_me_2026
+      - STORAGE_BACKEND=local
+      - LOCAL_STORAGE_DIR=/app/storage_assets
+    volumes:
+      - storage_data:/app/storage_assets
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lunaris
+      POSTGRES_PASSWORD: lunaris_secret
+      POSTGRES_DB: lunaris_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  storage_data:
