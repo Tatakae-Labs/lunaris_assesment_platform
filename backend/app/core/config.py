@@ -7,7 +7,8 @@ from typing import List, Optional
 _INSECURE_DEFAULT_KEY = "lunaris_super_secret_jwt_key_development_2026"
 
 _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_DEFAULT_DB_PATH = os.path.join(_BACKEND_DIR, "lunaris.db").replace("\\", "/")
+_ROOT_DIR = os.path.dirname(_BACKEND_DIR)
+_DEFAULT_DB_PATH = os.path.join(_ROOT_DIR, "lunaris.db").replace("\\", "/")
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Lunaris Assessment Platform"
@@ -61,10 +62,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def normalize_sqlite_url(self) -> "Settings":
-        if self.DATABASE_URL.startswith("sqlite:///./") or self.DATABASE_URL.startswith("sqlite:////./"):
-            rel_file = self.DATABASE_URL.split("///.")[-1].lstrip("/")
-            abs_path = os.path.abspath(os.path.join(_BACKEND_DIR, rel_file)).replace("\\", "/")
-            self.DATABASE_URL = f"sqlite:///{abs_path}"
+        if self.DATABASE_URL.startswith("sqlite"):
+            # Ensure database resolves to the root project lunaris.db
+            if "./lunaris.db" in self.DATABASE_URL or self.DATABASE_URL.endswith("lunaris.db"):
+                abs_path = _DEFAULT_DB_PATH
+                self.DATABASE_URL = f"sqlite:///{abs_path}"
         return self
 
     @model_validator(mode="after")

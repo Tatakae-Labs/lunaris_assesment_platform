@@ -119,6 +119,161 @@ class JeeGradingEngine:
                 else:
                     awarded = rules.get("nvq_unanswered", 0.0)
 
+            # One-Word Answer / Fill-in-the-Blank
+            elif q_type in ("one_word", "single_word", "fill_blank"):
+                user_word = (
+                    user_ans.get("one_word") or
+                    user_ans.get("text_answer") or
+                    numerical_val or
+                    ""
+                )
+                user_word_clean = str(user_word).strip().lower()
+                target_word = content.get("target_word", content.get("one_word", ""))
+                acceptable = [str(target_word).strip().lower()] if target_word else []
+                for alt in content.get("acceptable_words", []):
+                    if alt:
+                        acceptable.append(str(alt).strip().lower())
+
+                if user_word_clean:
+                    is_attempted = True
+                    if any(user_word_clean == acc for acc in acceptable if acc):
+                        is_correct = True
+                        awarded = max_points
+                    else:
+                        awarded = neg_points if rules.get("enable_negative_marking", True) else 0.0
+                else:
+                    awarded = 0.0
+
+            # Crossword Quiz
+            elif q_type == "crossword":
+                user_grid = user_ans.get("crossword_grid", {}) or {}
+                solution_grid = content.get("solution", {}) or {}
+                # Also accept clues list if solution grid not pre-flattened
+                if not solution_grid and content.get("clues"):
+                    solution_grid = {}
+                    for cl in content.get("clues", []):
+                        r, c = cl.get("row", 0), cl.get("col", 0)
+                        ans = cl.get("answer", "").upper()
+                        is_down = cl.get("direction", "across").lower() == "down"
+                        for i, ch in enumerate(ans):
+                            cell_key = f"{r + i if is_down else r},{c if is_down else c + i}"
+                            solution_grid[cell_key] = ch
+
+                if user_grid and any(str(v).strip() for v in user_grid.values()):
+                    is_attempted = True
+                    total_cells = len(solution_grid)
+                    correct_cells = 0
+                    for cell_coord, sol_char in solution_grid.items():
+                        user_char = str(user_grid.get(cell_coord, "")).strip().upper()
+                        if user_char == str(sol_char).strip().upper():
+                            correct_cells += 1
+
+                    if total_cells > 0:
+                        cell_ratio = correct_cells / total_cells
+                        if cell_ratio >= 0.99:
+                            is_correct = True
+                            awarded = max_points
+                        elif cell_ratio >= 0.5:
+                            awarded = round(max_points * cell_ratio, 2)
+                        else:
+                            awarded = 0.0
+                    else:
+                        is_correct = True
+                        awarded = max_points
+                else:
+                    awarded = 0.0
+
+            # Match the Following
+            elif q_type == "match_following":
+                user_matches = user_ans.get("matches", {}) or {}
+                pairs = content.get("pairs", [])
+                if user_matches and any(v for v in user_matches.values()):
+                    is_attempted = True
+                    total_pairs = len(pairs)
+                    correct_matches = 0
+                    for p in pairs:
+                        pid = str(p.get("id", ""))
+                        expected_right = str(p.get("right", "")).strip().lower()
+                        user_selected_right = str(user_matches.get(pid, "")).strip().lower()
+                        if user_selected_right and user_selected_right == expected_right:
+                            correct_matches += 1
+
+                    if total_pairs > 0:
+                        ratio = correct_matches / total_pairs
+                        if ratio >= 0.99:
+                            is_correct = True
+                            awarded = max_points
+                        elif ratio > 0:
+                            awarded = round(max_points * ratio, 2)
+                        else:
+                            awarded = neg_points if rules.get("enable_negative_marking", False) else 0.0
+                    else:
+                        is_correct = True
+                        awarded = max_points
+                else:
+                    awarded = 0.0
+
+            # True / False Statement Verification
+            elif q_type == "true_false":
+                user_tf = (
+                    user_ans.get("true_false") or
+                    (selected_opts[0] if selected_opts else None) or
+                    ""
+                )
+                user_tf_clean = str(user_tf).strip().lower()
+                correct_tf = str(content.get("correct_answer", "true")).strip().lower()
+
+                if user_tf_clean in ("true", "false", "t", "f"):
+                    is_attempted = True
+                    norm_user = "true" if user_tf_clean in ("true", "t") else "false"
+                    norm_correct = "true" if correct_tf in ("true", "t") else "false"
+                    if norm_user == norm_correct:
+                        is_correct = True
+                        awarded = max_points
+                    else:
+                        awarded = neg_points
+                else:
+                    awarded = 0.0
+
+            # Interactive Coding & Scripting Problem
+            elif q_type == "coding":
+                submitted_code = (
+                    user_ans.get("code") or
+                    user_ans.get("source_code") or
+                    ""
+                )
+                submitted_lang = user_ans.get("language") or "python"
+                test_cases = content.get("test_cases", [])
+
+                if submitted_code and submitted_code.strip():
+                    is_attempted = True
+                    if test_cases:
+                        try:
+                            from app.coding.runner import evaluate_test_cases
+                            time_limit = float(content.get("time_limit_sec", 3.0))
+                            eval_res = evaluate_test_cases(
+                                source_code=submitted_code,
+                                language=submitted_lang,
+                                test_cases=test_cases,
+                                time_limit_sec=time_limit
+                            )
+                            pass_ratio = (eval_res.get("passed_count", 0) / max(1, len(test_cases)))
+                            if eval_res.get("all_passed"):
+                                is_correct = True
+                                awarded = max_points
+                            elif pass_ratio > 0:
+                                awarded = round(max_points * pass_ratio, 2)
+                            else:
+                                awarded = neg_points if rules.get("enable_negative_marking", False) else 0.0
+                        except Exception as e:
+                            print(f"[GRADING ENGINE] Coding evaluation note: {e}")
+                            awarded = 0.0
+                    else:
+                        is_correct = True
+                        awarded = max_points
+                else:
+                    awarded = 0.0
+
             # Update aggregations
             if not is_attempted:
                 unanswered_count += 1

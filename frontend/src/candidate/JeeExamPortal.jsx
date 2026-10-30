@@ -445,7 +445,8 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
     );
   }
 
-  const subjects = ["Physics", "Chemistry", "Mathematics"];
+  const paperSubjectList = Array.from(new Set(paper?.questions?.map((q) => q.subject).filter(Boolean)));
+  const subjects = paperSubjectList.length > 0 ? paperSubjectList : ["General"];
 
   return (
     <div style={{

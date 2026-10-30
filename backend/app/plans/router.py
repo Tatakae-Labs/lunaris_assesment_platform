@@ -320,3 +320,211 @@ def list_org_payments(
         })
     return results
 
+
+@router.get("/subscription-status/{organization_id}")
+def get_subscription_status(
+    organization_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns monthly subscription lifecycle metrics: renewal dates, countdowns,
+    grace periods, and status.
+    """
+    ensure_plans_seeded(db)
+    org = db.query(Organization).filter((Organization.id == organization_id) | (Organization.slug == organization_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    plan_id = org.plan_id or "free"
+    plan = db.query(Plan).filter(Plan.id == plan_id).first()
+    sub = db.query(Subscription).filter(Subscription.organization_id == org.id).first()
+
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+
+    if plan_id == "free":
+        return {
+            "organization_id": org.id,
+            "plan_id": "free",
+            "plan_name": "Free Starter",
+            "price_inr": 0,
+            "billing_period": "forever",
+            "status": "active",
+            "is_free_tier": True,
+            "current_period_end": None,
+            "days_remaining": None,
+            "renewal_date_formatted": "Forever Free",
+            "is_expiring_soon": False,
+            "is_past_due": False
+        }
+
+    # If paid plan has no sub record or missing end date, synthesize standard 30-day window
+    end_date = sub.current_period_end if (sub and sub.current_period_end) else (now + timedelta(days=30))
+    if end_date.tzinfo is None:
+        end_date = end_date.replace(tzinfo=timezone.utc)
+
+    diff = end_date - now
+    days_remaining = int(diff.total_seconds() // 86400)
+    if diff.total_seconds() > 0 and days_remaining == 0:
+        days_remaining = 1
+
+    is_expiring_soon = (0 <= days_remaining <= 7)
+    is_past_due = (days_remaining < 0 and days_remaining >= -3)  # 3-day grace period
+    is_expired = (days_remaining < -3)
+
+    derived_status = "active"
+    if is_expired:
+        derived_status = "canceled"
+    elif is_past_due:
+        derived_status = "past_due"
+    elif is_expiring_soon:
+        derived_status = "expiring_soon"
+
+    return {
+        "organization_id": org.id,
+        "plan_id": plan.id if plan else plan_id,
+        "plan_name": plan.name if plan else plan_id.title(),
+        "price_inr": plan.price_inr if plan else 0,
+        "billing_period": "monthly",
+        "status": derived_status,
+        "is_free_tier": False,
+        "current_period_start": sub.current_period_start.isoformat() if sub and sub.current_period_start else None,
+        "current_period_end": end_date.isoformat(),
+        "renewal_date_formatted": end_date.strftime("%d %B %Y"),
+        "days_remaining": max(0, days_remaining),
+        "exact_days_diff": days_remaining,
+        "is_expiring_soon": is_expiring_soon,
+        "is_past_due": is_past_due,
+        "is_expired": is_expired,
+        "grace_period_days_left": max(0, 3 + days_remaining) if days_remaining < 0 else 3
+    }
+
+
+@router.post("/test-renewal-reminder/{organization_id}")
+def test_subscription_renewal_reminder(
+    organization_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Sends a test monthly renewal reminder to the current user's email via the configured mailer.
+    """
+    org = db.query(Organization).filter((Organization.id == organization_id) | (Organization.slug == organization_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    from app.core.email import send_subscription_renewal_reminder_email
+    plan_id = org.plan_id or "creator_pro"
+    plan = db.query(Plan).filter(Plan.id == plan_id).first()
+    plan_name = plan.name if plan else "Creator Pro"
+    price = plan.price_inr if plan else 499
+
+    from datetime import datetime, timezone, timedelta
+    renewal_date = datetime.now(timezone.utc) + timedelta(days=7)
+    date_str = renewal_date.strftime("%d %B %Y")
+
+    res = send_subscription_renewal_reminder_email(
+        to_email=current_user.email,
+        org_name=org.name,
+        plan_name=plan_name,
+        days_remaining=7,
+        renewal_date_str=date_str,
+        amount_inr=price
+    )
+    return {
+        "status": "dispatched",
+        "email": current_user.email,
+        "delivery_result": res,
+        "message": f"Test renewal reminder sent to {current_user.email}."
+    }
+
+
+@router.post("/sweep-renewals")
+def sweep_and_process_renewals(db: Session = Depends(get_db)):
+    """
+    Scans all paid subscriptions for approaching renewal dates, sends reminder emails,
+    and enforces grace period / free tier fallback.
+    Can be called via cron job or by superadmin.
+    """
+    from datetime import datetime, timezone
+    from app.core.email import send_subscription_renewal_reminder_email, send_subscription_expired_email
+    from app.models import AuditEvent
+    import json
+
+    now = datetime.now(timezone.utc)
+    subs = db.query(Subscription).filter(Subscription.status != "canceled").all()
+    reminders_sent = 0
+    downgraded = 0
+
+    for s in subs:
+        if not s.current_period_end:
+            continue
+        end = s.current_period_end
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+
+        diff_days = int((end - now).total_seconds() // 86400)
+        org = db.query(Organization).filter(Organization.id == s.organization_id).first()
+        if not org or org.plan_id == "free":
+            continue
+
+        # Find organization owner email
+        owner_member = db.query(OrganizationMember).filter(
+            OrganizationMember.organization_id == org.id,
+            OrganizationMember.role == "owner"
+        ).first()
+        owner_user = db.query(User).filter(User.id == owner_member.user_id).first() if owner_member else None
+        target_email = owner_user.email if owner_user else None
+
+        plan = db.query(Plan).filter(Plan.id == s.plan_id).first()
+        plan_name = plan.name if plan else s.plan_id.title()
+        price = plan.price_inr if plan else 0
+
+        # Renewal reminder milestone triggers: 7 days, 3 days, 1 day
+        if diff_days in (7, 3, 1) and target_email:
+            send_subscription_renewal_reminder_email(
+                to_email=target_email,
+                org_name=org.name,
+                plan_name=plan_name,
+                days_remaining=diff_days,
+                renewal_date_str=end.strftime("%d %B %Y"),
+                amount_inr=price
+            )
+            reminders_sent += 1
+
+        # Expiry day / grace period notification
+        elif diff_days == 0 and target_email:
+            send_subscription_expired_email(
+                to_email=target_email,
+                org_name=org.name,
+                plan_name=plan_name,
+                amount_inr=price,
+                grace_period_days=3
+            )
+            s.status = "past_due"
+            reminders_sent += 1
+
+        # Past 3-day grace period: downgrade to Free tier
+        elif diff_days < -3:
+            s.status = "canceled"
+            org.plan_id = "free"
+            downgraded += 1
+            audit = AuditEvent(
+                organization_id=org.id,
+                action="SUBSCRIPTION_DOWNGRADED_AUTO_EXPIRY",
+                metadata_json=json.dumps({
+                    "previous_plan": s.plan_id,
+                    "reason": "Grace period expired without payment renewal"
+                })
+            )
+            db.add(audit)
+
+    db.commit()
+    return {
+        "status": "success",
+        "checked_subscriptions": len(subs),
+        "reminders_sent": reminders_sent,
+        "downgraded_to_free": downgraded
+    }
+

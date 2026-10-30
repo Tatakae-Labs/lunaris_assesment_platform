@@ -22,12 +22,43 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
   const [myPayments, setMyPayments] = useState([]);
   const [loadingPayments, setLoadingPayments] = useState(false);
 
+  // Monthly Renewal Lifecycle State
+  const [subStatus, setSubStatus] = useState(null);
+  const [sendingTestReminder, setSendingTestReminder] = useState(false);
+
   useEffect(() => {
     loadPlans();
     if (organizationId) {
       loadMyPayments();
+      loadSubStatus();
     }
   }, [organizationId]);
+
+  async function loadSubStatus() {
+    if (!organizationId) return;
+    try {
+      const res = await api.getSubscriptionStatus(organizationId);
+      setSubStatus(res);
+      if (res.plan_id) {
+        setSelectedPlanCode(res.plan_id);
+      }
+    } catch (err) {
+      console.error("Failed to load subscription status:", err);
+    }
+  }
+
+  async function handleSendTestReminder() {
+    if (!organizationId) return;
+    setSendingTestReminder(true);
+    try {
+      const res = await api.testRenewalReminder(organizationId);
+      alert(`✓ ${res.message || "Test renewal reminder sent to your email!"}`);
+    } catch (err) {
+      alert("Failed to send test reminder: " + err.message);
+    } finally {
+      setSendingTestReminder(false);
+    }
+  }
 
   async function loadPlans() {
     setLoading(true);
@@ -169,6 +200,155 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
           </div>
         )}
       </div>
+
+      {/* Monthly Subscription Renewal & Lifecycle Banner */}
+      {subStatus && (
+        <div
+          className="dash-card"
+          style={{
+            padding: "20px 24px",
+            border: subStatus.is_past_due
+              ? "2px solid #ef4444"
+              : subStatus.is_expiring_soon
+              ? "2px solid #f59e0b"
+              : "1px solid var(--border-subtle)",
+            background: subStatus.is_past_due
+              ? "#fef2f2"
+              : subStatus.is_expiring_soon
+              ? "#fffbeb"
+              : "#ffffff"
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+              <div style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "10px",
+                background: subStatus.is_past_due ? "#fee2e2" : subStatus.is_expiring_soon ? "#fef3c7" : "var(--accent-blue-subtle)",
+                color: subStatus.is_past_due ? "#dc2626" : subStatus.is_expiring_soon ? "#d97706" : "var(--accent-blue)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "24px"
+              }}>
+                {subStatus.is_past_due ? "⚠️" : subStatus.is_expiring_soon ? "⏱️" : "📅"}
+              </div>
+
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <h3 style={{ fontSize: "16px", fontWeight: "800", color: "var(--text-primary)", margin: 0 }}>
+                    {subStatus.is_free_tier
+                      ? "Free Starter Subscription"
+                      : `${subStatus.plan_name} Monthly Subscription`}
+                  </h3>
+                  <span style={{
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    fontSize: "11px",
+                    fontWeight: "800",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                    background: subStatus.is_past_due
+                      ? "#fecaca"
+                      : subStatus.is_expiring_soon
+                      ? "#fde68a"
+                      : subStatus.is_free_tier
+                      ? "var(--bg-secondary)"
+                      : "#d1fae5",
+                    color: subStatus.is_past_due
+                      ? "#b91c1c"
+                      : subStatus.is_expiring_soon
+                      ? "#b45309"
+                      : subStatus.is_free_tier
+                      ? "var(--text-muted)"
+                      : "#047857"
+                  }}>
+                    {subStatus.is_past_due
+                      ? `Grace Period (${subStatus.grace_period_days_left}d left)`
+                      : subStatus.is_expiring_soon
+                      ? `Renews in ${subStatus.days_remaining}d`
+                      : subStatus.is_free_tier
+                      ? "Lifetime Free"
+                      : `Active • ${subStatus.days_remaining}d remaining`}
+                  </span>
+                </div>
+
+                <p style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "4px 0 0 0" }}>
+                  {subStatus.is_free_tier
+                    ? "Your workspace is operating on the Free tier. Upgrade anytime to unlock proctored CBT and extended quotas."
+                    : `Next scheduled monthly renewal: ${subStatus.renewal_date_formatted} (₹${subStatus.price_inr.toLocaleString("en-IN")}/mo)`}
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              {!subStatus.is_free_tier && (
+                <button
+                  type="button"
+                  onClick={handleSendTestReminder}
+                  disabled={sendingTestReminder}
+                  className="btn-secondary"
+                  style={{ fontSize: "12px", height: "36px", padding: "0 12px" }}
+                  title="Sends an automated monthly renewal reminder email to your registered email address"
+                >
+                  {sendingTestReminder ? "Sending..." : "📧 Test Renewal Reminder Email"}
+                </button>
+              )}
+
+              {subStatus.is_free_tier ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const inst = plans.find(p => (p.code || p.id) === "institution") || plans[1];
+                    if (inst) handleSelectPlan(inst);
+                  }}
+                  className="btn-primary"
+                  style={{ fontSize: "13px", height: "38px" }}
+                >
+                  Upgrade to Pro Tier →
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const current = plans.find(p => (p.code || p.id) === subStatus.plan_id) || plans[1];
+                    if (current) handleSelectPlan(current);
+                  }}
+                  className="btn-primary"
+                  style={{
+                    fontSize: "13px",
+                    height: "38px",
+                    background: subStatus.is_past_due ? "#dc2626" : "var(--gradient-primary)"
+                  }}
+                >
+                  {subStatus.is_past_due ? "Pay Renewal Now (UPI) →" : "Renew / Extend via UPI →"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {!subStatus.is_free_tier && (
+            <div style={{
+              marginTop: "14px",
+              paddingTop: "12px",
+              borderTop: "1px dashed var(--border-subtle)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              fontSize: "12px",
+              color: "var(--text-muted)"
+            }}>
+              <span>
+                🔔 <strong>Automated Alerts:</strong> Email reminders are automatically sent at <strong>7 days</strong>, <strong>3 days</strong>, and <strong>1 day</strong> prior to renewal date, plus on renewal day with a 3-day grace period.
+              </span>
+              <span>
+                Payment Gateway: <strong>NPCI UPI QR & VPA Instant Validation</strong>
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Pricing Cards Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "20px" }}>

@@ -366,17 +366,33 @@ def delete_organization_superadmin(
     rooms = db.query(QuizRoom).filter(QuizRoom.organization_id == org_id_val).all()
     room_ids = [r.id for r in rooms]
     if room_ids:
+        # Quiz responses, participants, rounds, snapshots
+        from app.models import QuizResponse, QuizRound, QuizLeaderboardSnapshot
+        db.query(QuizResponse).filter(QuizResponse.room_id.in_(room_ids)).delete(synchronize_session=False)
         db.query(QuizParticipant).filter(QuizParticipant.room_id.in_(room_ids)).delete(synchronize_session=False)
+        db.query(QuizRound).filter(QuizRound.room_id.in_(room_ids)).delete(synchronize_session=False)
+        db.query(QuizLeaderboardSnapshot).filter(QuizLeaderboardSnapshot.room_id.in_(room_ids)).delete(synchronize_session=False)
         db.query(QuizRoom).filter(QuizRoom.organization_id == org_id_val).delete(synchronize_session=False)
 
     # 2. Clean up Exam Attempts and all telemetry/answers/reviews
     attempts = db.query(ExamAttempt).filter(ExamAttempt.organization_id == org_id_val).all()
     attempt_ids = [a.id for a in attempts]
     if attempt_ids:
+        # Candidate sessions
+        db.query(CandidateSession).filter(CandidateSession.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
+        # Attempt answers
         db.query(AttemptAnswer).filter(AttemptAnswer.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
+        # Result revisions
+        from app.models import ResultRevision
+        db.query(ResultRevision).filter(ResultRevision.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
+        # Proctor events, evidence assets & review decisions
+        events = db.query(ProctorEvent).filter(ProctorEvent.attempt_id.in_(attempt_ids)).all()
+        event_ids = [ev.id for ev in events]
+        if event_ids:
+            db.query(EvidenceAsset).filter(EvidenceAsset.event_id.in_(event_ids)).delete(synchronize_session=False)
+            db.query(ReviewDecision).filter(ReviewDecision.event_id.in_(event_ids)).delete(synchronize_session=False)
+            db.query(Appeal).filter(Appeal.event_id.in_(event_ids)).delete(synchronize_session=False)
         db.query(ProctorEvent).filter(ProctorEvent.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
-        db.query(EvidenceAsset).filter(EvidenceAsset.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
-        db.query(ReviewDecision).filter(ReviewDecision.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
         db.query(ProctorSession).filter(ProctorSession.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
         db.query(Appeal).filter(Appeal.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
         db.query(ExamAttempt).filter(ExamAttempt.organization_id == org_id_val).delete(synchronize_session=False)
@@ -384,7 +400,11 @@ def delete_organization_superadmin(
     # 3. Clean up Appeals for this org
     db.query(Appeal).filter(Appeal.organization_id == org_id_val).delete(synchronize_session=False)
 
-    # 4. Clean up Enrollments & Assignments
+    # 4. Clean up Enrollments & Assignments (and lingering candidate sessions by enrollment)
+    enrollments = db.query(ExamEnrollment).filter(ExamEnrollment.organization_id == org_id_val).all()
+    enrollment_ids = [en.id for en in enrollments]
+    if enrollment_ids:
+        db.query(CandidateSession).filter(CandidateSession.enrollment_id.in_(enrollment_ids)).delete(synchronize_session=False)
     db.query(ExamEnrollment).filter(ExamEnrollment.organization_id == org_id_val).delete(synchronize_session=False)
     db.query(ExamAssignment).filter(ExamAssignment.organization_id == org_id_val).delete(synchronize_session=False)
 
@@ -431,7 +451,29 @@ def delete_organization_superadmin(
     db.add(audit)
     db.commit()
 
-    return {"message": f"Institution '{org_name}' and all associated data deleted successfully!"}
+    # Clean up dual-engine MongoDB documents
+    try:
+        from app.core.mongodb import get_collection
+        for coll_name in [
+            "organizations", "organization_members", "subscriptions", "exams", "questions",
+            "exam_attempts", "candidate_sessions", "attempt_answers", "proctor_sessions",
+            "proctor_events", "evidence_assets", "review_decisions", "quiz_rooms",
+            "quiz_participants", "audit_logs"
+        ]:
+            c = get_collection(coll_name)
+            if c is not None:
+                if coll_name == "organizations":
+                    c.delete_one({"_id": org_id_val})
+                else:
+                    c.delete_many({"organization_id": org_id_val})
+    except Exception as exc:
+        print(f"MongoDB org delete sync note: {exc}")
+
+    # Checkpoint and sync physical SQLite databases to disk
+    from app.core.database import checkpoint_and_sync_db
+    checkpoint_and_sync_db(db)
+
+    return {"message": f"Institution '{org_name}' and all associated database records deleted successfully!"}
 
 @router.get("/organizations/{org_id}/services")
 def get_org_services_superadmin(
@@ -586,6 +628,18 @@ def remove_org_subscription_superadmin(
     db.add(audit)
     db.commit()
 
+    # Clear MongoDB subscription records
+    try:
+        from app.core.mongodb import get_collection
+        c_sub = get_collection("subscriptions")
+        if c_sub is not None:
+            c_sub.delete_many({"organization_id": org.id})
+    except Exception as exc:
+        print(f"MongoDB subscription delete sync note: {exc}")
+
+    from app.core.database import checkpoint_and_sync_db
+    checkpoint_and_sync_db(db)
+
     return {"message": f"Subscription successfully removed and revoked for '{org.name}'. Organization reset to Free Starter tier."}
 
 @router.get("/organizations/{org_id}/members")
@@ -676,9 +730,68 @@ def delete_user_superadmin(
         raise HTTPException(status_code=403, detail="Only the Primary SuperAdmin can delete administrative accounts")
 
     user_email = user.email
-    from app.models import UserSession
+    from app.models import (
+        UserSession, OrganizationMember, OrganizationInvite, ExamAttempt, AttemptAnswer,
+        ProctorEvent, EvidenceAsset, ReviewDecision, ProctorSession, Appeal,
+        CandidateSession, ExamAssignment, Exam, ExamVersion, QuestionRevision,
+        QuizRoom, QuizParticipant, QuizResponse, QuizRound, QuizLeaderboardSnapshot,
+        ResultRevision
+    )
+
+    # 1. Clean up user sessions
     db.query(UserSession).filter(UserSession.user_id == user_id).delete(synchronize_session=False)
+
+    # 2. Clean up organization memberships
     db.query(OrganizationMember).filter(OrganizationMember.user_id == user_id).delete(synchronize_session=False)
+
+    # 3. Clean up invitations issued by this user
+    db.query(OrganizationInvite).filter(OrganizationInvite.invited_by_id == user_id).update({"invited_by_id": None}, synchronize_session=False)
+
+    # 4. Clean up quiz rooms hosted by this user
+    hosted_rooms = db.query(QuizRoom).filter(QuizRoom.host_user_id == user_id).all()
+    hosted_room_ids = [r.id for r in hosted_rooms]
+    if hosted_room_ids:
+        db.query(QuizResponse).filter(QuizResponse.room_id.in_(hosted_room_ids)).delete(synchronize_session=False)
+        db.query(QuizParticipant).filter(QuizParticipant.room_id.in_(hosted_room_ids)).delete(synchronize_session=False)
+        db.query(QuizRound).filter(QuizRound.room_id.in_(hosted_room_ids)).delete(synchronize_session=False)
+        db.query(QuizLeaderboardSnapshot).filter(QuizLeaderboardSnapshot.room_id.in_(hosted_room_ids)).delete(synchronize_session=False)
+        db.query(QuizRoom).filter(QuizRoom.id.in_(hosted_room_ids)).delete(synchronize_session=False)
+
+    # 5. Clean up candidate exam attempts & telemetry if user took exams
+    user_attempts = db.query(ExamAttempt).filter(ExamAttempt.candidate_id == user_id).all()
+    user_attempt_ids = [a.id for a in user_attempts]
+    if user_attempt_ids:
+        db.query(CandidateSession).filter(CandidateSession.attempt_id.in_(user_attempt_ids)).delete(synchronize_session=False)
+        db.query(AttemptAnswer).filter(AttemptAnswer.attempt_id.in_(user_attempt_ids)).delete(synchronize_session=False)
+        db.query(ResultRevision).filter(ResultRevision.attempt_id.in_(user_attempt_ids)).delete(synchronize_session=False)
+        user_events = db.query(ProctorEvent).filter(ProctorEvent.attempt_id.in_(user_attempt_ids)).all()
+        user_event_ids = [ev.id for ev in user_events]
+        if user_event_ids:
+            db.query(EvidenceAsset).filter(EvidenceAsset.event_id.in_(user_event_ids)).delete(synchronize_session=False)
+            db.query(ReviewDecision).filter(ReviewDecision.event_id.in_(user_event_ids)).delete(synchronize_session=False)
+            db.query(Appeal).filter(Appeal.event_id.in_(user_event_ids)).delete(synchronize_session=False)
+        db.query(ProctorEvent).filter(ProctorEvent.attempt_id.in_(user_attempt_ids)).delete(synchronize_session=False)
+        db.query(ProctorSession).filter(ProctorSession.attempt_id.in_(user_attempt_ids)).delete(synchronize_session=False)
+        db.query(Appeal).filter(Appeal.attempt_id.in_(user_attempt_ids)).delete(synchronize_session=False)
+        db.query(ExamAttempt).filter(ExamAttempt.id.in_(user_attempt_ids)).delete(synchronize_session=False)
+
+    # 6. Nullify or reassign review decisions and resolved appeals
+    db.query(ReviewDecision).filter(ReviewDecision.reviewer_id == user_id).update({"reviewer_id": None}, synchronize_session=False)
+    db.query(Appeal).filter(Appeal.resolved_by == user_id).update({"resolved_by": None}, synchronize_session=False)
+    db.query(ResultRevision).filter(ResultRevision.revised_by == user_id).update({"revised_by": None}, synchronize_session=False)
+
+    # 7. Clean up exam assignments for candidate
+    db.query(ExamAssignment).filter(ExamAssignment.candidate_id == user_id).delete(synchronize_session=False)
+
+    # 8. Reassign or delete exams created by this author
+    # If exams exist, reassign their created_by to the SuperAdmin or delete if unassigned
+    author_exams = db.query(Exam).filter(Exam.created_by == user_id).all()
+    for ex in author_exams:
+        ex.created_by = current_user.id
+
+    # 9. Reassign question revisions authored by this user
+    db.query(QuestionRevision).filter(QuestionRevision.created_by == user_id).update({"created_by": current_user.id}, synchronize_session=False)
+
     db.delete(user)
 
     audit = AuditEvent(
@@ -690,6 +803,24 @@ def delete_user_superadmin(
     )
     db.add(audit)
     db.commit()
+
+    # Clear from dual-engine MongoDB
+    try:
+        from app.core.mongodb import get_collection
+        c_users = get_collection("users")
+        if c_users is not None:
+            c_users.delete_one({"_id": user_id})
+        c_m = get_collection("organization_members")
+        if c_m is not None:
+            c_m.delete_many({"user_id": user_id})
+        c_s = get_collection("candidate_sessions")
+        if c_s is not None:
+            c_s.delete_many({"candidate_id": user_id})
+    except Exception as exc:
+        print(f"MongoDB user delete sync note: {exc}")
+
+    from app.core.database import checkpoint_and_sync_db
+    checkpoint_and_sync_db(db)
 
     return {"message": f"User account '{user_email}' permanently deleted by SuperAdmin!"}
 
@@ -708,9 +839,23 @@ def delete_org_exam_superadmin(
     title = exam.title
     db.delete(exam)
     db.commit()
+
+    try:
+        from app.core.mongodb import get_collection
+        c_exams = get_collection("exams")
+        if c_exams is not None:
+            c_exams.delete_one({"_id": exam_id})
+    except Exception as exc:
+        print(f"MongoDB exam delete sync note: {exc}")
+
+    from app.core.database import checkpoint_and_sync_db
+    checkpoint_and_sync_db(db)
+
     return {"message": f"Exam '{title}' deleted by superadmin"}
 
 @router.post("/clean-mock-data")
+@router.post("/clear-database")
+@router.delete("/database")
 def purge_all_mock_data(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -757,9 +902,31 @@ def purge_all_mock_data(
     db.add(audit)
     db.commit()
 
+    # Clear dual-engine MongoDB mock collections
+    try:
+        from app.core.mongodb import get_collection
+        for coll_name in [
+            "audit_logs", "review_decisions", "proctor_events", "evidence_assets",
+            "proctor_sessions", "candidate_sessions", "attempt_answers", "exam_attempts",
+            "exam_enrollments", "ai_question_drafts", "exam_assignments", "exam_versions",
+            "exams", "questions", "question_banks", "question_revisions", "organization_members",
+            "subscriptions", "organizations", "quiz_rooms", "quiz_participants"
+        ]:
+            c = get_collection(coll_name)
+            if c is not None:
+                c.delete_many({})
+        c_users = get_collection("users")
+        if c_users is not None:
+            c_users.delete_many({"_id": {"$ne": admin.id}, "email": {"$ne": admin.email}})
+    except Exception as exc:
+        print(f"MongoDB mock purge sync note: {exc}")
+
+    from app.core.database import checkpoint_and_sync_db
+    checkpoint_and_sync_db(db)
+
     return {
         "status": "success",
-        "message": "All mock data, demo organizations, mock attempts, and fake accounts have been purged. Platform is in a clean production-ready state.",
+        "message": "All mock data, demo organizations, mock attempts, and fake accounts have been purged from SQLite and MongoDB.",
         "active_superadmin": admin.email
     }
 
@@ -848,6 +1015,52 @@ class CreatePlanRequest(BaseModel):
     description: Optional[str] = None
     entitlements: Optional[Dict[str, Any]] = None
 
+class UpdatePlanRequest(BaseModel):
+    name: Optional[str] = None
+    price_inr: Optional[int] = None
+    billing_period: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    entitlements: Optional[Dict[str, Any]] = None
+
+def sync_plan_to_organizations(db: Session, plan_id: str):
+    """Propagates updated plan entitlements & services to all organizations subscribed to this plan."""
+    plan = db.query(Plan).filter(Plan.id == plan_id).first()
+    if not plan:
+        return 0
+
+    ents = {e.key: e.value for e in plan.entitlements}
+    proctoring_on = (ents.get("proctoring_enabled", "false").lower() == "true")
+    pdf_on = (ents.get("pdf_import", "false").lower() == "true")
+    ai_credits = int(ents.get("ai_questions", 20))
+    max_cand = int(ents.get("max_candidates", 25))
+
+    orgs = db.query(Organization).filter(Organization.plan_id == plan_id).all()
+    for org in orgs:
+        # 1. Quotas
+        if org.ai_generation_credits < ai_credits:
+            org.ai_generation_credits = ai_credits
+        if proctoring_on:
+            if org.proctoring_attempts_quota <= 0:
+                org.proctoring_attempts_quota = 100 if plan_id != "free" else 25
+        else:
+            org.proctoring_attempts_quota = 0
+
+        # 2. Services
+        srv = org.get_services()
+        srv["live_proctoring"] = proctoring_on
+        srv["proctor_console"] = proctoring_on
+        srv["pdf_import"] = pdf_on
+        org.set_services(srv)
+
+        # 3. Properties
+        props = org.get_properties()
+        props["max_concurrent_sessions"] = max_cand
+        org.set_properties(props)
+
+    db.flush()
+    return len(orgs)
+
 DEFAULT_PAYMENT_SETTINGS = {
     "gateway": "upi",
     "live_mode": True,
@@ -935,6 +1148,136 @@ def create_plan_superadmin(
     db.add(audit)
     db.commit()
     return {"message": f"Plan '{req.name}' created successfully!", "plan_id": plan.id}
+
+@router.put("/plans/{plan_id}")
+def update_plan_superadmin(
+    plan_id: str,
+    req: UpdatePlanRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    check_superadmin(current_user)
+    plan = db.query(Plan).filter(Plan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    if req.name is not None:
+        plan.name = req.name
+    if req.price_inr is not None:
+        plan.price_inr = req.price_inr
+    if req.billing_period is not None:
+        plan.billing_period = req.billing_period
+    if req.description is not None:
+        plan.description = req.description
+    if req.is_active is not None:
+        plan.is_active = req.is_active
+
+    if req.entitlements is not None:
+        for k, v in req.entitlements.items():
+            existing_ent = db.query(PlanEntitlement).filter(
+                PlanEntitlement.plan_id == plan.id,
+                PlanEntitlement.key == k
+            ).first()
+            if existing_ent:
+                existing_ent.value = str(v)
+            else:
+                db.add(PlanEntitlement(plan_id=plan.id, key=k, value=str(v)))
+
+    # Sync to all organizations currently subscribed to this plan!
+    synced_count = sync_plan_to_organizations(db, plan.id)
+
+    audit = AuditEvent(
+        organization_id=None,
+        actor_id=current_user.id,
+        action="SUPERADMIN_PLAN_UPDATED",
+        metadata_json=json.dumps({
+            "plan_id": plan.id,
+            "name": plan.name,
+            "price_inr": plan.price_inr,
+            "entitlements": req.entitlements,
+            "organizations_synced": synced_count
+        })
+    )
+    db.add(audit)
+    db.commit()
+
+    return {
+        "message": f"Plan '{plan.name}' updated successfully and synchronized to {synced_count} organization(s)!",
+        "plan_id": plan.id,
+        "synced_organizations": synced_count
+    }
+
+@router.post("/plans/{plan_id}/toggle-proctoring")
+def toggle_plan_proctoring_superadmin(
+    plan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    check_superadmin(current_user)
+    plan = db.query(Plan).filter(Plan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    ent = db.query(PlanEntitlement).filter(
+        PlanEntitlement.plan_id == plan.id,
+        PlanEntitlement.key == "proctoring_enabled"
+    ).first()
+    
+    current_val = (ent.value.lower() == "true") if ent else False
+    new_val = not current_val
+    new_str = "true" if new_val else "false"
+
+    if ent:
+        ent.value = new_str
+    else:
+        db.add(PlanEntitlement(plan_id=plan.id, key="proctoring_enabled", value=new_str))
+
+    synced_count = sync_plan_to_organizations(db, plan.id)
+    status_label = "Activated" if new_val else "Deactivated"
+
+    audit = AuditEvent(
+        organization_id=None,
+        actor_id=current_user.id,
+        action="SUPERADMIN_PLAN_PROCTORING_TOGGLED",
+        metadata_json=json.dumps({"plan_id": plan.id, "proctoring_enabled": new_str, "synced_organizations": synced_count})
+    )
+    db.add(audit)
+    db.commit()
+
+    return {
+        "message": f"Proctoring module {status_label} for {plan.name} and synced to {synced_count} organization(s)!",
+        "plan_id": plan.id,
+        "proctoring_enabled": new_val,
+        "synced_organizations": synced_count
+    }
+
+@router.post("/organizations/{org_id}/sync-plan-allotment")
+def sync_organization_plan_allotment(
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    check_superadmin(current_user)
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    plan_id = org.plan_id or "free"
+    plan = db.query(Plan).filter(Plan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail=f"Assigned plan '{plan_id}' not found")
+
+    sync_plan_to_organizations(db, plan.id)
+    db.commit()
+
+    return {
+        "message": f"Organization '{org.name}' allotment synchronized strictly to plan '{plan.name}'!",
+        "organization_id": org.id,
+        "plan_id": plan.id,
+        "ai_generation_credits": org.ai_generation_credits,
+        "proctoring_attempts_quota": org.proctoring_attempts_quota,
+        "services": org.get_services()
+    }
 
 @router.delete("/plans/{plan_id}")
 def delete_plan_superadmin(
@@ -1441,7 +1784,21 @@ def clear_audit_logs(
     check_superadmin(current_user)
     count = db.query(AuditEvent).delete(synchronize_session=False)
     db.commit()
-    return {"message": f"Cleared {count} audit records successfully"}
+
+    # Clear dual-engine MongoDB audit_logs collection
+    try:
+        from app.core.mongodb import get_collection
+        coll = get_collection("audit_logs")
+        if coll is not None:
+            coll.delete_many({})
+    except Exception as exc:
+        print(f"MongoDB audit clear note: {exc}")
+
+    # Checkpoint and sync physical SQLite database files to disk
+    from app.core.database import checkpoint_and_sync_db
+    checkpoint_and_sync_db(db)
+
+    return {"message": f"Cleared {count} audit records from SQLite and MongoDB database successfully!"}
 
 class CreateAdminUserRequest(BaseModel):
     email: str

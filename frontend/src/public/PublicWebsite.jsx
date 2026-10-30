@@ -29,6 +29,58 @@ export default function PublicWebsite({
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
 
+  // Security CAPTCHA State (Login & Registration)
+  const [loginCaptcha, setLoginCaptcha] = useState({ id: "", svg: "" });
+  const [loginCaptchaInput, setLoginCaptchaInput] = useState("");
+  const [regCaptcha, setRegCaptcha] = useState({ id: "", svg: "" });
+  const [regCaptchaInput, setRegCaptchaInput] = useState("");
+
+  // Email Verification OTP State
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpNotice, setOtpNotice] = useState("");
+  const [otpCountdown, setOtpCountdown] = useState(0);
+
+  async function loadLoginCaptcha() {
+    try {
+      const c = await api.getCaptcha();
+      setLoginCaptcha({ id: c.captcha_id, svg: c.captcha_svg });
+      setLoginCaptchaInput("");
+    } catch (err) {
+      console.warn("Failed to load login captcha:", err);
+    }
+  }
+
+  async function loadRegCaptcha() {
+    try {
+      const c = await api.getCaptcha();
+      setRegCaptcha({ id: c.captcha_id, svg: c.captcha_svg });
+      setRegCaptchaInput("");
+    } catch (err) {
+      console.warn("Failed to load registration captcha:", err);
+    }
+  }
+
+  useEffect(() => {
+    loadLoginCaptcha();
+    loadRegCaptcha();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "login") {
+      loadLoginCaptcha();
+    } else if (activeTab === "signup") {
+      loadRegCaptcha();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (otpCountdown > 0) {
+      const timer = setTimeout(() => setOtpCountdown(otpCountdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [otpCountdown]);
+
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
@@ -38,6 +90,8 @@ export default function PublicWebsite({
   function changeRouteTab(tabName) {
     setActiveTab(tabName);
     setMobileMenuOpen(false);
+    setOtpSent(false);
+    setAuthError("");
     if (tabName === "home") navigate("/");
     else if (tabName === "features") navigate("/features");
     else if (tabName === "pricing") navigate("/pricing");
@@ -53,6 +107,7 @@ export default function PublicWebsite({
     setRegMode("create_org");
     setSelectedPlan(planCode);
     setAuthError("");
+    setOtpSent(false);
     setActiveTab("signup");
     setMobileMenuOpen(false);
     navigate("/register");
@@ -60,10 +115,19 @@ export default function PublicWebsite({
 
   async function handleLoginSubmit(e) {
     e.preventDefault();
+    if (!loginCaptchaInput.trim()) {
+      setAuthError("Please enter the security CAPTCHA code shown in the image.");
+      return;
+    }
     setAuthLoading(true);
     setAuthError("");
     try {
-      const res = await api.login(authEmail.trim(), authPassword);
+      const res = await api.login(
+        authEmail.trim(),
+        authPassword,
+        loginCaptcha.id,
+        loginCaptchaInput.trim()
+      );
 
       // Validate role expectation if logging in specifically through the SuperAdmin tab
       if (loginRoleTab === "superadmin" && !res.is_superadmin) {
@@ -82,13 +146,68 @@ export default function PublicWebsite({
       }
     } catch (err) {
       setAuthError(err.message || "Failed to log in. Please check your credentials.");
+      loadLoginCaptcha();
     } finally {
       setAuthLoading(false);
     }
   }
 
-  async function handleRegisterSubmit(e) {
+  async function handleRequestOtp(e) {
     e.preventDefault();
+    if (!regCaptchaInput.trim()) {
+      setAuthError("Please enter the security CAPTCHA code shown in the image.");
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const res = await api.sendVerificationOtp({
+        email: authEmail.trim(),
+        full_name: authFullName.trim(),
+        registration_type: regMode,
+        invite_code: regMode === "join_org" ? authInviteCode.trim().toUpperCase() : null,
+        captcha_id: regCaptcha.id,
+        captcha_solution: regCaptchaInput.trim()
+      });
+
+      setOtpSent(true);
+      setOtpNotice(res.message || `Verification code sent to ${authEmail.trim()}. Please check your email.`);
+      setOtpCountdown(60);
+    } catch (err) {
+      setAuthError(err.message || "Failed to send verification code. Please check your details.");
+      loadRegCaptcha();
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleResendOtp() {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const res = await api.sendVerificationOtp({
+        email: authEmail.trim(),
+        full_name: authFullName.trim(),
+        registration_type: regMode,
+        invite_code: regMode === "join_org" ? authInviteCode.trim().toUpperCase() : null,
+        is_resend: true
+      });
+      setOtpNotice(`New verification code sent to ${authEmail.trim()}.`);
+      setOtpCountdown(60);
+    } catch (err) {
+      setAuthError(err.message || "Failed to resend code.");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleVerifyAndRegister(e) {
+    e.preventDefault();
+    if (!otpCode.trim() || otpCode.trim().length < 6) {
+      setAuthError("Please enter the complete 6-digit verification code sent to your email.");
+      return;
+    }
+
     setAuthLoading(true);
     setAuthError("");
     try {
@@ -97,14 +216,16 @@ export default function PublicWebsite({
         password: authPassword,
         full_name: authFullName.trim(),
         registration_type: "join_org",
-        invite_code: authInviteCode.trim().toUpperCase()
+        invite_code: authInviteCode.trim().toUpperCase(),
+        otp_code: otpCode.trim()
       } : {
         email: authEmail.trim(),
         password: authPassword,
         full_name: authFullName.trim(),
         organization_name: authOrgName.trim() || `${authFullName.trim()}'s Academy`,
         plan_id: selectedPlan,
-        registration_type: "create_org"
+        registration_type: "create_org",
+        otp_code: otpCode.trim()
       };
 
       const res = await api.register(payload);
@@ -115,11 +236,14 @@ export default function PublicWebsite({
       }
       navigate("/dashboard");
     } catch (err) {
-      setAuthError(err.message || "Registration failed. Please check your details.");
+      setAuthError(err.message || "Verification failed. Please check the code and try again.");
     } finally {
       setAuthLoading(false);
     }
   }
+
+  // Alias for backward compatibility if invoked anywhere
+  const handleRegisterSubmit = handleRequestOtp;
 
   return (
     <div style={{ minHeight: "100vh", background: "#ffffff", color: "var(--text-primary)" }}>
@@ -856,6 +980,46 @@ export default function PublicWebsite({
                 />
               </div>
 
+              {/* Login Security CAPTCHA */}
+              <div style={{
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: "8px",
+                padding: "10px 12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label style={{ fontSize: "11px", fontWeight: "700", color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Security Verification (CAPTCHA)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={loadLoginCaptcha}
+                    style={{ background: "none", border: "none", color: "#2563eb", fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: 0 }}
+                  >
+                    🔄 Refresh
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                  <div
+                    dangerouslySetInnerHTML={{ __html: loginCaptcha.svg || "" }}
+                    style={{ height: "46px", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1", flexShrink: 0 }}
+                  />
+                  <input
+                    type="text"
+                    className="lunaris-input"
+                    value={loginCaptchaInput}
+                    onChange={(e) => setLoginCaptchaInput(e.target.value.toUpperCase())}
+                    placeholder="Enter code"
+                    maxLength={6}
+                    style={{ height: "46px", fontFamily: "monospace", fontSize: "16px", fontWeight: "800", letterSpacing: "2px", textTransform: "uppercase" }}
+                    required
+                  />
+                </div>
+              </div>
+
               <button
                 type="submit"
                 className="btn-primary"
@@ -906,7 +1070,11 @@ export default function PublicWebsite({
                 type="button"
                 onClick={() => {
                   setRegMode("create_org");
+                  setOtpSent(false);
+                  setOtpCode("");
+                  setRegCaptchaInput("");
                   setAuthError("");
+                  loadRegCaptcha();
                 }}
                 style={{
                   flex: 1,
@@ -927,7 +1095,11 @@ export default function PublicWebsite({
                 type="button"
                 onClick={() => {
                   setRegMode("join_org");
+                  setOtpSent(false);
+                  setOtpCode("");
+                  setRegCaptchaInput("");
                   setAuthError("");
+                  loadRegCaptcha();
                 }}
                 style={{
                   flex: 1,
@@ -959,8 +1131,104 @@ export default function PublicWebsite({
               </div>
             )}
 
-            {/* MODE 1: JOIN EXISTING ORGANIZATION */}
-            {regMode === "join_org" ? (
+            {/* OTP VERIFICATION STEP OR REGISTRATION MODES */}
+            {otpSent ? (
+              <div>
+                <div style={{ textAlign: "center", marginBottom: "20px" }}>
+                  <div style={{ fontSize: "40px", marginBottom: "8px" }}>📩</div>
+                  <h2 style={{ fontSize: "22px", fontWeight: "800", marginBottom: "6px" }}>
+                    Verify Your Email Address
+                  </h2>
+                  <p style={{ fontSize: "13px", color: "var(--text-muted)", lineHeight: "1.5" }}>
+                    We have sent a 6-digit verification code to <strong>{authEmail}</strong>.
+                    <br />Please enter the code below to complete your registration.
+                  </p>
+                </div>
+
+                {otpNotice && (
+                  <div style={{
+                    background: "var(--accent-blue-subtle)",
+                    color: "var(--accent-blue)",
+                    padding: "10px 14px",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                    marginBottom: "16px",
+                    textAlign: "center"
+                  }}>
+                    {otpNotice}
+                  </div>
+                )}
+
+                <form onSubmit={handleVerifyAndRegister} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "6px", textAlign: "center" }}>
+                      6-DIGIT VERIFICATION CODE
+                    </label>
+                    <input
+                      type="text"
+                      className="lunaris-input"
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="• • • • • •"
+                      maxLength={6}
+                      autoFocus
+                      required
+                      style={{
+                        textAlign: "center",
+                        fontSize: "24px",
+                        letterSpacing: "8px",
+                        fontWeight: "800",
+                        fontFamily: "monospace",
+                        height: "52px"
+                      }}
+                    />
+                    <span style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "6px", display: "block", textAlign: "center" }}>
+                      Valid for 10 minutes. Check your inbox and spam folder.
+                    </span>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                    disabled={authLoading || otpCode.length !== 6}
+                    style={{ height: "46px", fontSize: "14px" }}
+                  >
+                    {authLoading ? "Verifying & Provisioning..." : "Confirm & Activate Workspace →"}
+                  </button>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px", fontSize: "13px" }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOtpSent(false);
+                        setOtpCode("");
+                        setAuthError("");
+                        loadRegCaptcha();
+                      }}
+                      style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", padding: 0 }}
+                    >
+                      ← Back to edit details
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleResendOtp}
+                      disabled={otpCountdown > 0 || authLoading}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: otpCountdown > 0 ? "var(--text-muted)" : "var(--accent-blue)",
+                        fontWeight: "600",
+                        cursor: otpCountdown > 0 ? "default" : "pointer",
+                        padding: 0
+                      }}
+                    >
+                      {otpCountdown > 0 ? `Resend code in ${otpCountdown}s` : "Resend Code"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : regMode === "join_org" ? (
               <div>
                 <h2 style={{ fontSize: "22px", fontWeight: "800", marginBottom: "4px" }}>
                   Join Organization with Invite Code
@@ -982,7 +1250,7 @@ export default function PublicWebsite({
                   🔒 <strong>Owner Authorization Required:</strong> For platform security, only email addresses pre-authorized or invited by the institution owner can join with an invite code.
                 </div>
 
-                <form onSubmit={handleRegisterSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                <form onSubmit={handleRequestOtp} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                   <div>
                     <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
                       Organization Invite Code
@@ -1046,13 +1314,53 @@ export default function PublicWebsite({
                     />
                   </div>
 
+                  {/* Security CAPTCHA Box */}
+                  <div style={{
+                    padding: "12px",
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "8px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <label style={{ fontSize: "11px", fontWeight: "700", color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                        Security Verification (CAPTCHA)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={loadRegCaptcha}
+                        style={{ background: "none", border: "none", color: "#2563eb", fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: 0 }}
+                      >
+                        🔄 Refresh
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                      <div
+                        dangerouslySetInnerHTML={{ __html: regCaptcha.svg || "" }}
+                        style={{ height: "46px", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1", flexShrink: 0 }}
+                      />
+                      <input
+                        type="text"
+                        className="lunaris-input"
+                        value={regCaptchaInput}
+                        onChange={(e) => setRegCaptchaInput(e.target.value.toUpperCase())}
+                        placeholder="Enter code"
+                        maxLength={6}
+                        style={{ height: "46px", fontFamily: "monospace", fontSize: "16px", fontWeight: "800", letterSpacing: "2px", textTransform: "uppercase" }}
+                        required
+                      />
+                    </div>
+                  </div>
+
                   <button
                     type="submit"
                     className="btn-primary"
                     disabled={authLoading}
                     style={{ marginTop: "10px", height: "44px", fontSize: "14px" }}
                   >
-                    {authLoading ? "Verifying with Owner & Joining..." : "Verify Invitation & Join Workspace →"}
+                    {authLoading ? "Verifying with Owner & Sending Code..." : "Verify Email & Join Workspace →"}
                   </button>
                 </form>
               </div>
@@ -1129,7 +1437,7 @@ export default function PublicWebsite({
                   </div>
                 )}
 
-                <form onSubmit={handleRegisterSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                <form onSubmit={handleRequestOtp} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                   <label style={{ display: "block", fontSize: "12px", fontWeight: "700" }}>
                     2. Account & Workspace Credentials:
                   </label>
@@ -1190,6 +1498,46 @@ export default function PublicWebsite({
                     />
                   </div>
 
+                  {/* Security CAPTCHA Box */}
+                  <div style={{
+                    padding: "12px",
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "8px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <label style={{ fontSize: "11px", fontWeight: "700", color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                        Security Verification (CAPTCHA)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={loadRegCaptcha}
+                        style={{ background: "none", border: "none", color: "#2563eb", fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: 0 }}
+                      >
+                        🔄 Refresh
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                      <div
+                        dangerouslySetInnerHTML={{ __html: regCaptcha.svg || "" }}
+                        style={{ height: "46px", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1", flexShrink: 0 }}
+                      />
+                      <input
+                        type="text"
+                        className="lunaris-input"
+                        value={regCaptchaInput}
+                        onChange={(e) => setRegCaptchaInput(e.target.value.toUpperCase())}
+                        placeholder="Enter code"
+                        maxLength={6}
+                        style={{ height: "46px", fontFamily: "monospace", fontSize: "16px", fontWeight: "800", letterSpacing: "2px", textTransform: "uppercase" }}
+                        required
+                      />
+                    </div>
+                  </div>
+
                   <button
                     type="submit"
                     className="btn-primary"
@@ -1197,10 +1545,10 @@ export default function PublicWebsite({
                     style={{ marginTop: "10px", height: "44px", fontSize: "14px" }}
                   >
                     {authLoading
-                      ? "Provisioning Workspace..."
+                      ? "Sending Verification Code..."
                       : selectedPlan === "free"
-                      ? "Create Free Workspace →"
-                      : `Register & Select ${selectedPlan === "creator_pro" ? "Creator Pro" : "Institution"} Tier →`}
+                      ? "Verify Email & Create Workspace →"
+                      : `Verify Email & Continue to ${selectedPlan === "creator_pro" ? "Creator Pro" : "Institution"} →`}
                   </button>
                 </form>
               </div>

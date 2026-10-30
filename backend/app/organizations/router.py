@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from app.core.database import get_db
 from app.auth.router import get_current_user
-from app.models import User, Organization, OrganizationMember, OrganizationInvite
+from app.models import User, Organization, OrganizationMember, OrganizationInvite, OrganizationSubject
 from app.core.email import send_organization_invite_email
 
 router = APIRouter(prefix="/organizations", tags=["Organizations"])
@@ -340,4 +340,254 @@ def remove_member(
     db.delete(target_membership)
     db.commit()
     return {"message": "Member removed successfully", "id": member_id}
+
+
+# =====================================================================
+# UNIVERSAL DOMAIN ENGINE: CUSTOM SUBJECTS & CURRICULUM MANAGEMENT
+# =====================================================================
+
+DEFAULT_SUBJECT_PRESETS = {
+    "stem": [
+        {"name": "Physics", "code": "PHY", "category": "STEM", "color_hex": "#2563eb", "description": "Mechanics, Electrodynamics, Optics & Modern Physics"},
+        {"name": "Chemistry", "code": "CHEM", "category": "STEM", "color_hex": "#059669", "description": "Organic, Inorganic & Physical Chemistry"},
+        {"name": "Mathematics", "code": "MATH", "category": "STEM", "color_hex": "#7c3aed", "description": "Calculus, Algebra, Coordinate Geometry & Vectors"},
+        {"name": "Biology", "code": "BIO", "category": "STEM", "color_hex": "#dc2626", "description": "Botany, Zoology, Genetics & Cell Biology"}
+    ],
+    "tech": [
+        {"name": "Data Structures & Algorithms", "code": "CS-DSA", "category": "Computer Science", "color_hex": "#2563eb", "description": "Arrays, Trees, Graphs, Dynamic Programming & Complexity"},
+        {"name": "Web & Full-Stack Development", "code": "CS-WEB", "category": "Computer Science", "color_hex": "#0284c7", "description": "React, Node.js, REST APIs, Microservices & Frontend Architecture"},
+        {"name": "Databases & System Design", "code": "CS-SYS", "category": "Computer Science", "color_hex": "#7c3aed", "description": "SQL, NoSQL, Scalability, Caching & Distributed Systems"},
+        {"name": "Python & Backend Engineering", "code": "CS-PY", "category": "Computer Science", "color_hex": "#059669", "description": "Object-Oriented Programming, AsyncIO & Backend Services"}
+    ],
+    "medical": [
+        {"name": "Human Anatomy & Histology", "code": "MED-ANAT", "category": "Medical & Health", "color_hex": "#dc2626", "description": "Gross Anatomy, Embryology, Neuroanatomy & Histological structures"},
+        {"name": "Human Physiology", "code": "MED-PHYS", "category": "Medical & Health", "color_hex": "#ea580c", "description": "Cardiovascular, Respiratory, Renal & Endocrine systems"},
+        {"name": "Pharmacology", "code": "MED-PHARM", "category": "Medical & Health", "color_hex": "#0284c7", "description": "Mechanism of Action, Drug Interactions & Clinical Therapeutics"},
+        {"name": "Pathology & Microbiology", "code": "MED-PATH", "category": "Medical & Health", "color_hex": "#9333ea", "description": "General Pathology, Immunology, Bacteriology & Virology"}
+    ],
+    "law": [
+        {"name": "Constitutional Law", "code": "LAW-CONST", "category": "Law & Legal Studies", "color_hex": "#b45309", "description": "Fundamental Rights, Directive Principles & Judicial Review"},
+        {"name": "Law of Contracts & Torts", "code": "LAW-CONT", "category": "Law & Legal Studies", "color_hex": "#2563eb", "description": "Offer, Acceptance, Negligence, Damages & Specific Relief"},
+        {"name": "Criminal Law & Procedure", "code": "LAW-CRIM", "category": "Law & Legal Studies", "color_hex": "#dc2626", "description": "Penal Code, General Exceptions, Offenses & Trial Procedure"},
+        {"name": "Legal & Logical Reasoning", "code": "LAW-REAS", "category": "Law & Legal Studies", "color_hex": "#4f46e5", "description": "Analytical Reasoning, Precedents & Legal Aptitude"}
+    ],
+    "commerce": [
+        {"name": "Financial Accounting", "code": "COM-ACC", "category": "Commerce & Finance", "color_hex": "#059669", "description": "Double Entry, Balance Sheets, Depreciation & Company Accounts"},
+        {"name": "Business Studies & Management", "code": "COM-MGMT", "category": "Commerce & Finance", "color_hex": "#2563eb", "description": "Principles of Management, Marketing, HR & Organizational Behavior"},
+        {"name": "Economics & Quantitative Aptitude", "code": "COM-ECON", "category": "Commerce & Finance", "color_hex": "#7c3aed", "description": "Microeconomics, Macroeconomics, Market Structures & Fiscal Policy"}
+    ]
+}
+
+
+class SubjectCreateRequest(BaseModel):
+    name: str
+    code: Optional[str] = None
+    category: Optional[str] = "General"
+    color_hex: Optional[str] = "#2563eb"
+    description: Optional[str] = None
+
+
+class SubjectUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    category: Optional[str] = None
+    color_hex: Optional[str] = None
+    description: Optional[str] = None
+
+
+@router.get("/{org_id}/subjects")
+def list_org_subjects(
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns all custom curriculum subjects configured for this organization.
+    If none exist yet, automatically provisions starter subjects.
+    """
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    subjects = db.query(OrganizationSubject).filter(
+        OrganizationSubject.organization_id == org.id
+    ).order_by(OrganizationSubject.name.asc()).all()
+
+    # If first time accessing, auto-seed starter subjects so workspace is immediately usable
+    if not subjects:
+        starter_pack = DEFAULT_SUBJECT_PRESETS["stem"]
+        for p in starter_pack:
+            s_obj = OrganizationSubject(
+                organization_id=org.id,
+                name=p["name"],
+                code=p["code"],
+                category=p["category"],
+                color_hex=p["color_hex"],
+                description=p["description"]
+            )
+            db.add(s_obj)
+        db.commit()
+        subjects = db.query(OrganizationSubject).filter(
+            OrganizationSubject.organization_id == org.id
+        ).order_by(OrganizationSubject.name.asc()).all()
+
+    return [
+        {
+            "id": s.id,
+            "organization_id": s.organization_id,
+            "name": s.name,
+            "code": s.code,
+            "category": s.category,
+            "color_hex": s.color_hex,
+            "description": s.description,
+            "created_at": s.created_at.isoformat() if s.created_at else None
+        }
+        for s in subjects
+    ]
+
+
+@router.post("/{org_id}/subjects")
+def create_org_subject(
+    org_id: str,
+    req: SubjectCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Creates a new custom subject for this organization."""
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    clean_name = req.name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Subject name is required.")
+
+    # Check duplicate
+    existing = db.query(OrganizationSubject).filter(
+        OrganizationSubject.organization_id == org.id,
+        OrganizationSubject.name.ilike(clean_name)
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Subject '{clean_name}' already exists in this organization.")
+
+    sub = OrganizationSubject(
+        organization_id=org.id,
+        name=clean_name,
+        code=req.code.strip().upper() if req.code else None,
+        category=req.category.strip() if req.category else "General",
+        color_hex=req.color_hex or "#2563eb",
+        description=req.description.strip() if req.description else None
+    )
+    db.add(sub)
+    db.commit()
+
+    return {
+        "message": f"Subject '{clean_name}' created successfully.",
+        "subject": {
+            "id": sub.id,
+            "name": sub.name,
+            "code": sub.code,
+            "category": sub.category,
+            "color_hex": sub.color_hex
+        }
+    }
+
+
+@router.put("/{org_id}/subjects/{subject_id}")
+def update_org_subject(
+    org_id: str,
+    subject_id: str,
+    req: SubjectUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Updates an existing subject's name, code, category, or color."""
+    sub = db.query(OrganizationSubject).filter(
+        OrganizationSubject.id == subject_id,
+        OrganizationSubject.organization_id == org_id
+    ).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    if req.name is not None and req.name.strip():
+        sub.name = req.name.strip()
+    if req.code is not None:
+        sub.code = req.code.strip().upper() if req.code.strip() else None
+    if req.category is not None:
+        sub.category = req.category.strip()
+    if req.color_hex is not None:
+        sub.color_hex = req.color_hex
+    if req.description is not None:
+        sub.description = req.description.strip()
+
+    db.commit()
+    return {"message": "Subject updated successfully", "subject_id": sub.id}
+
+
+@router.delete("/{org_id}/subjects/{subject_id}")
+def delete_org_subject(
+    org_id: str,
+    subject_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Deletes a custom subject from an organization."""
+    sub = db.query(OrganizationSubject).filter(
+        OrganizationSubject.id == subject_id,
+        OrganizationSubject.organization_id == org_id
+    ).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    name = sub.name
+    db.delete(sub)
+    db.commit()
+    return {"message": f"Subject '{name}' deleted successfully."}
+
+
+@router.post("/{org_id}/subjects/seed-pack")
+def seed_subject_preset_pack(
+    org_id: str,
+    pack_name: str,  # "tech", "medical", "law", "commerce", "stem"
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Imports a curated subject curriculum pack (e.g. Computer Science, Medical, Law, Commerce, STEM).
+    """
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    pack_key = pack_name.lower().strip()
+    if pack_key not in DEFAULT_SUBJECT_PRESETS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid preset pack '{pack_name}'. Available: {list(DEFAULT_SUBJECT_PRESETS.keys())}"
+        )
+
+    pack = DEFAULT_SUBJECT_PRESETS[pack_key]
+    added = 0
+    for p in pack:
+        exists = db.query(OrganizationSubject).filter(
+            OrganizationSubject.organization_id == org.id,
+            OrganizationSubject.name.ilike(p["name"])
+        ).first()
+        if not exists:
+            s_obj = OrganizationSubject(
+                organization_id=org.id,
+                name=p["name"],
+                code=p["code"],
+                category=p["category"],
+                color_hex=p["color_hex"],
+                description=p["description"]
+            )
+            db.add(s_obj)
+            added += 1
+
+    db.commit()
+    return {
+        "message": f"Imported {added} subjects from the '{pack_key.title()}' curriculum pack.",
+        "added_count": added
+    }
 

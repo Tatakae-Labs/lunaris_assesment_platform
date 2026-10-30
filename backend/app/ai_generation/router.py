@@ -16,22 +16,59 @@ router = APIRouter(prefix="/ai", tags=["AI Question Generation"])
 class GenerateQuestionsRequest(BaseModel):
     organization_id: str
     topic: str
-    subject: str = "Physics"  # Physics, Chemistry, Mathematics
-    difficulty: str = "medium"  # easy, medium, hard
+    subject: str = "General"  # Any custom subject name (e.g. Computer Science, Constitutional Law, Anatomy, Physics)
+    difficulty: str = "medium"  # easy, medium, hard, olympiad
+    question_format: str = "mixed"  # mixed, single_mcq, multi_mcq, numerical, coding, one_word, crossword, true_false, match_following
+    bloom_level: Optional[str] = "analytical"  # recall, comprehension, application, analytical, problem_solving
+    reference_notes: Optional[str] = None  # Optional instructor notes or syllabus excerpt
     count: int = 4
     include_numerical: bool = True
     groq_api_key: Optional[str] = None
 
-def generate_via_groq(topic: str, subject: str, difficulty: str, count: int, api_key: str) -> Optional[List[Dict[str, Any]]]:
-    prompt = f"""You are an expert exam author for advanced academic and competitive examinations (such as IIT JEE Main & Advanced).
-Generate {count} high-quality questions for subject: {subject}, topic: "{topic}", difficulty: {difficulty}.
-Include a mix of Single-Choice MCQs and Numerical Value Questions (NVQ).
-Output ONLY a JSON object matching this schema:
+def generate_via_groq(
+    topic: str,
+    subject: str,
+    difficulty: str,
+    count: int,
+    api_key: str,
+    question_format: str = "mixed",
+    bloom_level: str = "analytical",
+    reference_notes: Optional[str] = None
+) -> Optional[List[Dict[str, Any]]]:
+    notes_clause = ""
+    if reference_notes and reference_notes.strip():
+        notes_clause = f"\nGROUNDING REFERENCE NOTES:\n'''\n{reference_notes.strip()[:2000]}\n'''\nSynthesize questions strictly aligned with these provided notes.\n"
+
+    format_instruction = "Include a balanced mix of Single-Choice MCQs and other formats appropriate for the subject."
+    if question_format == "single_mcq":
+        format_instruction = "Generate ONLY Single-Choice Multiple Choice Questions (type: 'single_mcq')."
+    elif question_format == "multi_mcq":
+        format_instruction = "Generate ONLY Multiple-Correct Multiple Choice Questions (type: 'multi_mcq') with 'correct_option_ids' array."
+    elif question_format == "numerical":
+        format_instruction = "Generate ONLY Numerical Value Questions (type: 'numerical') with numerical_answer and tolerance."
+    elif question_format == "coding":
+        format_instruction = "Generate ONLY Coding & Algorithm problems (type: 'coding') with starter_code (python, js, cpp), and at least 2 test_cases (with input, expected_output, is_hidden)."
+    elif question_format == "one_word":
+        format_instruction = "Generate ONLY One-Word Answer / Definition questions (type: 'one_word') with target_word, acceptable_words list, and a hint."
+    elif question_format == "true_false":
+        format_instruction = "Generate ONLY True/False statement verification questions (type: 'true_false') with correct_answer ('true' or 'false')."
+    elif question_format == "match_following":
+        format_instruction = "Generate ONLY Match the Following questions (type: 'match_following') with 3-4 pairs ({left, right})."
+    elif question_format == "crossword":
+        format_instruction = "Generate ONLY Crossword Puzzle clues (type: 'crossword') with clues list ({direction, clue, answer, row, col})."
+
+    prompt = f"""You are an expert curriculum author for university examinations, competitive certifications, and professional assessments across all disciplines.
+Generate {count} high-quality, scientifically sound assessment questions for Subject: "{subject}", Topic: "{topic}".
+Difficulty Level: {difficulty.upper()} (Cognitive level: {bloom_level}).
+{format_instruction}
+{notes_clause}
+
+Output ONLY a JSON object strictly matching this schema:
 {{
   "questions": [
     {{
       "type": "single_mcq",
-      "text": "Question text with LaTeX formulas like $E = mc^2$ where needed",
+      "text": "Question statement (use LaTeX formulas like $E=mc^2$ where appropriate)",
       "options": [
         {{"id": "opt_1", "text": "Option A"}},
         {{"id": "opt_2", "text": "Option B"}},
@@ -39,14 +76,35 @@ Output ONLY a JSON object matching this schema:
         {{"id": "opt_4", "text": "Option D"}}
       ],
       "correct_option_id": "opt_1",
-      "explanation": "Detailed step-by-step solution"
+      "explanation": "Detailed pedagogical explanation"
     }},
     {{
-      "type": "numerical",
-      "text": "Numerical value question text...",
-      "numerical_answer": 42.0,
-      "tolerance": 0.01,
-      "explanation": "Detailed calculation steps"
+      "type": "coding",
+      "text": "Problem description with input/output constraints...",
+      "starter_code": {{
+        "python": "import sys\\ndef solve():\\n    pass\\nif __name__ == '__main__':\\n    solve()\\n",
+        "javascript": "const fs = require('fs');\\nfunction solve() {{}}\\nsolve();\\n"
+      }},
+      "test_cases": [
+        {{"id": "1", "input": "3 4\\n", "expected_output": "7", "is_hidden": false, "explanation": "3 + 4 = 7"}},
+        {{"id": "2", "input": "10 20\\n", "expected_output": "30", "is_hidden": true}}
+      ],
+      "time_limit_sec": 2.0,
+      "explanation": "Optimal algorithm walkthrough"
+    }},
+    {{
+      "type": "one_word",
+      "text": "Give one word or scientific term for the following definition...",
+      "target_word": "MITOCHONDRIA",
+      "acceptable_words": ["mitochondrion", "powerhouse"],
+      "hint": "Cellular ATP generator",
+      "explanation": "Mitochondria produce cellular adenosine triphosphate."
+    }},
+    {{
+      "type": "true_false",
+      "text": "Statement to verify as true or false...",
+      "correct_answer": "true",
+      "explanation": "Verification rationale."
     }}
   ]
 }}"""
@@ -58,15 +116,15 @@ Output ONLY a JSON object matching this schema:
     payload = {
         "model": "llama-3.3-70b-versatile",
         "messages": [
-            {"role": "system", "content": "You are a precise STEM question generation engine that outputs only valid JSON."},
+            {"role": "system", "content": "You are a precise, universal academic assessment engine that outputs only valid JSON conforming strictly to the requested schema."},
             {"role": "user", "content": prompt}
         ],
         "response_format": {"type": "json_object"},
         "temperature": 0.5,
-        "max_tokens": 3000
+        "max_tokens": 4000
     }
     try:
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=35.0) as client:
             resp = client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
             if resp.status_code == 200:
                 data = resp.json()
@@ -183,7 +241,16 @@ def generate_ai_questions(
     engine_used = "curriculum_template_fallback"
 
     if groq_key:
-        groq_questions = generate_via_groq(req.topic, req.subject, req.difficulty, req.count, groq_key)
+        groq_questions = generate_via_groq(
+            topic=req.topic,
+            subject=req.subject,
+            difficulty=req.difficulty,
+            count=req.count,
+            api_key=groq_key,
+            question_format=req.question_format,
+            bloom_level=req.bloom_level or "analytical",
+            reference_notes=req.reference_notes
+        )
         if groq_questions:
             engine_used = "groq_llama_3.3_70b"
 
@@ -196,7 +263,38 @@ def generate_ai_questions(
                 "text": item.get("text", f"Question on {req.topic}"),
                 "explanation": item.get("explanation", "")
             }
-            if q_type == "numerical":
+            if q_type == "coding":
+                content["starter_code"] = item.get("starter_code") or {
+                    "python": "import sys\ndef solve():\n    pass\nif __name__ == '__main__':\n    solve()\n",
+                    "javascript": "const fs = require('fs');\nfunction solve() {}\nsolve();\n"
+                }
+                content["test_cases"] = item.get("test_cases") or [
+                    {"id": "1", "input": "3 4\n", "expected_output": "7", "is_hidden": False}
+                ]
+                content["time_limit_sec"] = float(item.get("time_limit_sec", 2.0))
+            elif q_type == "one_word":
+                content["target_word"] = str(item.get("target_word", "")).strip().upper()
+                content["acceptable_words"] = item.get("acceptable_words", [])
+                content["hint"] = item.get("hint", "")
+            elif q_type == "true_false":
+                content["correct_answer"] = str(item.get("correct_answer", "true")).strip().lower()
+            elif q_type == "match_following":
+                content["pairs"] = item.get("pairs") or [
+                    {"id": "1", "left": "Item A", "right": "Match A"},
+                    {"id": "2", "left": "Item B", "right": "Match B"}
+                ]
+            elif q_type == "crossword":
+                content["clues"] = item.get("clues") or []
+            elif q_type == "multi_mcq":
+                options = item.get("options") or [
+                    {"id": "opt_1", "text": "Option A"},
+                    {"id": "opt_2", "text": "Option B"},
+                    {"id": "opt_3", "text": "Option C"},
+                    {"id": "opt_4", "text": "Option D"}
+                ]
+                content["options"] = options
+                content["correct_option_ids"] = item.get("correct_option_ids", ["opt_1"])
+            elif q_type == "numerical":
                 try:
                     raw_num = str(item.get("numerical_answer", "0.0")).replace(",", "").strip()
                     content["numerical_answer"] = float(raw_num)

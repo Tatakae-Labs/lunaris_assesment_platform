@@ -18,6 +18,7 @@ from app.ai_generation.router import router as ai_router
 from app.plans.router import router as plans_router, ensure_plans_seeded
 from app.candidate.router import router as candidate_router
 from app.platform.router import router as platform_router, ensure_superadmin_seeded
+from app.coding.router import router as coding_router
 
 # Initialize tables and auto-migrate schema
 Base.metadata.create_all(bind=engine)
@@ -82,6 +83,7 @@ app.include_router(ai_router, prefix="/api/v1")
 app.include_router(plans_router, prefix="/api/v1")
 app.include_router(candidate_router, prefix="/api/v1")
 app.include_router(platform_router, prefix="/api/v1")
+app.include_router(coding_router, prefix="/api/v1")
 
 @app.get("/")
 def root():

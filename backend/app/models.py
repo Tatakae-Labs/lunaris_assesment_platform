@@ -595,3 +595,39 @@ class QuizLeaderboardSnapshot(Base):
     round_number = Column(Integer, nullable=False)
     leaderboard_json = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class CaptchaChallenge(Base):
+    """Temporary storage for bot-prevention visual/alphanumeric CAPTCHAs."""
+    __tablename__ = "captcha_challenges"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    code = Column(String(20), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class EmailVerificationOtp(Base):
+    """Registration and identity email verification OTP codes."""
+    __tablename__ = "email_verification_otps"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    otp_code = Column(String(10), nullable=False)
+    purpose = Column(String(50), default="registration")
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class OrganizationSubject(Base):
+    """Custom curriculum subjects/disciplines configured by each organization."""
+    __tablename__ = "organization_subjects"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    code = Column(String(50), nullable=True)
+    category = Column(String(50), default="General")  # Engineering, Medical, Law, CS, Business, Humanities, K-12
+    color_hex = Column(String(20), default="#2563eb")
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)

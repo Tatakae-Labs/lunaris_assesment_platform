@@ -28,7 +28,13 @@ export async function request(endpoint, options = {}) {
 
 export const api = {
   // Auth
-  login: (email, password) => request("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  getCaptcha: () => request("/auth/captcha"),
+  sendVerificationOtp: (data) => request("/auth/send-verification-otp", { method: "POST", body: JSON.stringify(data) }),
+  login: (email, password, captcha_id = null, captcha_solution = null) =>
+    request("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password, captcha_id, captcha_solution })
+    }),
   register: (data) => request("/auth/register", { method: "POST", body: JSON.stringify(data) }),
   getProfile: () => request("/auth/me"),
 
@@ -44,6 +50,13 @@ export const api = {
   getOrgUsage: (org_id) => request(`/organizations/${org_id}/usage`),
   removeOrgMember: (org_id, member_id) =>
     request(`/organizations/${org_id}/members/${member_id}`, { method: "DELETE" }),
+
+  // Universal Curriculum & Custom Subjects
+  getOrgSubjects: (org_id) => request(`/organizations/${org_id}/subjects`),
+  createOrgSubject: (org_id, data) => request(`/organizations/${org_id}/subjects`, { method: "POST", body: JSON.stringify(data) }),
+  updateOrgSubject: (org_id, subject_id, data) => request(`/organizations/${org_id}/subjects/${subject_id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteOrgSubject: (org_id, subject_id) => request(`/organizations/${org_id}/subjects/${subject_id}`, { method: "DELETE" }),
+  seedOrgSubjectPack: (org_id, pack_name) => request(`/organizations/${org_id}/subjects/seed-pack?pack_name=${pack_name}`, { method: "POST" }),
 
   // Question Bank
   createQuestion: (data) => request("/questions", { method: "POST", body: JSON.stringify(data) }),
@@ -174,6 +187,9 @@ export const api = {
   getOrgEntitlements: (org_id) => request(`/plans/entitlements/${org_id}`),
   subscribePlan: (org_id, plan_code) =>
     request("/plans/subscribe", { method: "POST", body: JSON.stringify({ organization_id: org_id, plan_code }) }),
+  getSubscriptionStatus: (org_id) => request(`/plans/subscription-status/${org_id}`),
+  testRenewalReminder: (org_id) => request(`/plans/test-renewal-reminder/${org_id}`, { method: "POST" }),
+  sweepRenewals: () => request("/plans/sweep-renewals", { method: "POST" }),
 
   // Platform Admin (SuperAdmin)
   getPlatformStats: () => request("/platform/stats"),
@@ -190,6 +206,7 @@ export const api = {
   deleteOrgExamSuperadmin: (org_id, exam_id) =>
     request(`/platform/organizations/${org_id}/exams/${exam_id}`, { method: "DELETE" }),
   purgeMockData: () => request("/platform/clean-mock-data", { method: "POST" }),
+  clearPlatformDatabase: () => request("/platform/clear-database", { method: "POST" }),
   updateOrgStatus: (org_id, status) =>
     request(`/platform/organizations/${org_id}/status`, { method: "POST", body: JSON.stringify({ status }) }),
   changeOrgPlan: (org_id, plan_id) =>
@@ -197,6 +214,8 @@ export const api = {
   getPlatformPlans: () => request("/platform/plans"),
   createPlatformPlan: (data) => request("/platform/plans", { method: "POST", body: JSON.stringify(data) }),
   updatePlan: (plan_id, data) => request(`/platform/plans/${plan_id}`, { method: "PUT", body: JSON.stringify(data) }),
+  togglePlanProctoring: (plan_id) => request(`/platform/plans/${plan_id}/toggle-proctoring`, { method: "POST" }),
+  syncOrgPlanAllotment: (org_id) => request(`/platform/organizations/${org_id}/sync-plan-allotment`, { method: "POST" }),
   deletePlatformPlan: (plan_id) => request(`/platform/plans/${plan_id}`, { method: "DELETE" }),
   removePlatformOrgSubscription: (org_id) =>
     request(`/platform/organizations/${org_id}/subscription`, { method: "DELETE" }),
@@ -245,6 +264,11 @@ export const api = {
   syncMongo: () => request("/platform/mongodb/sync", { method: "POST" }),
   getMongoCollection: (collection_name, limit = 50, skip = 0) =>
     request(`/platform/mongodb/collection/${collection_name}?limit=${limit}&skip=${skip}`),
+
+  // Coding & Scripting Sandbox Engine
+  getCodingLanguages: () => request("/coding/languages"),
+  executeCode: (data) => request("/coding/execute", { method: "POST", body: JSON.stringify(data) }),
+  evaluateCode: (data) => request("/coding/evaluate", { method: "POST", body: JSON.stringify(data) }),
 
   // Seed JEE Demo
   seedDemo: () => request("/seed/jee-demo", { method: "POST" })

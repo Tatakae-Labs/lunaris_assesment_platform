@@ -80,6 +80,12 @@ export default function OrgDashboard({
   const [exams, setExams] = useState([]);
   const [questions, setQuestions] = useState([]);
   const [selectedSubject, setSelectedSubject] = useState("");
+  const [orgSubjects, setOrgSubjects] = useState([]);
+  const [showSubjectsModal, setShowSubjectsModal] = useState(false);
+  const [newSubjName, setNewSubjName] = useState("");
+  const [newSubjCategory, setNewSubjCategory] = useState("General");
+  const [newSubjCode, setNewSubjCode] = useState("");
+  const [isSeedingPack, setIsSeedingPack] = useState(false);
   const [inviteCode, setInviteCode] = useState(activeOrgId ? `ORG-${activeOrgId.toUpperCase().replace(/[^A-Z0-9]/g, "-")}` : "");
 
   // Modals
@@ -210,10 +216,57 @@ export default function OrgDashboard({
       if (inviteData?.invite_code) {
         setInviteCode(inviteData.invite_code);
       }
+
+      // 7. Load curriculum subjects
+      const subjectsData = await api.getOrgSubjects(activeOrgId).catch(() => []);
+      setOrgSubjects(subjectsData || []);
     } catch (err) {
       console.error("Dashboard data load error:", err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleCreateSubject(e) {
+    if (e) e.preventDefault();
+    if (!newSubjName.trim()) return;
+    try {
+      const created = await api.createOrgSubject(activeOrgId, {
+        name: newSubjName.trim(),
+        code: newSubjCode.trim() || undefined,
+        category: newSubjCategory.trim() || "General"
+      });
+      setOrgSubjects((prev) => [...prev, created]);
+      setNewSubjName("");
+      setNewSubjCode("");
+      alert(`Subject "${created.name}" created!`);
+    } catch (err) {
+      alert("Failed to create subject: " + err.message);
+    }
+  }
+
+  async function handleDeleteSubject(subjectId, subjectName) {
+    if (!confirm(`Delete subject "${subjectName}"? Questions linked to this subject will remain intact.`)) return;
+    try {
+      await api.deleteOrgSubject(activeOrgId, subjectId);
+      setOrgSubjects((prev) => prev.filter((s) => s.id !== subjectId));
+      if (selectedSubject === subjectName) setSelectedSubject("");
+    } catch (err) {
+      alert("Failed to delete subject: " + err.message);
+    }
+  }
+
+  async function handleSeedPack(packKey) {
+    setIsSeedingPack(true);
+    try {
+      const res = await api.seedOrgSubjectPack(activeOrgId, packKey);
+      const updated = await api.getOrgSubjects(activeOrgId);
+      setOrgSubjects(updated || []);
+      alert(`Curriculum pack imported! ${res.added_count || 0} new subjects added (${(updated || []).length} total).`);
+    } catch (err) {
+      alert("Failed to seed curriculum pack: " + err.message);
+    } finally {
+      setIsSeedingPack(false);
     }
   }
 
@@ -1088,7 +1141,7 @@ export default function OrgDashboard({
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", flexWrap: "wrap", gap: "12px" }}>
             {/* Subject Filters */}
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-              {["", "Physics", "Chemistry", "Mathematics"].map((s) => (
+              {["", ...(orgSubjects.length > 0 ? orgSubjects.map(s => s.name) : Array.from(new Set(questions.map(q => q.subject).filter(Boolean))))].map((s) => (
                 <button
                   key={s}
                   type="button"
@@ -1127,10 +1180,25 @@ export default function OrgDashboard({
               />
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShowCreateQModal(true)}
-              className="btn-primary"
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <button
+                type="button"
+                onClick={() => setShowSubjectsModal(true)}
+                className="btn-secondary"
+                style={{ padding: "9px 16px", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px" }}
+              >
+                ⚙️ Curriculum Taxonomy ({orgSubjects.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateQModal(true)}
+                className="btn-primary"
+                style={{ padding: "9px 18px", fontSize: "13px" }}
+              >
+                + Author New Question
+              </button>
+            </div>
+          </div>
               style={{ padding: "9px 18px", fontSize: "13px" }}
             >
               + Author New Question
@@ -1867,6 +1935,241 @@ export default function OrgDashboard({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── CURRICULUM SUBJECTS MANAGER MODAL ─────────────────────────── */}
+      {showSubjectsModal && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15, 23, 42, 0.65)",
+          backdropFilter: "blur(4px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1050,
+          padding: "20px"
+        }}>
+          <div style={{
+            background: "#ffffff",
+            borderRadius: "16px",
+            width: "100%",
+            maxWidth: "760px",
+            maxHeight: "90vh",
+            overflowY: "auto",
+            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+            border: "1px solid var(--border-subtle)"
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: "20px 24px",
+              borderBottom: "1px solid var(--border-subtle)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              background: "linear-gradient(90deg, #f8fafc, #f1f5f9)"
+            }}>
+              <div>
+                <h3 style={{ fontSize: "18px", fontWeight: "800", color: "var(--text-primary)" }}>
+                  Curriculum Taxonomy & Subjects
+                </h3>
+                <p style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "2px" }}>
+                  Manage domain subjects used for question authoring, AI generation, and candidate exams.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSubjectsModal(false)}
+                style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "var(--text-muted)" }}
+              >✕</button>
+            </div>
+
+            <div style={{ padding: "24px" }}>
+              {/* Preset Packs Section */}
+              <div style={{ marginBottom: "24px", padding: "16px", background: "var(--accent-blue-subtle)", borderRadius: "12px", border: "1px solid rgba(37,99,235,0.15)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                  <div>
+                    <h4 style={{ fontSize: "14px", fontWeight: "700", color: "var(--accent-blue)" }}>
+                      ⚡ Instant 1-Click Curriculum Packs
+                    </h4>
+                    <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                      Quickly seed industry-standard domains and subjects into your organization.
+                    </p>
+                  </div>
+                  {isSeedingPack && <span style={{ fontSize: "12px", color: "var(--accent-blue)", fontWeight: "600" }}>Importing...</span>}
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    disabled={isSeedingPack}
+                    onClick={() => handleSeedPack("tech")}
+                    style={{ padding: "6px 12px", background: "#ffffff", border: "1px solid rgba(37,99,235,0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
+                  >
+                    💻 Tech & Computer Science
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSeedingPack}
+                    onClick={() => handleSeedPack("law")}
+                    style={{ padding: "6px 12px", background: "#ffffff", border: "1px solid rgba(37,99,235,0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
+                  >
+                    ⚖️ Law & Judicial Services
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSeedingPack}
+                    onClick={() => handleSeedPack("medical")}
+                    style={{ padding: "6px 12px", background: "#ffffff", border: "1px solid rgba(37,99,235,0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
+                  >
+                    🩺 Medicine & Health
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSeedingPack}
+                    onClick={() => handleSeedPack("commerce")}
+                    style={{ padding: "6px 12px", background: "#ffffff", border: "1px solid rgba(37,99,235,0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
+                  >
+                    📊 Commerce & Finance
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSeedingPack}
+                    onClick={() => handleSeedPack("stem")}
+                    style={{ padding: "6px 12px", background: "#ffffff", border: "1px solid rgba(37,99,235,0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
+                  >
+                    🔬 Universal STEM
+                  </button>
+                </div>
+              </div>
+
+              {/* Add Custom Subject Form */}
+              <form onSubmit={handleCreateSubject} style={{ marginBottom: "24px", display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: "10px", alignItems: "flex-end" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                    Subject Name
+                  </label>
+                  <input
+                    type="text"
+                    value={newSubjName}
+                    onChange={(e) => setNewSubjName(e.target.value)}
+                    placeholder="e.g. Constitutional Law, DSA, Pathology"
+                    className="lunaris-input"
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                    Category
+                  </label>
+                  <select
+                    value={newSubjCategory}
+                    onChange={(e) => setNewSubjCategory(e.target.value)}
+                    className="lunaris-input"
+                  >
+                    <option value="Computer Science">Computer Science</option>
+                    <option value="Law">Law & Judiciary</option>
+                    <option value="Medical">Medical & Health</option>
+                    <option value="Commerce">Commerce & Business</option>
+                    <option value="Engineering">Engineering & STEM</option>
+                    <option value="General">General / Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                    Code (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={newSubjCode}
+                    onChange={(e) => setNewSubjCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. CS101"
+                    className="lunaris-input"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ padding: "9px 18px", fontSize: "13px", height: "40px" }}
+                >
+                  + Add Subject
+                </button>
+              </form>
+
+              {/* Active Subjects List */}
+              <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "10px", overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                  <thead>
+                    <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-subtle)" }}>
+                      <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: "700" }}>Subject</th>
+                      <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: "700" }}>Category</th>
+                      <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: "700" }}>Code</th>
+                      <th style={{ textAlign: "right", padding: "10px 14px", fontWeight: "700" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orgSubjects.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: "center", padding: "20px", color: "var(--text-muted)" }}>
+                          No subjects configured yet. Import a curriculum pack above or add one manually.
+                        </td>
+                      </tr>
+                    ) : (
+                      orgSubjects.map((s) => (
+                        <tr key={s.id || s.name} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                          <td style={{ padding: "10px 14px", fontWeight: "600", color: "var(--text-primary)" }}>
+                            {s.name}
+                          </td>
+                          <td style={{ padding: "10px 14px" }}>
+                            <span style={{
+                              padding: "2px 8px",
+                              background: "var(--bg-secondary)",
+                              borderRadius: "4px",
+                              fontSize: "11px",
+                              fontWeight: "600",
+                              color: "var(--text-secondary)"
+                            }}>
+                              {s.category || "General"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: "12px", color: "var(--text-muted)" }}>
+                            {s.code || "—"}
+                          </td>
+                          <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSubject(s.id, s.name)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: "#ef4444",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: "600"
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={{ padding: "16px 24px", borderTop: "1px solid var(--border-subtle)", display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setShowSubjectsModal(false)}
+                className="btn-primary"
+                style={{ padding: "9px 24px", fontSize: "13px" }}
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}

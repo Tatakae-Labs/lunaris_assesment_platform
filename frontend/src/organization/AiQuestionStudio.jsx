@@ -2,9 +2,13 @@ import React, { useState, useEffect } from "react";
 import { api } from "../shared/api";
 
 export default function AiQuestionStudio({ organizationId, onQuestionApproved }) {
-  const [topic, setTopic] = useState("Rotational Dynamics & Moment of Inertia");
-  const [subject, setSubject] = useState("Physics");
+  const [topic, setTopic] = useState("Data Structures & Algorithms");
+  const [subject, setSubject] = useState("");
+  const [customSubjects, setCustomSubjects] = useState([]);
   const [difficulty, setDifficulty] = useState("medium");
+  const [questionFormat, setQuestionFormat] = useState("mixed");
+  const [referenceNotes, setReferenceNotes] = useState("");
+  const [showNotesInput, setShowNotesInput] = useState(false);
   const [count, setCount] = useState(4);
   const [generating, setGenerating] = useState(false);
   const [drafts, setDrafts] = useState([]);
@@ -17,7 +21,24 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
 
   useEffect(() => {
     loadDrafts();
+    loadSubjects();
   }, [organizationId]);
+
+  async function loadSubjects() {
+    if (!organizationId) return;
+    try {
+      const res = await api.getOrgSubjects(organizationId);
+      const list = res || [];
+      setCustomSubjects(list);
+      if (list.length > 0) {
+        setSubject(list[0].name);
+      } else {
+        setSubject("General");
+      }
+    } catch (e) {
+      console.warn("Could not load organization subjects in AI Studio:", e);
+    }
+  }
 
   async function loadDrafts() {
     setLoadingDrafts(true);
@@ -39,7 +60,7 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
   async function handleGenerate(e) {
     e.preventDefault();
     if (!topic.trim()) {
-      alert("Please provide a curriculum topic");
+      alert("Please provide a curriculum topic or concept");
       return;
     }
     setGenerating(true);
@@ -48,14 +69,16 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
       const res = await api.generateAiQuestions({
         organization_id: organizationId,
         topic: topic.trim(),
-        subject,
+        subject: subject || "General",
         difficulty,
+        question_format: questionFormat,
+        reference_notes: referenceNotes.trim() || undefined,
         count: parseInt(count, 10) || 4,
         include_numerical: true,
         groq_api_key: groqApiKey.trim() || undefined
       });
-      const engineName = res.engine === "groq_llama_3.3_70b" ? "Groq LLaMA-3.3-70B" : "Curriculum Engine";
-      setStatusMsg(`🎉 Successfully generated ${res.drafts_count} questions via ${engineName}!`);
+      const engineName = res.engine === "groq_llama_3.3_70b" ? "Groq LLaMA-3.3-70B Universal Engine" : "Curriculum Engine";
+      setStatusMsg(`🎉 Successfully synthesized ${res.drafts_count} questions via ${engineName}!`);
       loadDrafts();
     } catch (err) {
       alert("AI Generation failed: " + err.message);
@@ -174,111 +197,196 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
         )}
 
         {/* Generator Form */}
-        <form onSubmit={handleGenerate} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr auto", gap: "12px", alignItems: "flex-end" }}>
-          <div>
-            <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "4px" }}>
-              Topic / Chapter Concept
-            </label>
-            <input
-              type="text"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g. Thermodynamics or Electrostatics"
-              style={{
-                width: "100%",
-                padding: "8px 12px",
-                background: "var(--bg-secondary)",
-                border: "1px solid var(--border-subtle)",
-                borderRadius: "6px",
-                fontSize: "13px"
-              }}
-            />
-          </div>
+        <form onSubmit={handleGenerate} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.8fr 1.2fr 1fr 1fr 1fr auto", gap: "10px", alignItems: "flex-end" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                Topic / Chapter / Skill Concept
+              </label>
+              <input
+                type="text"
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="e.g. Binary Search Trees, Constitutional Law, Macroeconomics"
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "6px",
+                  fontSize: "13px"
+                }}
+              />
+            </div>
 
-          <div>
-            <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "4px" }}>
-              Subject
-            </label>
-            <select
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                Subject / Domain
+              </label>
+              <select
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "6px",
+                  fontSize: "13px"
+                }}
+              >
+                {customSubjects.map((s) => (
+                  <option key={s.id || s.name} value={s.name}>
+                    {s.name} ({s.category || "General"})
+                  </option>
+                ))}
+                {customSubjects.length === 0 && (
+                  <>
+                    <option value="Computer Science">Computer Science</option>
+                    <option value="Physics">Physics</option>
+                    <option value="Chemistry">Chemistry</option>
+                    <option value="Mathematics">Mathematics</option>
+                    <option value="Law">Law</option>
+                    <option value="Medical & Clinical">Medical & Clinical</option>
+                    <option value="Commerce & Finance">Commerce & Finance</option>
+                  </>
+                )}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                Question Format
+              </label>
+              <select
+                value={questionFormat}
+                onChange={(e) => setQuestionFormat(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "6px",
+                  fontSize: "13px"
+                }}
+              >
+                <option value="mixed">Mixed (Balanced)</option>
+                <option value="single_mcq">Single Choice (MCQ)</option>
+                <option value="multi_mcq">Multiple Choice</option>
+                <option value="coding">Coding Sandbox (IDE)</option>
+                <option value="numerical">Numerical / Exact</option>
+                <option value="one_word">One-Word Answer</option>
+                <option value="crossword">Crossword Clues</option>
+                <option value="true_false">True / False</option>
+                <option value="match_following">Match the Following</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                Cognitive Depth
+              </label>
+              <select
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "6px",
+                  fontSize: "13px"
+                }}
+              >
+                <option value="easy">Easy (Recall / Foundational)</option>
+                <option value="medium">Medium (Analytical / Conceptual)</option>
+                <option value="hard">Hard (Advanced Synthesis / Rigorous)</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                Drafts
+              </label>
+              <select
+                value={count}
+                onChange={(e) => setCount(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "6px",
+                  fontSize: "13px"
+                }}
+              >
+                <option value="2">2 Qs</option>
+                <option value="4">4 Qs</option>
+                <option value="6">6 Qs</option>
+                <option value="8">8 Qs</option>
+              </select>
+            </div>
+
+            <button
+              type="submit"
+              disabled={generating}
               style={{
-                width: "100%",
-                padding: "8px 10px",
-                background: "var(--bg-secondary)",
-                border: "1px solid var(--border-subtle)",
+                padding: "9px 18px",
+                background: "var(--accent-blue)",
+                color: "#ffffff",
                 borderRadius: "6px",
-                fontSize: "13px"
+                fontSize: "13px",
+                fontWeight: "700",
+                height: "38px",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                cursor: generating ? "not-allowed" : "pointer"
               }}
             >
-              <option value="Physics">Physics</option>
-              <option value="Chemistry">Chemistry</option>
-              <option value="Mathematics">Mathematics</option>
-            </select>
+              {generating ? "Generating..." : "⚡ Synthesize"}
+            </button>
           </div>
 
+          {/* Reference Notes / Grounding Excerpt Toggle */}
           <div>
-            <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "4px" }}>
-              Difficulty
-            </label>
-            <select
-              value={difficulty}
-              onChange={(e) => setDifficulty(e.target.value)}
+            <button
+              type="button"
+              onClick={() => setShowNotesInput(!showNotesInput)}
               style={{
-                width: "100%",
-                padding: "8px 10px",
-                background: "var(--bg-secondary)",
-                border: "1px solid var(--border-subtle)",
-                borderRadius: "6px",
-                fontSize: "13px"
+                background: "none",
+                border: "none",
+                padding: 0,
+                fontSize: "12px",
+                color: "var(--accent-blue)",
+                cursor: "pointer",
+                fontWeight: "600",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px"
               }}
             >
-              <option value="easy">Easy (JEE Main 기초)</option>
-              <option value="medium">Medium (Standard JEE Main)</option>
-              <option value="hard">Hard (JEE Advanced Level)</option>
-            </select>
+              {showNotesInput ? "▼ Hide Lecture Notes / Syllabus Excerpt" : "▶ + Ground generation on Lecture Notes / Text Excerpt (RAG)"}
+            </button>
+            {showNotesInput && (
+              <textarea
+                value={referenceNotes}
+                onChange={(e) => setReferenceNotes(e.target.value)}
+                placeholder="Paste reference text, lecture transcript, syllabus bullets, or code snippets to ground the generated questions specifically on your institution's materials..."
+                rows={3}
+                style={{
+                  width: "100%",
+                  marginTop: "6px",
+                  padding: "8px 12px",
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "6px",
+                  fontSize: "12px",
+                  fontFamily: "inherit"
+                }}
+              />
+            )}
           </div>
-
-          <div>
-            <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "4px" }}>
-              Drafts Count
-            </label>
-            <select
-              value={count}
-              onChange={(e) => setCount(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "8px 10px",
-                background: "var(--bg-secondary)",
-                border: "1px solid var(--border-subtle)",
-                borderRadius: "6px",
-                fontSize: "13px"
-              }}
-            >
-              <option value="2">2 Questions</option>
-              <option value="4">4 Questions</option>
-              <option value="6">6 Questions</option>
-            </select>
-          </div>
-
-          <button
-            type="submit"
-            disabled={generating}
-            style={{
-              padding: "9px 18px",
-              background: "var(--accent-blue)",
-              color: "#ffffff",
-              borderRadius: "6px",
-              fontSize: "13px",
-              fontWeight: "700",
-              height: "38px",
-              display: "flex",
-              alignItems: "center",
-              gap: "6px"
-            }}
-          >
-            {generating ? "Generating..." : "⚡ Synthesize"}
-          </button>
         </form>
 
         {statusMsg && (

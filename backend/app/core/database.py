@@ -1,3 +1,5 @@
+import os
+import shutil
 import uuid
 from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -38,15 +40,44 @@ def generate_uuid() -> str:
 
 def checkpoint_sqlite(engine_instance):
     """Cleanly checkpoints WAL file on startup or recovery to prevent lock file conflicts."""
-    if settings.DATABASE_URL.startswith("sqlite"):
-        try:
-            with engine_instance.connect() as conn:
-                conn.execute(text("PRAGMA busy_timeout=60000"))
-                conn.execute(text("PRAGMA journal_mode=WAL"))
-                conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
-                conn.commit()
-        except Exception:
-            pass
+    checkpoint_and_sync_db(engine_instance)
+
+def checkpoint_and_sync_db(db_or_engine=None):
+    """
+    1. Executes PRAGMA wal_checkpoint(TRUNCATE) so changes on the active SQLite database
+       are flushed completely from WAL memory/journal into the .db file on disk.
+    2. Mirror-syncs root lunaris.db and backend/lunaris.db so regardless of where a tool or user
+       inspects the database file, both are guaranteed to be 100% identical and updated.
+    """
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+    try:
+        from app.core.config import _ROOT_DIR, _BACKEND_DIR
+        root_db = os.path.join(_ROOT_DIR, "lunaris.db")
+        backend_db = os.path.join(_BACKEND_DIR, "lunaris.db")
+        
+        target_engine = db_or_engine.get_bind() if hasattr(db_or_engine, "get_bind") else (db_or_engine or engine)
+        with target_engine.connect() as conn:
+            conn.execute(text("PRAGMA busy_timeout=60000"))
+            conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+            conn.commit()
+
+        # Check which database is the active one in DATABASE_URL
+        active_db_path = settings.DATABASE_URL.replace("sqlite:///", "")
+        if os.path.exists(active_db_path):
+            if os.path.abspath(active_db_path) == os.path.abspath(root_db) and os.path.exists(root_db):
+                shutil.copy2(root_db, backend_db)
+            elif os.path.abspath(active_db_path) == os.path.abspath(backend_db) and os.path.exists(backend_db):
+                shutil.copy2(backend_db, root_db)
+            else:
+                # Fallback: copy whichever exists and is newest
+                if os.path.exists(backend_db) and (not os.path.exists(root_db) or os.path.getmtime(backend_db) >= os.path.getmtime(root_db)):
+                    shutil.copy2(backend_db, root_db)
+                elif os.path.exists(root_db):
+                    shutil.copy2(root_db, backend_db)
+    except Exception as e:
+        print(f"checkpoint_and_sync_db note: {e}")
 
 
 def auto_migrate_sqlite(engine_instance):

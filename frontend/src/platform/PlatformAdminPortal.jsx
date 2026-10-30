@@ -542,9 +542,30 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
         max_exams: String(plan.entitlements?.max_exams ?? "5"),
         ai_questions: String(plan.entitlements?.ai_questions ?? "50"),
         proctoring_enabled: String(plan.entitlements?.proctoring_enabled ?? "true"),
+        proctoring_quota: String(plan.entitlements?.proctoring_quota ?? "50"),
         pdf_import: String(plan.entitlements?.pdf_import ?? "true")
       }
     });
+  }
+
+  async function handleTogglePlanProctoring(planId) {
+    try {
+      const res = await api.togglePlanProctoring(planId);
+      setActionNotice(res.message || "Proctoring module toggle updated.");
+      loadViewData();
+    } catch (err) {
+      alert("Failed to toggle proctoring: " + err.message);
+    }
+  }
+
+  async function handleSyncOrgPlanAllotment(orgId, orgName) {
+    try {
+      const res = await api.syncOrgPlanAllotment(orgId);
+      setActionNotice(res.message || `Synchronized allotment for ${orgName}.`);
+      loadViewData();
+    } catch (err) {
+      alert("Failed to sync allotment: " + err.message);
+    }
   }
 
   async function handleSavePlan(e) {
@@ -635,13 +656,25 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
 
   // Clear Audit Logs
   async function handleClearAuditLogs() {
-    if (!window.confirm("Clear all system audit logs?")) return;
+    if (!window.confirm("Permanently clear all system audit logs from SQLite and MongoDB database?")) return;
     try {
-      await api.clearPlatformAuditLogs();
-      setActionNotice("Audit trail cleared.");
+      const res = await api.clearPlatformAuditLogs();
+      setActionNotice(res.message || "Audit trail permanently cleared from DB.");
       loadViewData();
     } catch (err) {
       alert("Failed to clear audit logs: " + err.message);
+    }
+  }
+
+  // Clear / Wipe Platform Test Database
+  async function handleClearDatabase() {
+    if (!window.confirm("WARNING: Are you sure you want to permanently clear and purge all non-superadmin test organizations, attempts, and records from the database (SQLite & MongoDB)? This action cannot be undone!")) return;
+    try {
+      const res = await api.clearPlatformDatabase();
+      setActionNotice(res.message || "Platform database wiped and reset to clean production state.");
+      loadViewData();
+    } catch (err) {
+      alert("Failed to clear database: " + err.message);
     }
   }
 
@@ -1067,6 +1100,14 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                             >
                               Quotas
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSyncOrgPlanAllotment(org.id, org.name)}
+                              style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "700", background: "#f5f3ff", color: "#6d28d9", border: "1px solid #ddd6fe", cursor: "pointer" }}
+                              title="Re-synchronize quotas and services strictly to active plan entitlements"
+                            >
+                              🔄 Sync Plan
+                            </button>
                             {org.plan_id && org.plan_id !== "free" && (
                               <button
                                 type="button"
@@ -1327,6 +1368,31 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                     <div>PDF Direct Import: <strong>{p.entitlements?.pdf_import === "true" ? "Allowed" : "Restricted"}</strong></div>
                   </div>
 
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePlanProctoring(p.id)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      background: p.entitlements?.proctoring_enabled === "true" ? "#ecfdf5" : "#fef2f2",
+                      color: p.entitlements?.proctoring_enabled === "true" ? "#047857" : "#b91c1c",
+                      border: `1px solid ${p.entitlements?.proctoring_enabled === "true" ? "#a7f3d0" : "#fecaca"}`,
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      marginBottom: "10px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px"
+                    }}
+                  >
+                    {p.entitlements?.proctoring_enabled === "true"
+                      ? "🛡️ Proctoring: Active (Click to Deactivate)"
+                      : "🛡️ Proctoring: Disabled (Click to Activate)"}
+                  </button>
+
                   <div style={{ display: "flex", gap: "8px" }}>
                     <button
                       type="button"
@@ -1465,6 +1531,34 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                   }}
                 >
                   ⚙️ Gateway & UPI Settings
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const res = await api.sweepRenewals();
+                      alert(`✓ Monthly Renewal Sweep Complete:\n• ${res.checked_subscriptions} subscriptions checked\n• ${res.reminders_sent} reminder emails dispatched\n• ${res.downgraded_to_free} expired accounts downgraded to free.`);
+                    } catch (e) {
+                      alert("Sweep failed: " + e.message);
+                    }
+                  }}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: "6px",
+                    background: "#0f172a",
+                    color: "#ffffff",
+                    border: "none",
+                    fontWeight: "700",
+                    fontSize: "12px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px"
+                  }}
+                  title="Scans all active subscriptions, dispatches reminder emails to orgs renewing in 7/3/1 days, and applies grace period rules."
+                >
+                  🔔 Sweep & Dispatch Renewal Reminders
                 </button>
               </div>
             </div>
@@ -2208,13 +2302,24 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                 </select>
 
                 {isMainSuperAdmin && (
-                  <button
-                    type="button"
-                    onClick={handleClearAuditLogs}
-                    style={{ padding: "8px 14px", background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
-                  >
-                    Clear Logs
-                  </button>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                      type="button"
+                      onClick={handleClearAuditLogs}
+                      style={{ padding: "8px 14px", background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
+                      title="Permanently clear all audit events from SQLite and MongoDB database"
+                    >
+                      🗑️ Clear Logs
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearDatabase}
+                      style={{ padding: "8px 14px", background: "#fff1f2", color: "#9f1239", border: "1px solid #fecdd3", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
+                      title="Purge all test organizations, attempts, and records from DB"
+                    >
+                      💥 Wipe DB Data
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -2850,6 +2955,49 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                     })}
                     style={{ width: "100%", padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
                   />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "700", marginBottom: "4px" }}>Proctoring Module</label>
+                  <select
+                    value={planFormData.entitlements.proctoring_enabled}
+                    onChange={(e) => setPlanFormData({
+                      ...planFormData,
+                      entitlements: { ...planFormData.entitlements, proctoring_enabled: e.target.value }
+                    })}
+                    style={{ width: "100%", padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+                  >
+                    <option value="true">Allowed (Active)</option>
+                    <option value="false">Disabled (Unavailable)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "700", marginBottom: "4px" }}>Proctoring Attempts Quota</label>
+                  <input
+                    type="number"
+                    value={planFormData.entitlements.proctoring_quota || "50"}
+                    onChange={(e) => setPlanFormData({
+                      ...planFormData,
+                      entitlements: { ...planFormData.entitlements, proctoring_quota: e.target.value }
+                    })}
+                    style={{ width: "100%", padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "700", marginBottom: "4px" }}>PDF Direct Import</label>
+                  <select
+                    value={planFormData.entitlements.pdf_import}
+                    onChange={(e) => setPlanFormData({
+                      ...planFormData,
+                      entitlements: { ...planFormData.entitlements, pdf_import: e.target.value }
+                    })}
+                    style={{ width: "100%", padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+                  >
+                    <option value="true">Allowed</option>
+                    <option value="false">Restricted</option>
+                  </select>
                 </div>
               </div>
 

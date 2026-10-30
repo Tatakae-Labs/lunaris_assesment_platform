@@ -18,7 +18,7 @@ export default function ExamCreationWizard({
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("Engineering Entrance");
   const [language, setLanguage] = useState("English");
-  const [instructions, setInstructions] = useState("1. The examination consists of 3 sections: Physics, Chemistry, and Mathematics.\n2. Each correct answer carries +4 marks. Incorrect answer carries -1 mark.\n3. Do not switch tabs or exit fullscreen.");
+  const [instructions, setInstructions] = useState("1. Read all questions carefully.\n2. Ensure your webcam and network connection remain steady throughout.\n3. Do not switch tabs or exit fullscreen mode during proctored examinations.");
 
   // Step 2: Exam Mode
   const [mode, setMode] = useState("proctored_cbt"); // 'standard_quiz', 'quick_quiz', 'proctored_cbt'
@@ -33,7 +33,7 @@ export default function ExamCreationWizard({
   const [durationMinutes, setDurationMinutes] = useState(180);
   const [negativeMarking, setNegativeMarking] = useState(true);
   const [shuffleQuestions, setShuffleQuestions] = useState(true);
-  const [sections, setSections] = useState(["Physics", "Chemistry", "Mathematics"]);
+  const [sections, setSections] = useState([]);
   const [passPercentage, setPassPercentage] = useState(40);
 
   // Step 5: Enrollment
@@ -53,18 +53,27 @@ export default function ExamCreationWizard({
   });
   const [retentionDays, setRetentionDays] = useState(30);
 
-  // Load available questions and subscription entitlements
+  // Load available questions, curriculum subjects, and subscription entitlements
   useEffect(() => {
     async function loadInitial() {
       try {
-        const [qList, ent] = await Promise.all([
+        const [qList, ent, subjs] = await Promise.all([
           api.getQuestions(organizationId),
-          api.getOrgEntitlements(organizationId)
+          api.getOrgEntitlements(organizationId),
+          api.getOrgSubjects(organizationId).catch(() => [])
         ]);
         setAvailableQuestions(qList || []);
         // Select all available questions by default for ease of creation
         setSelectedQuestionIds((qList || []).map((q) => q.id));
         setEntitlements(ent);
+        if (subjs && subjs.length > 0) {
+          setSections(subjs.map((s) => s.name));
+        } else if (qList && qList.length > 0) {
+          const distinct = Array.from(new Set(qList.map((q) => q.subject).filter(Boolean)));
+          setSections(distinct.length > 0 ? distinct : ["General"]);
+        } else {
+          setSections(["General"]);
+        }
       } catch (err) {
         console.warn("Error loading wizard dependencies:", err.message);
       }
@@ -621,6 +630,55 @@ export default function ExamCreationWizard({
                   />
                   <span>Shuffle question and option sequence for each candidate</span>
                 </label>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "6px" }}>
+                  Curriculum Subject Sections ({sections.length})
+                </label>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                  {sections.map((sec, i) => (
+                    <span
+                      key={sec + i}
+                      style={{
+                        padding: "5px 12px",
+                        background: "var(--accent-blue-subtle)",
+                        color: "var(--accent-blue)",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        fontWeight: "600",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px"
+                      }}
+                    >
+                      {sec}
+                      <button
+                        type="button"
+                        onClick={() => setSections(sections.filter((_, idx) => idx !== i))}
+                        style={{ background: "none", border: "none", color: "var(--accent-blue)", cursor: "pointer", padding: 0, fontWeight: "bold" }}
+                      >×</button>
+                    </span>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const name = prompt("Enter section name (e.g. Data Structures, Constitutional Law, Pathology):");
+                      if (name && name.trim()) setSections([...sections, name.trim()]);
+                    }}
+                    style={{
+                      padding: "5px 12px",
+                      background: "none",
+                      border: "1px dashed var(--border-subtle)",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      cursor: "pointer",
+                      color: "var(--text-muted)"
+                    }}
+                  >
+                    + Add Section
+                  </button>
+                </div>
               </div>
             </div>
           )}

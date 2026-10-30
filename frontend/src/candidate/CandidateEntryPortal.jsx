@@ -70,6 +70,12 @@ export default function CandidateEntryPortal({
   const [activeViolationAlert, setActiveViolationAlert] = useState(null);
   const [violationCount, setViolationCount] = useState(0);
 
+  // Interactive Coding Sandbox State
+  const [codingLang, setCodingLang] = useState("python");
+  const [codingConsoleTab, setCodingConsoleTab] = useState("sample"); // 'sample', 'custom', 'evaluation'
+  const [codingCustomInput, setCodingCustomInput] = useState("");
+  const [codingExecution, setCodingExecution] = useState({ running: false, result: null });
+
   function handleProctorViolation(event) {
     setViolationCount((c) => c + 1);
     let title = "Integrity Warning";
@@ -146,6 +152,10 @@ export default function CandidateEntryPortal({
 
       const paperRes = await api.getCandidatePaper(sessionToken);
       setPaper(paperRes);
+      if (paperRes?.questions?.length > 0) {
+        const firstSubj = paperRes.questions[0].subject || "General";
+        setActiveSubject(firstSubj);
+      }
 
       // Restore saved answers from server and overlay any local cached answers
       const cached = offlineStorage.getLocalAnswers(sessionToken);
@@ -352,7 +362,9 @@ export default function CandidateEntryPortal({
   }
 
   // Questions for active subject
-  const currentQuestions = paper?.questions?.filter((q) => q.subject === activeSubject) || [];
+  const examSubjects = Array.from(new Set(paper?.questions?.map((q) => q.subject || "General") || []));
+  const filteredBySubject = paper?.questions?.filter((q) => (q.subject || "General") === activeSubject) || [];
+  const currentQuestions = filteredBySubject.length > 0 ? filteredBySubject : (paper?.questions || []);
   const currentQ = currentQuestions[activeQuestionIndex];
   const currentAns = currentQ ? candidateAnswers[currentQ.id] : null;
 
@@ -377,11 +389,65 @@ export default function CandidateEntryPortal({
     saveAnswerData(currentQ.id, newAns);
   }
 
+  async function handleOneWordInput(val) {
+    if (!currentQ) return;
+    const newAns = {
+      one_word: val,
+      text_answer: val,
+      state: val.trim() ? "answered" : "not_answered",
+      timestamp: new Date().toISOString()
+    };
+    saveAnswerData(currentQ.id, newAns);
+  }
+
+  async function handleTrueFalseSelect(val) {
+    if (!currentQ) return;
+    const newAns = {
+      selected_options: [val],
+      true_false: val,
+      state: "answered",
+      timestamp: new Date().toISOString()
+    };
+    saveAnswerData(currentQ.id, newAns);
+  }
+
+  async function handleMatchChange(pairId, rightVal) {
+    if (!currentQ) return;
+    const existing = candidateAnswers[currentQ.id]?.matches || {};
+    const updatedMatches = { ...existing, [pairId]: rightVal };
+    const hasAny = Object.values(updatedMatches).some(Boolean);
+    const newAns = {
+      matches: updatedMatches,
+      state: hasAny ? "answered" : "not_answered",
+      timestamp: new Date().toISOString()
+    };
+    saveAnswerData(currentQ.id, newAns);
+  }
+
+  async function handleCrosswordCellChange(cellCoord, char) {
+    if (!currentQ) return;
+    const existing = candidateAnswers[currentQ.id]?.crossword_grid || {};
+    const cleanChar = (char || "").toUpperCase().slice(-1);
+    const updatedGrid = { ...existing, [cellCoord]: cleanChar };
+    const hasAny = Object.values(updatedGrid).some(Boolean);
+    const newAns = {
+      crossword_grid: updatedGrid,
+      state: hasAny ? "answered" : "not_answered",
+      timestamp: new Date().toISOString()
+    };
+    saveAnswerData(currentQ.id, newAns);
+  }
+
   function handleClearResponse() {
     if (!currentQ) return;
     const newAns = {
       selected_options: [],
       numerical_value: "",
+      one_word: "",
+      true_false: null,
+      matches: {},
+      crossword_grid: {},
+      code: "",
       state: "not_answered"
     };
     saveAnswerData(currentQ.id, newAns);
@@ -390,12 +456,92 @@ export default function CandidateEntryPortal({
   function handleMarkForReview() {
     if (!currentQ) return;
     const existing = candidateAnswers[currentQ.id] || {};
-    const hasAnswer = (existing.selected_options && existing.selected_options.length > 0) || existing.numerical_value;
+    const hasAnswer = (existing.selected_options && existing.selected_options.length > 0) ||
+      existing.numerical_value ||
+      existing.one_word ||
+      existing.true_false ||
+      (existing.matches && Object.values(existing.matches).some(Boolean)) ||
+      (existing.crossword_grid && Object.values(existing.crossword_grid).some(Boolean)) ||
+      (existing.code && existing.code.trim().length > 0);
     const newAns = {
       ...existing,
       state: hasAnswer ? "answered_marked" : "marked"
     };
     saveAnswerData(currentQ.id, newAns);
+  }
+
+  function getActiveCode(question) {
+    if (!question) return "";
+    const saved = candidateAnswers[question.id]?.code;
+    if (saved !== undefined && saved !== null) return saved;
+    const starterObj = question.content?.starter_code || {};
+    return starterObj[codingLang] || starterObj["python"] || "# Write your solution here\n";
+  }
+
+  function handleCodeUpdate(val) {
+    if (!currentQ) return;
+    const newAns = {
+      ...(candidateAnswers[currentQ.id] || {}),
+      code: val,
+      language: codingLang,
+      state: val.trim() ? "answered" : "not_answered",
+      timestamp: new Date().toISOString()
+    };
+    saveAnswerData(currentQ.id, newAns);
+  }
+
+  async function handleRunCodeSandbox(isSubmission = false) {
+    if (!currentQ) return;
+    const code = getActiveCode(currentQ);
+    setCodingExecution({ running: true, result: null });
+    try {
+      if (isSubmission) {
+        setCodingConsoleTab("evaluation");
+        const res = await api.evaluateCode({
+          source_code: code,
+          language: codingLang,
+          question_id: currentQ.id,
+          time_limit_sec: currentQ.content?.time_limit_sec || 3.0
+        });
+        setCodingExecution({ running: false, result: res });
+        if (res.all_passed) {
+          saveAnswerData(currentQ.id, {
+            code,
+            language: codingLang,
+            state: "answered",
+            evaluated_score: res.score_percentage
+          });
+        }
+      } else if (codingConsoleTab === "custom") {
+        const res = await api.executeCode({
+          source_code: code,
+          language: codingLang,
+          stdin_input: codingCustomInput,
+          time_limit_sec: currentQ.content?.time_limit_sec || 3.0
+        });
+        setCodingExecution({ running: false, result: res });
+      } else {
+        // Run against visible sample test cases
+        const sampleCases = (currentQ.content?.test_cases || []).filter(tc => !tc.is_hidden);
+        const res = await api.evaluateCode({
+          source_code: code,
+          language: codingLang,
+          custom_test_cases: sampleCases.length > 0 ? sampleCases : [
+            { id: "1", input: "", expected_output: "", is_hidden: false }
+          ],
+          time_limit_sec: currentQ.content?.time_limit_sec || 3.0
+        });
+        setCodingExecution({ running: false, result: res });
+      }
+    } catch (err) {
+      setCodingExecution({
+        running: false,
+        result: {
+          status: "runtime_error",
+          stderr: err.message || "Failed to execute code in sandbox."
+        }
+      });
+    }
   }
 
   async function saveAnswerData(questionId, ansObj) {
@@ -909,7 +1055,7 @@ export default function CandidateEntryPortal({
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
               <span style={{ fontWeight: "800", fontSize: "16px", color: "var(--text-primary)" }}>
-                {paper?.title || "JEE Examination"}
+                {paper?.title || "Computer-Based Examination"}
               </span>
               <span style={{
                 fontSize: "11px",
@@ -1090,8 +1236,8 @@ export default function CandidateEntryPortal({
               <span style={{ fontSize: "12px", fontWeight: "800", color: "var(--text-muted)", marginRight: "4px" }}>
                 SECTIONS:
               </span>
-              {["Physics", "Chemistry", "Mathematics"].map((subject) => {
-                const subQuestions = paper?.questions?.filter((q) => q.subject === subject) || [];
+              {(examSubjects.length > 0 ? examSubjects : ["General"]).map((subject) => {
+                const subQuestions = paper?.questions?.filter((q) => (q.subject || "General") === subject) || [];
                 const subAnswered = subQuestions.filter(
                   (q) => candidateAnswers[q.id]?.state === "answered" || candidateAnswers[q.id]?.state === "answered_marked"
                 ).length;
@@ -1193,13 +1339,579 @@ export default function CandidateEntryPortal({
                     {currentQ.content.text}
                   </div>
 
-                  {/* Options or Numerical Keypad */}
+                  {/* Options, Numerical Keypad, One-Word, True/False, Match Following, or Crossword */}
                   {currentQ.type === "numerical" ? (
                     <div style={{ maxWidth: "360px" }}>
                       <NumericalKeypad
                         value={currentAns?.numerical_value || ""}
                         onChange={handleNumericalInput}
                       />
+                    </div>
+                  ) : (currentQ.type === "one_word" || currentQ.type === "single_word" || currentQ.type === "fill_blank") ? (
+                    <div style={{ background: "#ffffff", padding: "24px", borderRadius: "10px", border: "1px solid var(--border-subtle)", maxWidth: "560px" }}>
+                      <div style={{ fontSize: "12px", fontWeight: "700", color: "#2563eb", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>
+                        ✍️ One-Word Answer / Definition
+                      </div>
+                      <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                        Enter the single term or definition that accurately satisfies the formulation above.
+                      </p>
+                      {currentQ.content.hint && (
+                        <div style={{ padding: "8px 12px", background: "#f8fafc", borderRadius: "6px", border: "1px dashed #cbd5e1", fontSize: "12px", color: "#475569", marginBottom: "14px" }}>
+                          💡 <strong>Hint / Clue:</strong> {currentQ.content.hint}
+                        </div>
+                      )}
+                      <input
+                        type="text"
+                        value={currentAns?.one_word || currentAns?.text_answer || ""}
+                        onChange={(e) => handleOneWordInput(e.target.value)}
+                        placeholder="Type your one-word answer here..."
+                        style={{
+                          width: "100%",
+                          padding: "14px 16px",
+                          borderRadius: "8px",
+                          border: "2px solid #3b82f6",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "#0f172a",
+                          background: "#f0f9ff"
+                        }}
+                      />
+                    </div>
+                  ) : currentQ.type === "true_false" ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", maxWidth: "480px" }}>
+                      {[
+                        { val: "true", label: "TRUE", icon: "✓", bg: "#ecfdf5", border: "#10b981", activeBg: "#059669" },
+                        { val: "false", label: "FALSE", icon: "✕", bg: "#fef2f2", border: "#ef4444", activeBg: "#dc2626" }
+                      ].map((tf) => {
+                        const isSelected = String(currentAns?.true_false || currentAns?.selected_options?.[0]).toLowerCase() === tf.val;
+                        return (
+                          <div
+                            key={tf.val}
+                            onClick={() => handleTrueFalseSelect(tf.val)}
+                            style={{
+                              padding: "20px",
+                              borderRadius: "10px",
+                              border: `2px solid ${isSelected ? tf.border : "var(--border-subtle)"}`,
+                              background: isSelected ? tf.bg : "#ffffff",
+                              cursor: "pointer",
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "8px",
+                              transition: "all 0.15s ease",
+                              boxShadow: isSelected ? "0 4px 6px -1px rgba(0,0,0,0.1)" : "none"
+                            }}
+                          >
+                            <span style={{
+                              fontSize: "28px",
+                              color: isSelected ? (tf.val === "true" ? "#059669" : "#dc2626") : "var(--text-muted)",
+                              fontWeight: "900"
+                            }}>
+                              {tf.icon}
+                            </span>
+                            <span style={{
+                              fontSize: "16px",
+                              fontWeight: "800",
+                              color: isSelected ? (tf.val === "true" ? "#047857" : "#b91c1c") : "var(--text-primary)"
+                            }}>
+                              {tf.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : currentQ.type === "match_following" ? (
+                    <div style={{ background: "#ffffff", padding: "20px", borderRadius: "10px", border: "1px solid var(--border-subtle)", maxWidth: "680px" }}>
+                      <div style={{ fontSize: "12px", fontWeight: "700", color: "#2563eb", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "14px" }}>
+                        🔗 Match Column A with Column B
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                        {(currentQ.content.pairs || []).map((pair, idx) => {
+                          const currentSelection = (currentAns?.matches || {})[pair.id] || "";
+                          const allRightOptions = (currentQ.content.pairs || []).map(p => p.right);
+                          return (
+                            <div key={pair.id || idx} style={{ display: "flex", alignItems: "center", gap: "14px", padding: "10px 14px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                              <div style={{ flex: 1, fontSize: "14px", fontWeight: "600", color: "#1e293b" }}>
+                                <span style={{ color: "#64748b", marginRight: "6px" }}>({String.fromCharCode(65 + idx)})</span>
+                                {pair.left}
+                              </div>
+                              <span style={{ color: "#94a3b8", fontSize: "16px" }}>➔</span>
+                              <div style={{ flex: 1 }}>
+                                <select
+                                  value={currentSelection}
+                                  onChange={(e) => handleMatchChange(pair.id, e.target.value)}
+                                  style={{
+                                    width: "100%",
+                                    padding: "8px 12px",
+                                    borderRadius: "6px",
+                                    border: currentSelection ? "2px solid #3b82f6" : "1px solid #cbd5e1",
+                                    background: currentSelection ? "#eff6ff" : "#ffffff",
+                                    fontSize: "13px",
+                                    fontWeight: currentSelection ? "600" : "400"
+                                  }}
+                                >
+                                  <option value="">-- Select Matching Item --</option>
+                                  {allRightOptions.map((r, rIdx) => (
+                                    <option key={rIdx} value={r}>
+                                      {r}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : currentQ.type === "crossword" ? (
+                    <div style={{ background: "#ffffff", padding: "20px", borderRadius: "10px", border: "1px solid var(--border-subtle)", maxWidth: "760px" }}>
+                      <div style={{ fontSize: "12px", fontWeight: "700", color: "#7c3aed", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "14px" }}>
+                        🧩 Crossword Puzzle Clues & Answer Grid
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                        {(currentQ.content.clues || []).map((clueItem, cIdx) => {
+                          const ansLen = (clueItem.answer || "").length || 6;
+                          const isDown = clueItem.direction === "down";
+                          const r = parseInt(clueItem.row) || 0;
+                          const c = parseInt(clueItem.col) || 0;
+                          return (
+                            <div key={cIdx} style={{ padding: "14px", background: "#faf5ff", borderRadius: "8px", border: "1px solid #e9d5ff" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", fontSize: "12px" }}>
+                                <span style={{ fontWeight: "700", color: "#6b21a8" }}>
+                                  #{cIdx + 1} {clueItem.direction.toUpperCase()} ({ansLen} letters):
+                                </span>
+                                <span style={{ color: "#7e22ce", fontStyle: "italic" }}>
+                                  {clueItem.clue}
+                                </span>
+                              </div>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                {Array.from({ length: ansLen }).map((_, letterIdx) => {
+                                  const cellCoord = `${isDown ? r + letterIdx : r},${isDown ? c : c + letterIdx}`;
+                                  const cellChar = (currentAns?.crossword_grid || {})[cellCoord] || "";
+                                  return (
+                                    <input
+                                      key={letterIdx}
+                                      id={`cw_${currentQ.id}_${cIdx}_${letterIdx}`}
+                                      type="text"
+                                      maxLength={1}
+                                      value={cellChar}
+                                      onChange={(e) => {
+                                        const val = e.target.value.toUpperCase();
+                                        handleCrosswordCellChange(cellCoord, val);
+                                        if (val && letterIdx < ansLen - 1) {
+                                          const nextEl = document.getElementById(`cw_${currentQ.id}_${cIdx}_${letterIdx + 1}`);
+                                          if (nextEl) nextEl.focus();
+                                        }
+                                      }}
+                                      style={{
+                                        width: "36px",
+                                        height: "40px",
+                                        textAlign: "center",
+                                        fontSize: "16px",
+                                        fontWeight: "800",
+                                        textTransform: "uppercase",
+                                        borderRadius: "6px",
+                                        border: cellChar ? "2px solid #7c3aed" : "1px solid #cbd5e1",
+                                        background: cellChar ? "#f3e8ff" : "#ffffff",
+                                        color: "#581c87"
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : currentQ.type === "coding" ? (
+                    /* 💻 Interactive Coding & Scripting Sandbox IDE */
+                    <div style={{ display: "flex", flexDirection: "column", gap: "16px", maxWidth: "920px" }}>
+                      {/* Top IDE Toolbar */}
+                      <div style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: "12px",
+                        background: "#0f172a",
+                        color: "#f8fafc",
+                        padding: "10px 16px",
+                        borderRadius: "8px 8px 0 0",
+                        border: "1px solid #1e293b"
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <span style={{ fontSize: "12px", fontWeight: "700", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                            Language:
+                          </span>
+                          <select
+                            value={codingLang}
+                            onChange={(e) => {
+                              const newLang = e.target.value;
+                              setCodingLang(newLang);
+                              const starter = currentQ.content?.starter_code?.[newLang] || "";
+                              if (starter) {
+                                handleCodeUpdate(starter);
+                              }
+                            }}
+                            style={{
+                              background: "#1e293b",
+                              color: "#38bdf8",
+                              border: "1px solid #334155",
+                              borderRadius: "6px",
+                              padding: "4px 10px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer"
+                            }}
+                          >
+                            <option value="python">🐍 Python 3.12</option>
+                            <option value="javascript">⚡ JavaScript (Node.js)</option>
+                            <option value="cpp">⚙️ C++ (G++ 17)</option>
+                            <option value="java">☕ Java (OpenJDK 17)</option>
+                          </select>
+
+                          <div style={{ display: "flex", gap: "8px", fontSize: "11px", color: "#64748b" }}>
+                            <span>⏱️ {currentQ.content.time_limit_sec || 2.0}s limit</span>
+                            <span>•</span>
+                            <span>💾 {currentQ.content.memory_limit_mb || 256}MB</span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const starter = currentQ.content?.starter_code?.[codingLang] || "";
+                              handleCodeUpdate(starter);
+                            }}
+                            style={{
+                              background: "transparent",
+                              border: "1px solid #334155",
+                              color: "#94a3b8",
+                              borderRadius: "6px",
+                              padding: "6px 12px",
+                              fontSize: "11px",
+                              fontWeight: "600",
+                              cursor: "pointer"
+                            }}
+                          >
+                            ↺ Reset Template
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRunCodeSandbox(false)}
+                            disabled={codingExecution.running}
+                            style={{
+                              background: "#1e293b",
+                              border: "1px solid #475569",
+                              color: "#f8fafc",
+                              borderRadius: "6px",
+                              padding: "6px 14px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: codingExecution.running ? "not-allowed" : "pointer"
+                            }}
+                          >
+                            {codingExecution.running && codingConsoleTab !== "evaluation" ? "Running..." : "▶ Run Sample Cases"}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRunCodeSandbox(true)}
+                            disabled={codingExecution.running}
+                            style={{
+                              background: "linear-gradient(135deg, #059669 0%, #10b981 100%)",
+                              border: "none",
+                              color: "#ffffff",
+                              borderRadius: "6px",
+                              padding: "6px 16px",
+                              fontSize: "12px",
+                              fontWeight: "800",
+                              cursor: codingExecution.running ? "not-allowed" : "pointer",
+                              boxShadow: "0 2px 4px rgba(5, 150, 105, 0.2)"
+                            }}
+                          >
+                            {codingExecution.running && codingConsoleTab === "evaluation" ? "Evaluating..." : "🚀 Submit Solution"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Code Editor Body */}
+                      <div style={{
+                        position: "relative",
+                        background: "#090d16",
+                        border: "1px solid #1e293b",
+                        borderTop: "none",
+                        borderRadius: "0 0 8px 8px",
+                        overflow: "hidden"
+                      }}>
+                        <textarea
+                          rows={14}
+                          value={getActiveCode(currentQ)}
+                          onChange={(e) => handleCodeUpdate(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Tab") {
+                              e.preventDefault();
+                              const start = e.target.selectionStart;
+                              const end = e.target.selectionEnd;
+                              const val = e.target.value;
+                              const newVal = val.substring(0, start) + "    " + val.substring(end);
+                              handleCodeUpdate(newVal);
+                              setTimeout(() => {
+                                e.target.selectionStart = e.target.selectionEnd = start + 4;
+                              }, 0);
+                            }
+                          }}
+                          spellCheck="false"
+                          autoCapitalize="off"
+                          autoComplete="off"
+                          style={{
+                            width: "100%",
+                            padding: "16px",
+                            fontFamily: "'Fira Code', 'JetBrains Mono', Consolas, 'Courier New', monospace",
+                            fontSize: "13px",
+                            lineHeight: "1.6",
+                            background: "transparent",
+                            color: "#e2e8f0",
+                            border: "none",
+                            outline: "none",
+                            resize: "vertical"
+                          }}
+                        />
+                      </div>
+
+                      {/* Output Console & Test Cases Panel */}
+                      <div style={{
+                        background: "#ffffff",
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: "8px",
+                        overflow: "hidden"
+                      }}>
+                        {/* Subtabs */}
+                        <div style={{
+                          display: "flex",
+                          background: "#f8fafc",
+                          borderBottom: "1px solid var(--border-subtle)",
+                          padding: "4px 8px",
+                          gap: "4px"
+                        }}>
+                          <button
+                            type="button"
+                            onClick={() => setCodingConsoleTab("sample")}
+                            style={{
+                              padding: "6px 12px",
+                              borderRadius: "6px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                              border: "none",
+                              background: codingConsoleTab === "sample" ? "#ffffff" : "transparent",
+                              color: codingConsoleTab === "sample" ? "var(--accent-blue)" : "var(--text-secondary)",
+                              boxShadow: codingConsoleTab === "sample" ? "0 1px 2px rgba(0,0,0,0.06)" : "none"
+                            }}
+                          >
+                            📋 Sample Cases ({(currentQ.content?.test_cases || []).filter(c => !c.is_hidden).length})
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setCodingConsoleTab("custom")}
+                            style={{
+                              padding: "6px 12px",
+                              borderRadius: "6px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                              border: "none",
+                              background: codingConsoleTab === "custom" ? "#ffffff" : "transparent",
+                              color: codingConsoleTab === "custom" ? "var(--accent-blue)" : "var(--text-secondary)",
+                              boxShadow: codingConsoleTab === "custom" ? "0 1px 2px rgba(0,0,0,0.06)" : "none"
+                            }}
+                          >
+                            ⌨️ Custom Stdin
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setCodingConsoleTab("evaluation")}
+                            style={{
+                              padding: "6px 12px",
+                              borderRadius: "6px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                              border: "none",
+                              background: codingConsoleTab === "evaluation" ? "#ffffff" : "transparent",
+                              color: codingConsoleTab === "evaluation" ? "var(--accent-blue)" : "var(--text-secondary)",
+                              boxShadow: codingConsoleTab === "evaluation" ? "0 1px 2px rgba(0,0,0,0.06)" : "none"
+                            }}
+                          >
+                            📊 Full Suite Evaluation
+                          </button>
+                        </div>
+
+                        {/* Console Body */}
+                        <div style={{ padding: "16px" }}>
+                          {/* TAB 1: Sample Cases */}
+                          {codingConsoleTab === "sample" && (
+                            <div>
+                              <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "8px" }}>
+                                Sample Cases Available for Debugging:
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                                {(currentQ.content?.test_cases || []).filter(c => !c.is_hidden).map((tc, idx) => (
+                                  <div key={idx} style={{ padding: "10px 12px", background: "#f8fafc", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px", fontSize: "11px" }}>
+                                      <strong style={{ color: "#0f172a" }}>Sample #{idx + 1}</strong>
+                                      {tc.explanation && <span style={{ color: "var(--text-muted)" }}>{tc.explanation}</span>}
+                                    </div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "11px", fontFamily: "monospace" }}>
+                                      <div>
+                                        <span style={{ color: "#64748b", display: "block" }}>Input:</span>
+                                        <pre style={{ margin: 0, padding: "4px 6px", background: "#ffffff", borderRadius: "4px", border: "1px solid #cbd5e1" }}>{tc.input || "(empty)"}</pre>
+                                      </div>
+                                      <div>
+                                        <span style={{ color: "#64748b", display: "block" }}>Expected Output:</span>
+                                        <pre style={{ margin: 0, padding: "4px 6px", background: "#ffffff", borderRadius: "4px", border: "1px solid #cbd5e1" }}>{tc.expected_output}</pre>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {codingExecution.result && (
+                                <div style={{ marginTop: "14px", paddingTop: "12px", borderTop: "1px dashed #e2e8f0" }}>
+                                  <div style={{ fontSize: "12px", fontWeight: "700", marginBottom: "6px" }}>Execution Output:</div>
+                                  <pre style={{
+                                    margin: 0,
+                                    padding: "10px",
+                                    borderRadius: "6px",
+                                    fontFamily: "monospace",
+                                    fontSize: "12px",
+                                    background: codingExecution.result.status === "runtime_error" ? "#fef2f2" : "#f1f5f9",
+                                    color: codingExecution.result.status === "runtime_error" ? "#dc2626" : "#0f172a",
+                                    border: "1px solid #cbd5e1",
+                                    maxHeight: "140px",
+                                    overflowY: "auto"
+                                  }}>
+                                    {codingExecution.result.stdout || codingExecution.result.stderr || "(no output)"}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* TAB 2: Custom Stdin */}
+                          {codingConsoleTab === "custom" && (
+                            <div>
+                              <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
+                                Custom Input (stdin):
+                              </label>
+                              <textarea
+                                rows={3}
+                                value={codingCustomInput}
+                                onChange={(e) => setCodingCustomInput(e.target.value)}
+                                placeholder="Enter custom inputs separated by spaces or newlines..."
+                                style={{ width: "100%", padding: "8px", fontFamily: "monospace", fontSize: "12px", borderRadius: "6px", border: "1px solid var(--border-subtle)", marginBottom: "10px" }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleRunCodeSandbox(false)}
+                                disabled={codingExecution.running}
+                                className="btn-secondary"
+                                style={{ fontSize: "12px", height: "34px" }}
+                              >
+                                {codingExecution.running ? "Executing..." : "Run with Custom Stdin"}
+                              </button>
+
+                              {codingExecution.result && (
+                                <div style={{ marginTop: "12px" }}>
+                                  <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b", display: "block", marginBottom: "4px" }}>Execution Output:</span>
+                                  <pre style={{ margin: 0, padding: "8px", borderRadius: "6px", background: "#f8fafc", border: "1px solid #cbd5e1", fontSize: "12px", fontFamily: "monospace" }}>
+                                    {codingExecution.result.stdout || codingExecution.result.stderr || "(no output)"}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* TAB 3: Full Evaluation Suite */}
+                          {codingConsoleTab === "evaluation" && (
+                            <div>
+                              {codingExecution.result?.results ? (
+                                <div>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                      <span style={{
+                                        padding: "4px 10px",
+                                        borderRadius: "6px",
+                                        fontSize: "12px",
+                                        fontWeight: "800",
+                                        background: codingExecution.result.all_passed ? "#d1fae5" : "#fee2e2",
+                                        color: codingExecution.result.all_passed ? "#059669" : "#dc2626"
+                                      }}>
+                                        {codingExecution.result.all_passed ? "✓ All Test Cases Passed" : "✗ Some Test Cases Failed"}
+                                      </span>
+                                      <span style={{ fontSize: "12px", fontWeight: "700" }}>
+                                        Score: {codingExecution.result.score_percentage}% ({codingExecution.result.passed_count}/{codingExecution.result.total_count})
+                                      </span>
+                                    </div>
+                                    <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                                      Total Latency: {codingExecution.result.total_time_ms}ms
+                                    </span>
+                                  </div>
+
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                                    {codingExecution.result.results.map((r, rIdx) => (
+                                      <div
+                                        key={rIdx}
+                                        style={{
+                                          padding: "8px 12px",
+                                          borderRadius: "6px",
+                                          display: "flex",
+                                          justifyContent: "space-between",
+                                          alignItems: "center",
+                                          background: r.passed ? "#f0fdf4" : "#fef2f2",
+                                          border: r.passed ? "1px solid #bbf7d0" : "1px solid #fecaca",
+                                          fontSize: "12px"
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                          <span>{r.passed ? "🟢" : "🔴"}</span>
+                                          <strong>Test Case #{r.case_number}</strong>
+                                          <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                                            {r.is_hidden ? "(Hidden Evaluation)" : "(Sample Case)"}
+                                          </span>
+                                        </div>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                          <span style={{
+                                            fontWeight: "800",
+                                            textTransform: "uppercase",
+                                            fontSize: "10px",
+                                            color: r.passed ? "#15803d" : "#b91c1c"
+                                          }}>
+                                            {r.status.replace("_", " ")}
+                                          </span>
+                                          <span style={{ fontSize: "11px", color: "#64748b" }}>
+                                            {r.execution_time_ms}ms
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div style={{ textAlign: "center", padding: "20px", color: "var(--text-muted)", fontSize: "13px" }}>
+                                  Click <strong>"🚀 Submit Solution"</strong> to run your code against the complete test case suite.
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
