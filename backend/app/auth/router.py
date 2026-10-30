@@ -9,7 +9,8 @@ from app.core.security import (
     create_user_session, revoke_user_session,
     get_current_user,
 )
-from app.models import User, OrganizationMember, Organization, UserSession
+from app.models import User, OrganizationMember, Organization, UserSession, OrganizationInvite
+from app.core.email import send_welcome_joined_org_email
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -20,6 +21,8 @@ class RegisterRequest(BaseModel):
     full_name: str
     organization_name: Optional[str] = None
     plan_id: Optional[str] = "free"
+    registration_type: Optional[str] = "create_org"  # "create_org" | "join_org"
+    invite_code: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -34,6 +37,7 @@ class TokenResponse(BaseModel):
     email: str
     full_name: str
     is_superadmin: bool = False
+    admin_role: Optional[str] = None
     organization_id: Optional[str] = None
     organization_slug: Optional[str] = None
     organization_name: Optional[str] = None
@@ -46,47 +50,145 @@ class UserProfileResponse(BaseModel):
     full_name: str
     status: str
     is_superadmin: bool = False
+    admin_role: Optional[str] = None
     memberships: List[dict]
 
 
 @router.post("/register", response_model=TokenResponse)
 def register(req: RegisterRequest, request: Request, db: Session = Depends(get_db)):
     from app.models import Subscription
-    existing = db.query(User).filter(User.email == req.email.lower()).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email is already registered. Please sign in.")
 
-    user = User(
-        email=req.email.lower(),
-        password_hash=get_password_hash(req.password),
-        full_name=req.full_name
-    )
-    db.add(user)
-    db.flush()
+    # MODE 1: JOIN AN EXISTING ORGANIZATION VIA INVITE CODE
+    if req.registration_type == "join_org":
+        if not req.invite_code or not req.invite_code.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Organization invite code is required to join an existing organization."
+            )
 
-    org_name = req.organization_name or f"{req.full_name}'s Academy"
-    plan_code = req.plan_id or "free"
+        clean_code = req.invite_code.strip().lower().replace("org-", "")
+        org = db.query(Organization).filter(
+            (Organization.slug == clean_code) |
+            (Organization.id == clean_code) |
+            (Organization.slug == req.invite_code.strip().lower())
+        ).first()
 
-    slug = org_name.lower().replace(" ", "-")[:50]
-    existing_slug = db.query(Organization).filter(Organization.slug == slug).first()
-    if existing_slug:
-        slug = f"{slug}-{user.id[:6]}"
+        if not org:
+            raise HTTPException(
+                status_code=404,
+                detail="Invalid organization invite code. Please check the code with your institution administrator."
+            )
 
-    org = Organization(
-        name=org_name,
-        slug=slug,
-        plan_id=plan_code,
-        ai_generation_credits=2000 if plan_code == "institution" else 500 if plan_code == "creator_pro" else 20,
-        proctoring_attempts_quota=500 if plan_code == "institution" else 0
-    )
-    db.add(org)
-    db.flush()
+        # STRICT VERIFICATION: The registering email must be pre-authorized / invited by the organization owner!
+        invite = db.query(OrganizationInvite).filter(
+            OrganizationInvite.organization_id == org.id,
+            OrganizationInvite.email == req.email.lower()
+        ).first()
 
-    member = OrganizationMember(organization_id=org.id, user_id=user.id, role="owner")
-    db.add(member)
+        target_user = db.query(User).filter(User.email == req.email.lower()).first()
+        existing_membership = None
+        if target_user:
+            existing_membership = db.query(OrganizationMember).filter(
+                OrganizationMember.organization_id == org.id,
+                OrganizationMember.user_id == target_user.id
+            ).first()
 
-    sub = Subscription(organization_id=org.id, plan_id=plan_code, status="active")
-    db.add(sub)
+        if not invite and not existing_membership:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access Denied: The email '{req.email}' has not been invited by the owner of '{org.name}'. Please ask the organization owner to invite your email address first."
+            )
+
+        assigned_role = invite.role if invite else (existing_membership.role if existing_membership else "exam_author")
+
+        if target_user:
+            if target_user.password_hash and target_user.password_hash != "INVITED_PLACEHOLDER":
+                raise HTTPException(
+                    status_code=400,
+                    detail="This account is already registered. Please sign in to your existing account."
+                )
+            target_user.password_hash = get_password_hash(req.password)
+            target_user.full_name = req.full_name
+            user = target_user
+        else:
+            user = User(
+                email=req.email.lower(),
+                password_hash=get_password_hash(req.password),
+                full_name=req.full_name
+            )
+            db.add(user)
+            db.flush()
+
+        # Ensure membership is registered
+        member = db.query(OrganizationMember).filter(
+            OrganizationMember.organization_id == org.id,
+            OrganizationMember.user_id == user.id
+        ).first()
+        if not member:
+            member = OrganizationMember(organization_id=org.id, user_id=user.id, role=assigned_role)
+            db.add(member)
+        else:
+            member.role = assigned_role
+
+        if invite:
+            invite.status = "accepted"
+
+        # Dispatch welcome notification via SMTP mailer
+        try:
+            send_welcome_joined_org_email(
+                to_email=user.email,
+                org_name=org.name,
+                full_name=user.full_name,
+                role=member.role
+            )
+        except Exception:
+            pass
+
+    # MODE 2: CREATE A NEW ORGANIZATION (DEFAULT)
+    else:
+        existing = db.query(User).filter(User.email == req.email.lower()).first()
+        if existing:
+            if existing.password_hash == "INVITED_PLACEHOLDER":
+                existing.password_hash = get_password_hash(req.password)
+                existing.full_name = req.full_name
+                user = existing
+            else:
+                raise HTTPException(status_code=400, detail="Email is already registered. Please sign in.")
+        else:
+            user = User(
+                email=req.email.lower(),
+                password_hash=get_password_hash(req.password),
+                full_name=req.full_name
+            )
+            db.add(user)
+            db.flush()
+
+        org_name = req.organization_name or f"{req.full_name}'s Academy"
+        # Strict Policy: Never allot a paid plan during registration without payment approval!
+        # All newly registered organizations strictly start on the Free Starter tier.
+        # Paid tiers (creator_pro, institution) require UPI payment submission and SuperAdmin approval.
+        initial_plan = "free"
+
+        slug = org_name.lower().replace(" ", "-")[:50]
+        existing_slug = db.query(Organization).filter(Organization.slug == slug).first()
+        if existing_slug:
+            slug = f"{slug}-{user.id[:6]}"
+
+        org = Organization(
+            name=org_name,
+            slug=slug,
+            plan_id=initial_plan,
+            ai_generation_credits=20,
+            proctoring_attempts_quota=0
+        )
+        db.add(org)
+        db.flush()
+
+        member = OrganizationMember(organization_id=org.id, user_id=user.id, role="owner")
+        db.add(member)
+
+        sub = Subscription(organization_id=org.id, plan_id=initial_plan, status="active")
+        db.add(sub)
 
     # Persist a revocable server-side session
     ip = request.client.host if request.client else None
@@ -111,10 +213,11 @@ def register(req: RegisterRequest, request: Request, db: Session = Depends(get_d
         "email": user.email,
         "full_name": user.full_name,
         "is_superadmin": user.is_superadmin,
+        "admin_role": getattr(user, "admin_role", "platform_admin") if user.is_superadmin else None,
         "organization_id": org.id,
         "organization_slug": org.slug,
-        "organization_name": org_name,
-        "plan_id": plan_code
+        "organization_name": org.name,
+        "plan_id": org.plan_id or "free"
     }
 
 
@@ -159,6 +262,7 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
         "email": user.email,
         "full_name": user.full_name,
         "is_superadmin": user.is_superadmin,
+        "admin_role": getattr(user, "admin_role", "platform_admin") if user.is_superadmin else None,
         "organization_id": org_id,
         "organization_slug": org_slug,
         "organization_name": org_name,
@@ -200,6 +304,7 @@ def get_profile(current_user: User = Depends(get_current_user), db: Session = De
         "full_name": current_user.full_name,
         "status": current_user.status,
         "is_superadmin": current_user.is_superadmin,
+        "admin_role": getattr(current_user, "admin_role", "platform_admin") if current_user.is_superadmin else None,
         "memberships": membership_data
     }
 

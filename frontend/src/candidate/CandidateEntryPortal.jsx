@@ -7,9 +7,9 @@ import NumericalKeypad from "./NumericalKeypad";
 import QuestionPalette from "./QuestionPalette";
 
 export default function CandidateEntryPortal({
-  initialExamSlug = "allen-kota-mock",
-  initialUid = "LUN-AIR-2026",
-  initialPin = "2026",
+  initialExamSlug = "",
+  initialUid = "",
+  initialPin = "",
   onExit
 }) {
   const { slug } = useParams();
@@ -552,7 +552,7 @@ export default function CandidateEntryPortal({
                   className="lunaris-input"
                   value={examSlug}
                   onChange={(e) => setExamSlug(e.target.value)}
-                  placeholder="allen-kota-mock"
+                  placeholder="e.g. jee-main-test or entrance-exam"
                   required
                 />
               </div>

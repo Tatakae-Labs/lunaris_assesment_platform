@@ -149,44 +149,28 @@ function AppRoutes() {
           />
         }
       />
-      <Route
-        path="/join"
-        element={
-          <PublicWebsite
-            initialTab="join_org"
-            currentUser={currentUser}
-            currentOrg={currentOrg}
-            onLogout={handleLogout}
-            onLoginSuccess={handleLoginSuccess}
-          />
-        }
-      />
-      <Route
-        path="/security"
-        element={
-          <PublicWebsite
-            initialTab="security"
-            currentUser={currentUser}
-            currentOrg={currentOrg}
-            onLogout={handleLogout}
-            onLoginSuccess={handleLoginSuccess}
-          />
-        }
-      />
+      <Route path="/join" element={<Navigate to="/" replace />} />
+      <Route path="/security" element={<Navigate to="/" replace />} />
 
-      {/* 2. Creator / Organization Dashboard Route */}
+      {/* 2. Creator / Organization Dashboard Route (Requires Authenticated Login) */}
       <Route
         path="/dashboard"
         element={
-          <OrgDashboard
-            currentUser={currentUser}
-            currentOrg={currentOrg}
-            onLogout={handleLogout}
-            onExitToPublic={() => navigate("/")}
-            onOpenProctorConsole={() => navigate("/proctor")}
-            onTakeExam={(slug, uid, pin) => navigate(`/exam/${slug}?uid=${uid}&pin=${pin}`)}
-            onTakeQuickQuiz={(roomCode) => navigate(`/quiz/${roomCode}`)}
-          />
+          !currentUser ? (
+            <Navigate to="/login" replace />
+          ) : currentUser?.is_superadmin ? (
+            <Navigate to="/admin" replace />
+          ) : (
+            <OrgDashboard
+              currentUser={currentUser}
+              currentOrg={currentOrg}
+              onLogout={handleLogout}
+              onExitToPublic={() => navigate("/")}
+              onOpenProctorConsole={() => navigate("/proctor")}
+              onTakeExam={(slug, uid, pin) => navigate(`/exam/${slug}?uid=${uid}&pin=${pin}`)}
+              onTakeQuickQuiz={(roomCode) => navigate(`/quiz/${roomCode}`)}
+            />
+          )
         }
       />
 
@@ -208,27 +192,36 @@ function AppRoutes() {
         }
       />
 
-      {/* 4. Live Proctor Monitoring Console Route */}
+      {/* 4. Live Proctor Monitoring Console Route (Requires Login) */}
       <Route
         path="/proctor"
         element={
-          <ProctorConsoleWrapper
-            currentOrg={currentOrg}
-            onBack={() => navigate("/dashboard")}
-          />
+          !currentUser ? (
+            <Navigate to="/login" replace />
+          ) : (
+            <ProctorConsoleWrapper
+              currentOrg={currentOrg}
+              onBack={() => navigate(currentUser?.is_superadmin ? "/admin" : "/dashboard")}
+            />
+          )
         }
       />
 
-      {/* 5. Platform SuperAdmin Portal Route */}
+      {/* 5. Platform SuperAdmin Portal Route (Strictly Requires Admin Login) */}
       <Route
         path="/admin"
         element={
-          <PlatformAdminPortal
-            currentUser={currentUser}
-            onLogout={handleLogout}
-            onExit={() => navigate("/")}
-            onNavigateToDashboard={() => navigate("/dashboard")}
-          />
+          !currentUser ? (
+            <Navigate to="/login" replace />
+          ) : !currentUser?.is_superadmin ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <PlatformAdminPortal
+              currentUser={currentUser}
+              onLogout={handleLogout}
+              onExit={() => navigate("/")}
+            />
+          )
         }
       />
 
@@ -281,7 +274,7 @@ function ProctorConsoleWrapper({ currentOrg, onBack }) {
         </span>
       </div>
       <LiveProctorDashboard
-        organizationId={currentOrg?.id || currentOrg?.slug || "allen-kota-mock"}
+        organizationId={currentOrg?.id || currentOrg?.slug || ""}
       />
     </div>
   );

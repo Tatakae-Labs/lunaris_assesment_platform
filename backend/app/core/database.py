@@ -63,9 +63,13 @@ def auto_migrate_sqlite(engine_instance):
             ("subscriptions", "grace_period_end", "TIMESTAMP"),
             ("attempt_answers", "sequence_number", "INTEGER DEFAULT 1"),
             ("exam_enrollments", "access_pin_hash", "VARCHAR(255)"),
+            ("organizations", "features_json", "TEXT DEFAULT '{}'"),
+            ("organizations", "properties_json", "TEXT DEFAULT '{}'"),
+            ("users", "admin_role", "VARCHAR(50) DEFAULT 'platform_admin'"),
         ]
 
         with engine_instance.connect() as conn:
+            conn.execute(text("CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(100) PRIMARY KEY, value_json TEXT NOT NULL, updated_at TIMESTAMP)"))
             for table, col, col_def in column_patches:
                 if table in table_names:
                     cols = [c["name"] for c in inspector.get_columns(table)]

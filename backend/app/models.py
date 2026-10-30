@@ -7,6 +7,26 @@ from app.core.database import Base, generate_uuid
 def utcnow():
     return datetime.now(timezone.utc)
 
+DEFAULT_ORG_SERVICES = {
+    "ai_studio": True,
+    "live_proctoring": True,
+    "proctor_console": True,
+    "quick_quiz": True,
+    "bulk_enrollment": True,
+    "pdf_import": True,
+    "detailed_analytics": True,
+    "advanced_scoring": True,
+}
+
+DEFAULT_ORG_PROPERTIES = {
+    "allow_self_registration": True,
+    "require_webcam_preflight": True,
+    "strict_lockdown": True,
+    "max_concurrent_sessions": 250,
+    "watermark_text": "LUNARIS ASSESSMENT",
+    "external_lms_sync": False,
+}
+
 class Organization(Base):
     __tablename__ = "organizations"
 
@@ -17,11 +37,41 @@ class Organization(Base):
     status = Column(String(50), default="active")  # active, suspended
     ai_generation_credits = Column(Integer, default=50)
     proctoring_attempts_quota = Column(Integer, default=25)
+    features_json = Column(Text, default="{}")
+    properties_json = Column(Text, default="{}")
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     members = relationship("OrganizationMember", back_populates="organization", cascade="all, delete-orphan")
     exams = relationship("Exam", back_populates="organization", cascade="all, delete-orphan")
     question_banks = relationship("QuestionBank", back_populates="organization", cascade="all, delete-orphan")
+
+    def get_services(self) -> dict:
+        try:
+            stored = json.loads(self.features_json) if self.features_json else {}
+        except Exception:
+            stored = {}
+        merged = DEFAULT_ORG_SERVICES.copy()
+        merged.update(stored)
+        return merged
+
+    def set_services(self, services: dict):
+        self.features_json = json.dumps(services)
+
+    def is_service_enabled(self, service_key: str) -> bool:
+        services = self.get_services()
+        return bool(services.get(service_key, False))
+
+    def get_properties(self) -> dict:
+        try:
+            stored = json.loads(self.properties_json) if self.properties_json else {}
+        except Exception:
+            stored = {}
+        merged = DEFAULT_ORG_PROPERTIES.copy()
+        merged.update(stored)
+        return merged
+
+    def set_properties(self, props: dict):
+        self.properties_json = json.dumps(props)
 
 
 class User(Base):
@@ -33,6 +83,7 @@ class User(Base):
     full_name = Column(String(255), nullable=False)
     status = Column(String(50), default="active")
     is_superadmin = Column(Boolean, default=False)
+    admin_role = Column(String(50), default="platform_admin", nullable=True)  # superadmin (primary sole owner), platform_admin, platform_auditor, platform_support
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     memberships = relationship("OrganizationMember", back_populates="user", cascade="all, delete-orphan")
@@ -50,6 +101,21 @@ class OrganizationMember(Base):
 
     organization = relationship("Organization", back_populates="members")
     user = relationship("User", back_populates="memberships")
+
+
+class OrganizationInvite(Base):
+    __tablename__ = "organization_invites"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    role = Column(String(50), default="exam_author")
+    invited_by_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    status = Column(String(50), default="pending")  # pending, accepted, revoked
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    organization = relationship("Organization")
+    invited_by = relationship("User")
 
 
 class QuestionBank(Base):
@@ -234,6 +300,15 @@ class UsageLedger(Base):
     quantity = Column(Integer, default=1)
     reference_id = Column(String(255), nullable=True)
     recorded_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class SystemSetting(Base):
+    """Platform-wide dynamic system and gateway settings."""
+    __tablename__ = "system_settings"
+
+    key = Column(String(100), primary_key=True)
+    value_json = Column(Text, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
 
 
 class ExamEnrollment(Base):

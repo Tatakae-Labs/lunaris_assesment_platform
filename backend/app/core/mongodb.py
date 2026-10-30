@@ -12,8 +12,9 @@ from pymongo.collection import Collection
 from app.core.config import settings
 
 _mongo_client: Optional[MongoClient] = None
+_last_failed_time: float = 0.0
+_FAILED_RETRY_INTERVAL: float = 30.0
 
-# Platform Collections
 COLLECTIONS = [
     "organizations",
     "users",
@@ -39,20 +40,26 @@ COLLECTIONS = [
     "candidate_sessions"
 ]
 
-
 def get_mongo_client() -> Optional[MongoClient]:
-    """Returns singleton MongoDB client with fail-fast timeouts."""
-    global _mongo_client
+    """Returns singleton MongoDB client with fail-fast timeouts and failure caching."""
+    global _mongo_client, _last_failed_time
+    if not getattr(settings, "MONGODB_ENABLED", True):
+        return None
+
+    now = time.time()
     if _mongo_client is None:
+        if now - _last_failed_time < _FAILED_RETRY_INTERVAL:
+            return None
         try:
             _mongo_client = MongoClient(
                 settings.MONGODB_URL,
-                serverSelectionTimeoutMS=2000,
-                connectTimeoutMS=2000
+                serverSelectionTimeoutMS=1000,
+                connectTimeoutMS=1000
             )
             # Test connectivity
             _mongo_client.admin.command("ping")
         except Exception as exc:
+            _last_failed_time = now
             print(f"MongoDB connection notice: {exc}")
             _mongo_client = None
     return _mongo_client
@@ -95,6 +102,15 @@ def upsert_document(collection_name: str, doc_id: str, doc: Dict[str, Any]) -> b
         doc_copy = dict(doc)
         doc_copy["_id"] = str(doc_id)
         doc_copy["updated_at_mongo"] = time.time()
+        # Avoid duplicate key conflicts if a unique key exists under a stale document
+        if collection_name == "users" and doc_copy.get("email"):
+            stale = coll.find_one({"email": doc_copy["email"]})
+            if stale and str(stale.get("_id")) != str(doc_id):
+                coll.delete_one({"_id": stale["_id"]})
+        elif collection_name == "organizations" and doc_copy.get("slug"):
+            stale = coll.find_one({"slug": doc_copy["slug"]})
+            if stale and str(stale.get("_id")) != str(doc_id):
+                coll.delete_one({"_id": stale["_id"]})
         coll.replace_one({"_id": str(doc_id)}, doc_copy, upsert=True)
         return True
     except Exception as exc:

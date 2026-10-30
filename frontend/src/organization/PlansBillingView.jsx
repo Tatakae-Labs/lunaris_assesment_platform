@@ -5,12 +5,29 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
-  const [selectedPlanCode, setSelectedPlanCode] = useState(currentPlanId || "institution");
+  const [selectedPlanCode, setSelectedPlanCode] = useState(currentPlanId || "free");
   const [alertMsg, setAlertMsg] = useState(null);
+
+  // UPI Checkout Modal State
+  const [checkoutPlan, setCheckoutPlan] = useState(null);
+  const [checkoutInfo, setCheckoutInfo] = useState(null);
+  const [loadingCheckout, setLoadingCheckout] = useState(false);
+  const [utrNumber, setUtrNumber] = useState("");
+  const [payerVpa, setPayerVpa] = useState("");
+  const [submittingUpi, setSubmittingUpi] = useState(false);
+  const [copiedUpi, setCopiedUpi] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  // Payments History State
+  const [myPayments, setMyPayments] = useState([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
 
   useEffect(() => {
     loadPlans();
-  }, []);
+    if (organizationId) {
+      loadMyPayments();
+    }
+  }, [organizationId]);
 
   async function loadPlans() {
     setLoading(true);
@@ -24,18 +41,100 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
     }
   }
 
-  async function handleSubscribe(planCode) {
-    setSubscribing(true);
-    setAlertMsg(null);
+  async function loadMyPayments() {
+    if (!organizationId) return;
+    setLoadingPayments(true);
     try {
-      const res = await api.subscribePlan(organizationId, planCode);
-      setSelectedPlanCode(planCode);
-      setAlertMsg(`✓ Success: Activated ${res.plan.name} plan for this organization!`);
+      const res = await api.getOrgPayments(organizationId);
+      setMyPayments(res || []);
+    } catch (err) {
+      console.error("Failed to load organization payments:", err);
+    } finally {
+      setLoadingPayments(false);
+    }
+  }
+
+  async function handleSelectPlan(plan) {
+    if (plan.price_inr === 0) {
+      // Free Starter plan can be activated directly
+      setSubscribing(true);
+      setAlertMsg(null);
+      try {
+        const res = await api.subscribePlan(organizationId, plan.code || plan.id);
+        setSelectedPlanCode(plan.code || plan.id);
+        setAlertMsg(`✓ Success: Activated ${res.plan.name} plan for this organization!`);
+        if (onPlanChanged) onPlanChanged();
+      } catch (err) {
+        alert("Subscription update failed: " + err.message);
+      } finally {
+        setSubscribing(false);
+      }
+    } else {
+      // Paid plan -> open UPI Checkout Modal
+      openUpiModal(plan);
+    }
+  }
+
+  async function openUpiModal(plan) {
+    setCheckoutPlan(plan);
+    setLoadingCheckout(true);
+    setUtrNumber("");
+    setPayerVpa("");
+    setCopiedUpi(false);
+    setCopiedLink(false);
+    try {
+      const info = await api.getUpiCheckoutInfo(organizationId, plan.code || plan.id);
+      setCheckoutInfo(info);
+    } catch (err) {
+      alert("Failed to initialize UPI checkout: " + err.message);
+      setCheckoutPlan(null);
+    } finally {
+      setLoadingCheckout(false);
+    }
+  }
+
+  async function handleSubmitUpiPayment(e) {
+    e.preventDefault();
+    const cleanUtr = utrNumber.trim().toUpperCase();
+    if (!cleanUtr || cleanUtr.length < 6) {
+      alert("Please enter a valid 12-digit UTR or Transaction Reference number.");
+      return;
+    }
+
+    setSubmittingUpi(true);
+    try {
+      await api.submitUpiPayment({
+        organization_id: organizationId,
+        plan_id: checkoutPlan.code || checkoutPlan.id,
+        utr_number: cleanUtr,
+        amount_inr: checkoutInfo?.amount_inr || checkoutPlan.price_inr,
+        payer_vpa: payerVpa.trim(),
+        notes: `Subscription upgrade to ${checkoutPlan.name}`
+      });
+
+      setAlertMsg(`✓ UPI Payment with UTR ${cleanUtr} submitted successfully! Platform Administrator will verify the transaction.`);
+      setCheckoutPlan(null);
+      loadMyPayments();
       if (onPlanChanged) onPlanChanged();
     } catch (err) {
-      alert("Subscription update failed: " + err.message);
+      alert("Payment submission failed: " + err.message);
     } finally {
-      setSubscribing(false);
+      setSubmittingUpi(false);
+    }
+  }
+
+  function copyToClipboard(text, isLink = false) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text);
+      if (isLink) {
+        setCopiedLink(true);
+        setTimeout(() => setCopiedLink(false), 2500);
+      } else {
+        setCopiedUpi(true);
+        setTimeout(() => setCopiedUpi(false), 2500);
+      }
+    } else {
+      prompt("Copy to clipboard:", text);
     }
   }
 
@@ -49,7 +148,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
               💳 Commercial Plans & Resource Entitlements
             </h2>
             <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
-              Freemium self-service subscription model with server-enforced quotas. Upgrade or customize based on your testing volume.
+              Freemium self-service subscription model with server-enforced quotas. Instant UPI Gateway activation for fast onboarding.
             </p>
           </div>
           <div style={{
@@ -74,12 +173,12 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
       {/* Pricing Cards Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "20px" }}>
         {plans.map((p) => {
-          const isCurrent = p.code === selectedPlanCode;
-          const isPopular = p.code === "institution";
+          const isCurrent = (p.code || p.id) === selectedPlanCode;
+          const isPopular = (p.code || p.id) === "institution";
 
           return (
             <div
-              key={p.code}
+              key={p.code || p.id}
               className="dash-card"
               style={{
                 padding: "28px",
@@ -103,7 +202,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                   fontWeight: "800",
                   letterSpacing: "0.5px"
                 }}>
-                  RECOMMENDED FOR COACHING
+                  RECOMMENDED FOR INSTITUTES
                 </div>
               )}
 
@@ -129,42 +228,185 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                   <div style={{ fontSize: "12px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "12px" }}>
                     Included Capabilities:
                   </div>
-                  <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "10px", fontSize: "13px" }}>
-                    {p.features?.map((f, idx) => (
-                      <li key={idx} style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
-                        <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
-                        <span>{f}</span>
-                      </li>
-                    ))}
+                  <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "10px", fontSize: "13px", padding: 0 }}>
+                    <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span>Candidates Enrolled: <strong>{p.entitlements?.max_candidates ?? "Unlimited"}</strong></span>
+                    </li>
+                    <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span>Simultaneous Exams: <strong>{p.entitlements?.max_exams ?? "Unlimited"}</strong></span>
+                    </li>
+                    <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span>AI Question Studio: <strong>{p.entitlements?.ai_questions ?? "0"} credits</strong></span>
+                    </li>
+                    <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span>Proctored CBT Lockdown: <strong>{p.entitlements?.proctoring_enabled ? "Included" : "Disabled"}</strong></span>
+                    </li>
+                    <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span>Direct UPI Payment Gateway Instant Checkout</span>
+                    </li>
                   </ul>
                 </div>
               </div>
 
-              <button
-                type="button"
-                disabled={subscribing || isCurrent}
-                onClick={() => handleSubscribe(p.code)}
-                style={{
-                  width: "100%",
-                  padding: "10px 16px",
-                  borderRadius: "8px",
-                  fontSize: "14px",
-                  fontWeight: "700",
-                  background: isCurrent ? "var(--bg-secondary)" : isPopular ? "var(--accent-blue)" : "var(--text-primary)",
-                  color: isCurrent ? "var(--text-muted)" : "#ffffff",
-                  border: isCurrent ? "1px solid var(--border-subtle)" : "none",
-                  cursor: isCurrent ? "default" : "pointer",
-                  transition: "all 0.15s ease"
-                }}
-              >
-                {isCurrent ? "Current Active Plan" : subscribing ? "Activating..." : `Select ${p.name}`}
-              </button>
+              {isCurrent ? (
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <div style={{
+                    flex: 1,
+                    padding: "10px",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "700",
+                    background: "var(--accent-emerald-subtle)",
+                    color: "var(--accent-emerald)",
+                    textAlign: "center"
+                  }}>
+                    ✓ Active Tier
+                  </div>
+                  {p.price_inr > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectPlan(p)}
+                      style={{
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        background: "var(--bg-secondary)",
+                        border: "1px solid var(--border-subtle)",
+                        color: "var(--text-primary)",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Renew via UPI
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={subscribing}
+                  onClick={() => handleSelectPlan(p)}
+                  style={{
+                    width: "100%",
+                    padding: "12px 16px",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    fontWeight: "800",
+                    background: isPopular ? "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" : "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+                    color: "#ffffff",
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    boxShadow: isPopular ? "0 4px 12px rgba(37,99,235,0.3)" : "none"
+                  }}
+                >
+                  <span>⚡</span>
+                  <span>{p.price_inr === 0 ? "Select Free Plan" : `Purchase & Pay ₹${p.price_inr.toLocaleString("en-IN")} via UPI`}</span>
+                </button>
+              )}
             </div>
           );
         })}
       </div>
 
-      {/* Enterprise Add-ons Note */}
+      {/* ── UPI PAYMENT HISTORY & STATUS TABLE ── */}
+      <div className="dash-card" style={{ padding: "24px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
+          <div>
+            <h3 style={{ fontSize: "16px", fontWeight: "800", color: "var(--text-primary)" }}>
+              📋 UPI Payment Submissions & Verification Status
+            </h3>
+            <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px" }}>
+              Track the verification status of your 12-digit UTR payment submissions.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={loadMyPayments}
+            disabled={loadingPayments}
+            style={{ fontSize: "12px", padding: "6px 12px" }}
+          >
+            {loadingPayments ? "Refreshing..." : "🔄 Refresh Status"}
+          </button>
+        </div>
+
+        {myPayments.length === 0 ? (
+          <div style={{ padding: "32px", textAlign: "center", color: "var(--text-muted)", fontSize: "13px", background: "var(--bg-secondary)", borderRadius: "8px" }}>
+            No UPI payments submitted yet. Select a plan above to pay via UPI and submit your UTR reference.
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border-subtle)", textAlign: "left", color: "var(--text-muted)" }}>
+                  <th style={{ padding: "10px 12px" }}>Submission Date</th>
+                  <th style={{ padding: "10px 12px" }}>Plan</th>
+                  <th style={{ padding: "10px 12px" }}>Amount</th>
+                  <th style={{ padding: "10px 12px" }}>12-Digit UTR</th>
+                  <th style={{ padding: "10px 12px" }}>Verification Status</th>
+                  <th style={{ padding: "10px 12px" }}>Notes / Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {myPayments.map((p) => {
+                  const isApproved = p.status === "approved" || p.verified;
+                  const isRejected = p.status === "rejected";
+                  const isPending = !isApproved && !isRejected;
+
+                  return (
+                    <tr key={p.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                      <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>
+                        {p.submitted_at ? new Date(p.submitted_at).toLocaleString() : "Recently"}
+                      </td>
+                      <td style={{ padding: "10px 12px", fontWeight: "700", color: "var(--text-primary)" }}>
+                        {p.plan_name}
+                      </td>
+                      <td style={{ padding: "10px 12px", fontWeight: "800", color: "var(--text-primary)" }}>
+                        ₹{p.amount_inr?.toLocaleString("en-IN")}
+                      </td>
+                      <td style={{ padding: "10px 12px", fontFamily: "monospace", fontWeight: "700", color: "var(--text-primary)" }}>
+                        {p.utr_number}
+                      </td>
+                      <td style={{ padding: "10px 12px" }}>
+                        {isApproved && (
+                          <span style={{ padding: "4px 10px", background: "#dcfce7", color: "#166534", borderRadius: "12px", fontSize: "11px", fontWeight: "800" }}>
+                            ✓ Verified & Active
+                          </span>
+                        )}
+                        {isRejected && (
+                          <span style={{ padding: "4px 10px", background: "#fee2e2", color: "#991b1b", borderRadius: "12px", fontSize: "11px", fontWeight: "800" }}>
+                            ✕ Payment Rejected
+                          </span>
+                        )}
+                        {isPending && (
+                          <span style={{ padding: "4px 10px", background: "#fef3c7", color: "#92400e", borderRadius: "12px", fontSize: "11px", fontWeight: "800" }}>
+                            ⏳ Pending Admin Verification
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: "10px 12px", color: isRejected ? "#dc2626" : "var(--text-muted)", fontSize: "12px" }}>
+                        {p.rejection_reason || (isApproved ? "Approved by Platform Admin" : "Awaiting statement match")}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Enterprise Custom Add-ons Note */}
       <div className="dash-card" style={{ padding: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
         <div>
           <div style={{ fontWeight: "700", fontSize: "14px", color: "var(--text-primary)" }}>
@@ -176,7 +418,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
         </div>
         <button
           type="button"
-          onClick={() => alert("Enterprise sales inquiry logged for Allen Kota JEE Division!")}
+          onClick={() => alert("Enterprise sales inquiry logged! Our team will reach out to your registered organization email.")}
           style={{
             padding: "8px 16px",
             background: "var(--bg-secondary)",
@@ -190,6 +432,267 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
           Contact Enterprise Sales
         </button>
       </div>
+
+      {/* ── UPI CHECKOUT MODAL ── */}
+      {checkoutPlan && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0, 0, 0, 0.75)",
+          display: "grid",
+          placeItems: "center",
+          zIndex: 1000,
+          padding: "20px"
+        }}>
+          <div style={{
+            background: "var(--bg-primary, #ffffff)",
+            color: "var(--text-primary, #0f172a)",
+            width: "100%",
+            maxWidth: "520px",
+            borderRadius: "16px",
+            padding: "28px",
+            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+            border: "1px solid var(--border-subtle, #e2e8f0)",
+            position: "relative",
+            maxHeight: "90vh",
+            overflowY: "auto"
+          }}>
+            <button
+              type="button"
+              onClick={() => setCheckoutPlan(null)}
+              style={{
+                position: "absolute",
+                top: "16px",
+                right: "16px",
+                background: "transparent",
+                border: "none",
+                fontSize: "20px",
+                cursor: "pointer",
+                color: "var(--text-muted, #64748b)"
+              }}
+            >
+              ✕
+            </button>
+
+            <div style={{ textAlign: "center", marginBottom: "20px" }}>
+              <div style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+                background: "#eff6ff",
+                color: "#2563eb",
+                fontSize: "24px",
+                marginBottom: "10px"
+              }}>
+                💳
+              </div>
+              <h3 style={{ fontSize: "20px", fontWeight: "800" }}>Instant UPI Checkout</h3>
+              <p style={{ fontSize: "13px", color: "var(--text-secondary, #64748b)", marginTop: "4px" }}>
+                Pay for <strong>{checkoutPlan.name}</strong> via any Indian UPI App
+              </p>
+            </div>
+
+            {loadingCheckout ? (
+              <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)" }}>
+                Generating dynamic UPI link and payment QR code...
+              </div>
+            ) : checkoutInfo ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+                {/* Amount & Payee Badge */}
+                <div style={{
+                  background: "var(--bg-secondary, #f8fafc)",
+                  padding: "16px",
+                  borderRadius: "12px",
+                  border: "1px solid var(--border-subtle, #e2e8f0)",
+                  textAlign: "center"
+                }}>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted, #64748b)", textTransform: "uppercase", fontWeight: "700", letterSpacing: "0.5px" }}>
+                    Total Payable Amount
+                  </div>
+                  <div style={{ fontSize: "32px", fontWeight: "900", color: "#16a34a", margin: "4px 0" }}>
+                    ₹{checkoutInfo.amount_inr?.toLocaleString("en-IN")}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "var(--text-secondary, #64748b)" }}>
+                    Payee: <strong>{checkoutInfo.payee_name}</strong>
+                  </div>
+                </div>
+
+                {/* Direct Action 1: Mobile Instant Deep Link */}
+                <div>
+                  <a
+                    href={checkoutInfo.upi_uri}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "10px",
+                      width: "100%",
+                      padding: "12px 20px",
+                      background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                      color: "#ffffff",
+                      borderRadius: "8px",
+                      textDecoration: "none",
+                      fontSize: "14px",
+                      fontWeight: "800",
+                      boxShadow: "0 4px 12px rgba(37, 99, 235, 0.35)",
+                      cursor: "pointer",
+                      boxSizing: "border-box"
+                    }}
+                  >
+                    <span>⚡ Pay via UPI App (GPay / PhonePe / Paytm / BHIM)</span>
+                  </a>
+                  <div style={{ fontSize: "11px", color: "var(--text-muted, #64748b)", textAlign: "center", marginTop: "4px" }}>
+                    Tapping on mobile opens your installed UPI banking app directly.
+                  </div>
+                </div>
+
+                {/* QR Code Presentation */}
+                <div style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  padding: "16px",
+                  background: "#ffffff",
+                  borderRadius: "12px",
+                  border: "1px solid #e2e8f0"
+                }}>
+                  <div style={{ fontSize: "12px", fontWeight: "700", color: "#0f172a", marginBottom: "10px" }}>
+                    Or Scan QR Code with any Phone Camera / UPI App
+                  </div>
+                  <div style={{
+                    padding: "10px",
+                    background: "#ffffff",
+                    borderRadius: "8px",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                    border: "1px solid #f1f5f9"
+                  }}>
+                    <img
+                      src={checkoutInfo.qr_image_url}
+                      alt="UPI Payment QR Code"
+                      style={{ width: "180px", height: "180px", display: "block" }}
+                    />
+                  </div>
+                  <div style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "12px", color: "#475569", fontFamily: "monospace", fontWeight: "700" }}>
+                      UPI ID: {checkoutInfo.upi_id}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(checkoutInfo.upi_id)}
+                      style={{
+                        padding: "3px 8px",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        background: "#f1f5f9",
+                        border: "1px solid #cbd5e1",
+                        borderRadius: "4px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      {copiedUpi ? "✓ Copied" : "📋 Copy"}
+                    </button>
+                  </div>
+                  <div style={{ marginTop: "6px" }}>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(checkoutInfo.upi_uri, true)}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "#2563eb",
+                        fontSize: "11px",
+                        cursor: "pointer",
+                        textDecoration: "underline"
+                      }}
+                    >
+                      {copiedLink ? "✓ Payment Link Copied!" : "Copy raw UPI payment link (upi://pay?...)"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Step 3: Submit 12-digit UTR Verification */}
+                <form onSubmit={handleSubmitUpiPayment} style={{ borderTop: "1px solid var(--border-subtle, #e2e8f0)", paddingTop: "18px" }}>
+                  <div style={{ fontSize: "13px", fontWeight: "800", marginBottom: "4px" }}>
+                    Step 2: Enter 12-Digit UTR / Transaction Reference
+                  </div>
+                  <p style={{ fontSize: "11px", color: "var(--text-secondary, #64748b)", marginBottom: "12px" }}>
+                    After completing payment in PhonePe/GPay/Paytm, find the 12-digit UTR/Ref No. in the payment details and paste it below.
+                  </p>
+
+                  <div style={{ marginBottom: "12px" }}>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
+                      12-Digit UPI Reference Number (UTR) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={utrNumber}
+                      onChange={(e) => setUtrNumber(e.target.value)}
+                      placeholder="e.g. 429182749102"
+                      maxLength={32}
+                      style={{
+                        width: "100%",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--border-subtle, #cbd5e1)",
+                        fontSize: "14px",
+                        fontFamily: "monospace",
+                        fontWeight: "700",
+                        letterSpacing: "1px",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: "16px" }}>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
+                      Your UPI ID / Payer VPA (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={payerVpa}
+                      onChange={(e) => setPayerVpa(e.target.value)}
+                      placeholder="e.g. yourname@okhdfcbank"
+                      style={{
+                        width: "100%",
+                        padding: "8px 12px",
+                        borderRadius: "6px",
+                        border: "1px solid var(--border-subtle, #cbd5e1)",
+                        fontSize: "13px",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submittingUpi || !utrNumber.trim()}
+                    style={{
+                      width: "100%",
+                      padding: "12px",
+                      borderRadius: "8px",
+                      background: "#16a34a",
+                      color: "#ffffff",
+                      border: "none",
+                      fontSize: "14px",
+                      fontWeight: "800",
+                      cursor: submittingUpi || !utrNumber.trim() ? "not-allowed" : "pointer",
+                      boxShadow: "0 4px 12px rgba(22, 163, 74, 0.3)"
+                    }}
+                  >
+                    {submittingUpi ? "Submitting Verification..." : "✓ Submit Payment for Verification"}
+                  </button>
+                </form>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

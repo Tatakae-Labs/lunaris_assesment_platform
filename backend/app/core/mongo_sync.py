@@ -180,6 +180,15 @@ def bulk_sync_sqlite_to_mongodb(db: Session) -> Dict[str, int]:
                 if doc_id:
                     doc = model_to_dict(item)
                     doc["_id"] = doc_id
+                    # Clean up any stale documents that hold the same unique keys under different IDs
+                    if coll_name == "users" and doc.get("email"):
+                        stale = coll.find_one({"email": doc["email"]})
+                        if stale and stale.get("_id") != doc_id:
+                            coll.delete_one({"_id": stale["_id"]})
+                    elif coll_name == "organizations" and doc.get("slug"):
+                        stale = coll.find_one({"slug": doc["slug"]})
+                        if stale and stale.get("_id") != doc_id:
+                            coll.delete_one({"_id": stale["_id"]})
                     coll.replace_one({"_id": doc_id}, doc, upsert=True)
                     count += 1
             summary[coll_name] = count

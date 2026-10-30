@@ -4,7 +4,8 @@ import { api } from "../shared/api";
 export default function ExamCreationWizard({
   organizationId,
   onClose,
-  onExamCreated
+  onExamCreated,
+  onNavigateToBilling
 }) {
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -436,6 +437,50 @@ export default function ExamCreationWizard({
                   </p>
                 </div>
               </div>
+
+              {mode === "proctored_cbt" && proctoringRestricted && (
+                <div style={{
+                  marginTop: "16px",
+                  padding: "14px 18px",
+                  background: "#fff1f2",
+                  border: "1px solid #fecdd3",
+                  borderRadius: "8px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "12px",
+                  flexWrap: "wrap"
+                }}>
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: "800", color: "#9f1239" }}>
+                      🔒 Proctored CBT Mode Requires Institution Tier (₹1,999/mo)
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#be123c", marginTop: "2px" }}>
+                      Your current plan does not include on-device webcam & tab-lockdown telemetry.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onNavigateToBilling) onNavigateToBilling();
+                      else if (onClose) onClose();
+                    }}
+                    style={{
+                      padding: "8px 16px",
+                      background: "#e11d48",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "800",
+                      cursor: "pointer",
+                      boxShadow: "0 2px 6px rgba(225, 29, 72, 0.3)"
+                    }}
+                  >
+                    ⚡ Pay ₹1,999 via UPI to Enable →
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -786,11 +831,26 @@ export default function ExamCreationWizard({
                   </p>
                   <button
                     type="button"
-                    className="btn-primary"
-                    onClick={() => alert("Redirecting to subscription billing...")}
-                    style={{ fontSize: "13px" }}
+                    onClick={() => {
+                      if (onNavigateToBilling) onNavigateToBilling();
+                      else if (onClose) onClose();
+                    }}
+                    style={{
+                      fontSize: "13px",
+                      padding: "10px 20px",
+                      background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "8px",
+                      fontWeight: "800",
+                      cursor: "pointer",
+                      boxShadow: "0 2px 8px rgba(16, 185, 129, 0.35)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px"
+                    }}
                   >
-                    Upgrade Plan in Billing →
+                    ⚡ Open UPI Checkout & Upgrade Plan →
                   </button>
                 </div>
               ) : (

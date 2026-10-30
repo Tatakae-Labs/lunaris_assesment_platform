@@ -4,7 +4,8 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from app.core.database import get_db
 from app.auth.router import get_current_user
-from app.models import User, Organization, OrganizationMember
+from app.models import User, Organization, OrganizationMember, OrganizationInvite
+from app.core.email import send_organization_invite_email
 
 router = APIRouter(prefix="/organizations", tags=["Organizations"])
 
@@ -59,11 +60,38 @@ def get_my_organizations(
             "id": org.id,
             "name": org.name,
             "slug": org.slug,
-            "plan_id": org.plan_id,
-            "role": role
+            "status": org.status,
+            "plan_id": org.plan_id or "free",
+            "role": role,
+            "services": org.get_services(),
+            "properties": org.get_properties(),
+            "ai_generation_credits": org.ai_generation_credits,
+            "proctoring_quota": org.proctoring_attempts_quota
         }
         for org, role in results
     ]
+
+@router.get("/{org_id}/services")
+def get_organization_services(
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    return {
+        "organization_id": org.id,
+        "organization_name": org.name,
+        "organization_slug": org.slug,
+        "status": org.status,
+        "plan_id": org.plan_id or "free",
+        "services": org.get_services(),
+        "properties": org.get_properties(),
+        "ai_generation_credits": org.ai_generation_credits,
+        "proctoring_quota": org.proctoring_attempts_quota
+    }
 
 @router.get("/{org_id}/invite-code")
 def get_org_invite_code(
@@ -170,14 +198,41 @@ def invite_member(
         )
         db.add(new_member)
 
+    # Record or update invitation audit
+    invite = db.query(OrganizationInvite).filter(
+        OrganizationInvite.organization_id == org.id,
+        OrganizationInvite.email == req.email.lower()
+    ).first()
+    if not invite:
+        invite = OrganizationInvite(
+            organization_id=org.id,
+            email=req.email.lower(),
+            role=req.role,
+            invited_by_id=current_user.id,
+            status="pending"
+        )
+        db.add(invite)
+    else:
+        invite.role = req.role
+        invite.status = "pending"
+
     db.commit()
     code = f"ORG-{org.slug.upper()}"
+
+    # Dispatch invite email via SMTP mailer
+    mail_result = send_organization_invite_email(
+        to_email=req.email.lower(),
+        org_name=org.name,
+        invite_code=code,
+        inviter_name=current_user.full_name or "Organization Administrator"
+    )
+
     return {
         "message": f"Invitation dispatched to {req.email} for role {req.role}",
         "email": req.email,
         "role": req.role,
         "invite_code": code,
-        "delivery_status": "sent"
+        "delivery_status": mail_result.get("status", "sent")
     }
 
 @router.get("/{org_id}/members")

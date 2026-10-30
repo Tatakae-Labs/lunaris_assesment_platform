@@ -88,6 +88,12 @@ def generate_ai_questions(
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
+    if not org.is_service_enabled("ai_studio"):
+        raise HTTPException(
+            status_code=403,
+            detail="AI Question Studio service is disabled for your organization by the platform administrator."
+        )
+
     from app.plans.entitlements import check_entitlement, record_usage
     allowed, reason, details = check_entitlement(db, org.id, "ai_questions", req.count)
     if not allowed and org.ai_generation_credits <= 0:

@@ -5,37 +5,21 @@ import { api } from "../shared/api";
 export default function PublicWebsite({
   initialTab = "home",
   currentUser,
-  onNavigateToDashboard,
+  currentOrg,
   onLogout,
-  onNavigateToCandidate,
-  onLoginSuccess,
-  onNavigateToPlatformAdmin
+  onLoginSuccess
 }) {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState(initialTab || "home"); // 'home', 'features', 'pricing', 'join_org', 'security', 'login', 'signup'
-  const [candidateUid, setCandidateUid] = useState("LUN-AIR-2026");
-  const [candidatePin, setCandidatePin] = useState("2026");
-  const [examSlug, setExamSlug] = useState("allen-kota-mock");
-
-  useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab);
-    }
-  }, [initialTab]);
-
-  function changeRouteTab(tabName) {
-    setActiveTab(tabName);
-    if (tabName === "home") navigate("/");
-    else if (tabName === "features") navigate("/features");
-    else if (tabName === "pricing") navigate("/pricing");
-    else if (tabName === "login") navigate("/login");
-    else if (tabName === "signup") navigate("/register");
-    else if (tabName === "join_org") navigate("/join");
-    else if (tabName === "security") navigate("/security");
-  }
+  const [activeTab, setActiveTab] = useState(initialTab || "home"); // 'home', 'features', 'pricing', 'login', 'signup'
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [loginRoleTab, setLoginRoleTab] = useState("creator"); // 'creator' | 'superadmin'
 
   // Selected Plan for Onboarding: 'free', 'creator_pro', 'institution'
   const [selectedPlan, setSelectedPlan] = useState("free");
+
+  // Registration Mode: 'create_org' | 'join_org'
+  const [regMode, setRegMode] = useState("create_org");
+  const [authInviteCode, setAuthInviteCode] = useState("");
 
   // Auth Form State
   const [authEmail, setAuthEmail] = useState("");
@@ -45,30 +29,57 @@ export default function PublicWebsite({
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
 
-  // Join Org with Code State
-  const [joinCodeInput, setJoinCodeInput] = useState("");
-  const [joinMessage, setJoinMessage] = useState("");
-  const [joinLoading, setJoinLoading] = useState(false);
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
+  function changeRouteTab(tabName) {
+    setActiveTab(tabName);
+    setMobileMenuOpen(false);
+    if (tabName === "home") navigate("/");
+    else if (tabName === "features") navigate("/features");
+    else if (tabName === "pricing") navigate("/pricing");
+    else if (tabName === "login") navigate("/login");
+    else if (tabName === "signup") navigate("/register");
+  }
 
   function handleOpenSignupWithPlan(planCode) {
+    if (currentUser) {
+      navigate("/dashboard?tab=billing");
+      return;
+    }
+    setRegMode("create_org");
     setSelectedPlan(planCode);
     setAuthError("");
     setActiveTab("signup");
+    setMobileMenuOpen(false);
     navigate("/register");
   }
 
-  async function handleCreatorLogin(e) {
+  async function handleLoginSubmit(e) {
     e.preventDefault();
     setAuthLoading(true);
     setAuthError("");
     try {
-      const res = await api.login(authEmail, authPassword);
+      const res = await api.login(authEmail.trim(), authPassword);
+
+      // Validate role expectation if logging in specifically through the SuperAdmin tab
+      if (loginRoleTab === "superadmin" && !res.is_superadmin) {
+        throw new Error("Access Denied: This account does not possess SuperAdmin privileges. Please use the Workspace Login tab.");
+      }
+
       localStorage.setItem("lunaris_token", res.access_token);
       localStorage.setItem("lunaris_user", JSON.stringify(res));
       if (onLoginSuccess) {
         onLoginSuccess(res);
       }
-      navigate("/dashboard");
+      if (res.is_superadmin) {
+        navigate("/admin");
+      } else {
+        navigate("/dashboard");
+      }
     } catch (err) {
       setAuthError(err.message || "Failed to log in. Please check your credentials.");
     } finally {
@@ -76,18 +87,27 @@ export default function PublicWebsite({
     }
   }
 
-  async function handleCreatorRegister(e) {
+  async function handleRegisterSubmit(e) {
     e.preventDefault();
     setAuthLoading(true);
     setAuthError("");
     try {
-      const res = await api.register({
-        email: authEmail,
+      const payload = regMode === "join_org" ? {
+        email: authEmail.trim(),
         password: authPassword,
-        full_name: authFullName,
-        organization_name: authOrgName || `${authFullName}'s Academy`,
-        plan_id: selectedPlan
-      });
+        full_name: authFullName.trim(),
+        registration_type: "join_org",
+        invite_code: authInviteCode.trim().toUpperCase()
+      } : {
+        email: authEmail.trim(),
+        password: authPassword,
+        full_name: authFullName.trim(),
+        organization_name: authOrgName.trim() || `${authFullName.trim()}'s Academy`,
+        plan_id: selectedPlan,
+        registration_type: "create_org"
+      };
+
+      const res = await api.register(payload);
       localStorage.setItem("lunaris_token", res.access_token);
       localStorage.setItem("lunaris_user", JSON.stringify(res));
       if (onLoginSuccess) {
@@ -95,76 +115,35 @@ export default function PublicWebsite({
       }
       navigate("/dashboard");
     } catch (err) {
-      setAuthError(err.message || "Registration failed");
+      setAuthError(err.message || "Registration failed. Please check your details.");
     } finally {
       setAuthLoading(false);
     }
   }
 
-  async function handleJoinOrg(e) {
-    e.preventDefault();
-    if (!currentUser) {
-      setJoinMessage("⚠️ Please sign in or create an account first to join an organization with an invite code.");
-      return;
-    }
-    if (!joinCodeInput.trim()) {
-      setJoinMessage("⚠️ Please enter a valid invite code (e.g. ORG-ALLEN-KOTA-MOCK).");
-      return;
-    }
-    setJoinLoading(true);
-    setJoinMessage("");
-    try {
-      const res = await api.joinOrganization(joinCodeInput.trim());
-      setJoinMessage(`🎉 Success! You have joined "${res.org_name}" as an exam author.`);
-      const updatedUser = {
-        ...currentUser,
-        organization_id: res.org_id,
-        organization_name: res.org_name,
-        role: "exam_author"
-      };
-      localStorage.setItem("lunaris_user", JSON.stringify(updatedUser));
-      if (onLoginSuccess) {
-        onLoginSuccess(updatedUser);
-      }
-      setTimeout(() => {
-        onNavigateToDashboard();
-      }, 1200);
-    } catch (err) {
-      setJoinMessage(`❌ Error: ${err.message || "Failed to join organization. Please check the code."}`);
-    } finally {
-      setJoinLoading(false);
-    }
-  }
-
-  function handleStartCandidateExam(e) {
-    e.preventDefault();
-    if (!candidateUid.trim()) {
-      alert("Please enter a valid Exam UID");
-      return;
-    }
-    onNavigateToCandidate(examSlug, candidateUid.trim(), candidatePin.trim());
-  }
-
   return (
     <div style={{ minHeight: "100vh", background: "#ffffff", color: "var(--text-primary)" }}>
       {/* Top Universal Public Navbar */}
-      <header style={{
-        height: "64px",
-        background: "#ffffff",
-        borderBottom: "1px solid var(--border-subtle)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "0 32px",
-        position: "sticky",
-        top: 0,
-        zIndex: 50,
-        boxShadow: "0 1px 2px rgba(0,0,0,0.02)"
-      }}>
+      <header
+        className="public-header"
+        style={{
+          height: "64px",
+          background: "#ffffff",
+          borderBottom: "1px solid var(--border-subtle)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 32px",
+          position: "sticky",
+          top: 0,
+          zIndex: 50,
+          boxShadow: "0 1px 2px rgba(0,0,0,0.02)"
+        }}
+      >
         {/* Brand */}
         <div
           style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}
-          onClick={() => setActiveTab("home")}
+          onClick={() => changeRouteTab("home")}
         >
           <div style={{
             background: "linear-gradient(135deg, #2563eb 0%, #0284c7 100%)",
@@ -189,8 +168,8 @@ export default function PublicWebsite({
           </div>
         </div>
 
-        {/* Navigation Links: Overview, Features & Modes, Pricing & Plans */}
-        <nav style={{ display: "flex", alignItems: "center", gap: "28px" }}>
+        {/* Desktop Navigation Links: Overview, Features & Modes, Pricing & Plans */}
+        <nav className="desktop-nav" style={{ display: "flex", alignItems: "center", gap: "28px" }}>
           <button
             type="button"
             onClick={() => changeRouteTab("home")}
@@ -232,23 +211,22 @@ export default function PublicWebsite({
           </button>
         </nav>
 
-        {/* Auth & Dashboard Action Buttons */}
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-
+        {/* Desktop Auth & Dashboard Action Buttons */}
+        <div className="desktop-auth-actions" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           {currentUser ? (
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <button
                 type="button"
-                onClick={() => navigate("/dashboard")}
+                onClick={() => navigate(currentUser.is_superadmin ? "/admin" : "/dashboard")}
                 className="btn-primary"
                 style={{ padding: "8px 16px", fontSize: "13px" }}
               >
-                🏢 Go to Dashboard →
+                {currentUser.is_superadmin ? "🛡️ Go to Admin Portal →" : "🏢 Go to Dashboard →"}
               </button>
               <div style={{ textAlign: "right", fontSize: "12px", lineHeight: "1.2" }}>
                 <strong style={{ color: "var(--text-primary)" }}>{currentUser.full_name || currentUser.email}</strong>
                 <div style={{ fontSize: "10px", color: "var(--accent-blue)", fontWeight: "700", textTransform: "uppercase" }}>
-                  {currentUser.organization_name || "Workspace"}
+                  {currentUser.is_superadmin ? "Platform SuperAdmin" : (currentUser.organization_name || "Workspace")}
                 </div>
               </div>
               <button
@@ -270,7 +248,6 @@ export default function PublicWebsite({
               >
                 Sign In
               </button>
-
               <button
                 type="button"
                 onClick={() => handleOpenSignupWithPlan("free")}
@@ -282,17 +259,152 @@ export default function PublicWebsite({
             </>
           )}
         </div>
+
+        {/* Mobile Hamburger Toggle Button */}
+        <button
+          type="button"
+          className="mobile-menu-btn"
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          aria-label="Toggle navigation"
+          style={{
+            background: "#ffffff",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: "6px",
+            padding: "8px 12px",
+            fontSize: "18px",
+            cursor: "pointer",
+            color: "var(--text-primary)"
+          }}
+        >
+          {mobileMenuOpen ? "✕" : "☰"}
+        </button>
       </header>
+
+      {/* Mobile Collapsible Navigation Drawer */}
+      {mobileMenuOpen && (
+        <div
+          className="mobile-nav-drawer"
+          style={{
+            background: "#ffffff",
+            borderBottom: "1px solid var(--border-subtle)",
+            padding: "16px 20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+            position: "sticky",
+            top: "64px",
+            zIndex: 49
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => changeRouteTab("home")}
+            style={{
+              background: "none",
+              textAlign: "left",
+              padding: "8px 0",
+              fontSize: "15px",
+              fontWeight: activeTab === "home" ? "700" : "500",
+              color: activeTab === "home" ? "var(--accent-blue)" : "var(--text-primary)"
+            }}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => changeRouteTab("features")}
+            style={{
+              background: "none",
+              textAlign: "left",
+              padding: "8px 0",
+              fontSize: "15px",
+              fontWeight: activeTab === "features" ? "700" : "500",
+              color: activeTab === "features" ? "var(--accent-blue)" : "var(--text-primary)"
+            }}
+          >
+            Features & Modes
+          </button>
+          <button
+            type="button"
+            onClick={() => changeRouteTab("pricing")}
+            style={{
+              background: "none",
+              textAlign: "left",
+              padding: "8px 0",
+              fontSize: "15px",
+              fontWeight: activeTab === "pricing" ? "700" : "500",
+              color: activeTab === "pricing" ? "var(--accent-blue)" : "var(--text-primary)"
+            }}
+          >
+            Pricing & Plans
+          </button>
+
+          <hr style={{ border: "none", borderTop: "1px solid var(--border-subtle)", margin: "4px 0" }} />
+
+          {currentUser ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div style={{ fontSize: "13px" }}>
+                Signed in as: <strong>{currentUser.full_name || currentUser.email}</strong>
+              </div>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  navigate(currentUser.is_superadmin ? "/admin" : "/dashboard");
+                }}
+                style={{ width: "100%", padding: "10px" }}
+              >
+                {currentUser.is_superadmin ? "🛡️ Go to Admin Portal →" : "🏢 Go to Dashboard →"}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onLogout();
+                }}
+                style={{ width: "100%", padding: "8px" }}
+              >
+                Sign Out
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => changeRouteTab("login")}
+                style={{ width: "100%", padding: "10px" }}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => handleOpenSignupWithPlan("free")}
+                style={{ width: "100%", padding: "10px" }}
+              >
+                Create Account
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Hero Section */}
       {activeTab === "home" && (
         <div>
-          <section style={{
-            padding: "80px 24px 60px",
-            maxWidth: "1160px",
-            margin: "0 auto",
-            textAlign: "center"
-          }}>
+          <section
+            className="hero-section"
+            style={{
+              padding: "80px 24px 60px",
+              maxWidth: "1160px",
+              margin: "0 auto",
+              textAlign: "center"
+            }}
+          >
             <div style={{
               display: "inline-flex",
               alignItems: "center",
@@ -306,69 +418,56 @@ export default function PublicWebsite({
               marginBottom: "20px",
               border: "1px solid rgba(37, 99, 235, 0.15)"
             }}>
-              <span>✦</span> Complete Assessment SaaS • Instant Onboarding
+              <span>✦</span> Enterprise Assessment SaaS • Pure White Architecture
             </div>
 
-            <h1 style={{
-              fontSize: "48px",
-              fontWeight: "900",
-              letterSpacing: "-0.8px",
-              lineHeight: "1.15",
-              color: "var(--text-primary)",
-              marginBottom: "20px"
-            }}>
+            <h1
+              className="hero-headline"
+              style={{
+                fontSize: "48px",
+                fontWeight: "900",
+                letterSpacing: "-0.8px",
+                lineHeight: "1.15",
+                color: "var(--text-primary)",
+                marginBottom: "20px"
+              }}
+            >
               High-Stakes Examination Engine with <br />
               <span style={{ color: "var(--accent-blue)" }}>Modular Face & Integrity Proctoring</span>
             </h1>
 
-            <p style={{
-              fontSize: "18px",
-              color: "var(--text-secondary)",
-              maxWidth: "760px",
-              margin: "0 auto 36px",
-              lineHeight: "1.6"
-            }}>
+            <p
+              className="hero-subtitle"
+              style={{
+                fontSize: "18px",
+                color: "var(--text-secondary)",
+                maxWidth: "760px",
+                margin: "0 auto 36px",
+                lineHeight: "1.6"
+              }}
+            >
               Create custom exams, invite students using secure UIDs with zero account creation required,
               and monitor results with NTA JEE-standard CBT test engines.
             </p>
 
-
-
-            {/* Quick Actions & Demo Credentials */}
-            <div style={{ display: "flex", justifyContent: "center", gap: "12px", marginBottom: "30px" }}>
+            {/* Quick Actions */}
+            <div className="hero-actions" style={{ display: "flex", justifyContent: "center", gap: "12px", marginBottom: "30px", flexWrap: "wrap" }}>
               <button
                 type="button"
                 className="btn-primary"
-                onClick={() => handleOpenSignupWithPlan("creator_pro")}
+                onClick={() => handleOpenSignupWithPlan("free")}
                 style={{ padding: "12px 24px", fontSize: "15px" }}
               >
-                Create Creator Account & Select Plan →
+                Create Workspace Account →
               </button>
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => setActiveTab("login")}
+                onClick={() => changeRouteTab("login")}
                 style={{ padding: "12px 24px", fontSize: "15px" }}
               >
-                Sign In to Existing Workspace
+                Sign In to Platform
               </button>
-            </div>
-
-            <div style={{
-              display: "inline-flex",
-              flexWrap: "wrap",
-              gap: "16px",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "var(--bg-secondary)",
-              padding: "10px 20px",
-              borderRadius: "8px",
-              fontSize: "12px",
-              border: "1px solid var(--border-subtle)"
-            }}>
-              <span><strong>Faculty Login:</strong> faculty@allen.ac.in / Password123!</span>
-              <span>•</span>
-              <span><strong>SuperAdmin:</strong> superadmin@lunaris.com / SuperAdmin123!</span>
             </div>
           </section>
 
@@ -384,7 +483,14 @@ export default function PublicWebsite({
                 </p>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "24px" }}>
+              <div
+                className="responsive-grid-3"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                  gap: "24px"
+                }}
+              >
                 {/* Mode 1: Standard Quiz */}
                 <div className="dash-card" style={{ padding: "28px", background: "#ffffff" }}>
                   <div style={{
@@ -486,7 +592,14 @@ export default function PublicWebsite({
             </p>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "28px" }}>
+          <div
+            className="responsive-grid-2"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: "28px"
+            }}
+          >
             <div className="dash-card" style={{ padding: "28px" }}>
               <h3 style={{ fontSize: "18px", fontWeight: "700", color: "var(--accent-blue)", marginBottom: "8px" }}>
                 1. Exam-Specific UID Candidate Enrollment
@@ -538,11 +651,18 @@ export default function PublicWebsite({
               Transparent, Entitlement-Based Pricing
             </h1>
             <p style={{ color: "var(--text-secondary)", fontSize: "16px", marginTop: "8px" }}>
-              Choose a plan to provision your workspace immediately. Enforced by backend database quotas.
+              Choose a plan to provision your workspace. All paid subscriptions require UPI payment approval before activation.
             </p>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "28px" }}>
+          <div
+            className="responsive-grid-3"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: "28px"
+            }}
+          >
             {/* Free */}
             <div className="dash-card" style={{ padding: "32px", display: "flex", flexDirection: "column" }}>
               <div style={{ fontWeight: "700", fontSize: "18px", marginBottom: "8px" }}>Free Starter</div>
@@ -614,183 +734,84 @@ export default function PublicWebsite({
                 <li>✓ On-Device MediaPipe Proctoring</li>
                 <li>✓ Live Invigilation Console</li>
                 <li>✓ 15 Team Members & Reviewers</li>
-                <li>✓ Encrypted Evidence Vault</li>
               </ul>
               <button
                 type="button"
-                className="btn-secondary"
+                className="btn-primary"
                 onClick={() => handleOpenSignupWithPlan("institution")}
                 style={{ width: "100%" }}
               >
-                Choose Institution Tier →
+                Choose Institution →
               </button>
             </div>
           </div>
         </section>
       )}
 
-      {/* Security & Privacy View */}
-      {activeTab === "security" && (
-        <section style={{ maxWidth: "860px", margin: "40px auto 80px", padding: "0 24px" }}>
-          <div style={{ textAlign: "center", marginBottom: "36px" }}>
-            <h1 style={{ fontSize: "34px", fontWeight: "900", color: "var(--text-primary)" }}>
-              Privacy, Ethics & Fairness Charter
-            </h1>
-            <p style={{ color: "var(--text-secondary)", fontSize: "15px", marginTop: "6px" }}>
-              Engineered with zero continuous surveillance and strict candidate rights safeguards.
-            </p>
-          </div>
-
-          <div className="dash-card" style={{ padding: "32px" }}>
-            <h3 style={{ fontSize: "18px", fontWeight: "700", marginBottom: "12px", color: "var(--accent-blue)" }}>
-              ✦ No Automated Disqualification Policy
-            </h3>
-            <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.6", marginBottom: "20px" }}>
-              Under no circumstances will an AI signal, landmark pose estimate, or camera interruption automatically fail
-              a student. Detection models operate strictly as risk signaling to aid authorized human reviewers.
-            </p>
-
-            <h3 style={{ fontSize: "18px", fontWeight: "700", marginBottom: "12px", color: "var(--accent-blue)" }}>
-              ✦ On-Device Processing
-            </h3>
-            <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.6", marginBottom: "20px" }}>
-              MediaPipe analyzes camera frames directly in the candidate's browser memory. Raw continuous video streams
-              are never transmitted or stored on Lunaris servers. Only event metadata and authorized low-res snapshots
-              associated with flagged incidents are retained.
-            </p>
-
-            <h3 style={{ fontSize: "18px", fontWeight: "700", marginBottom: "12px", color: "var(--accent-blue)" }}>
-              ✦ Strict Multi-Tenant Data Isolation
-            </h3>
-            <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.6", marginBottom: "20px" }}>
-              Organizations are strictly isolated in the database layer. One organization's faculty or proctors can never
-              access another organization's candidate records, answers, or proctoring evidence.
-            </p>
-
-            <h3 style={{ fontSize: "18px", fontWeight: "700", marginBottom: "12px", color: "var(--accent-blue)" }}>
-              ✦ Hardware Failure & Fallback Accommodation
-            </h3>
-            <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.6" }}>
-              If a candidate's camera fails or browser permission is revoked, the exam does not crash. Fallback instructions
-              guide the student, and the incident is documented with full context for faculty review.
-            </p>
-          </div>
-        </section>
-      )}
-
-      {/* Join Workspace View */}
-      {activeTab === "join_org" && (
-        <section style={{ maxWidth: "520px", margin: "60px auto 100px", padding: "0 20px" }}>
-          <div className="dash-card" style={{ padding: "36px" }}>
-            <div style={{ display: "inline-flex", padding: "8px 12px", background: "var(--accent-blue-subtle)", color: "var(--accent-blue)", borderRadius: "8px", fontWeight: "700", fontSize: "12px", marginBottom: "16px" }}>
-              🔑 Organization Invite Access
-            </div>
-            <h2 style={{ fontSize: "24px", fontWeight: "800", marginBottom: "8px" }}>Join Workspace by Invite Code</h2>
-            <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.5", marginBottom: "20px" }}>
-              Collaborate on exam creation, review proctor logs, and grade assessments within an existing institution or faculty team.
-            </p>
-
-            {joinMessage && (
-              <div style={{
-                background: joinMessage.includes("❌") ? "var(--accent-rose-subtle)" : "var(--accent-emerald-subtle)",
-                color: joinMessage.includes("❌") ? "var(--accent-rose)" : "var(--accent-emerald)",
-                padding: "12px 14px",
-                borderRadius: "8px",
-                fontSize: "13px",
-                fontWeight: "600",
-                marginBottom: "20px"
-              }}>
-                {joinMessage}
-              </div>
-            )}
-
-            {!currentUser ? (
-              <div style={{ padding: "20px", background: "var(--bg-secondary)", borderRadius: "8px", border: "1px solid var(--border-subtle)", textAlign: "center" }}>
-                <p style={{ fontSize: "14px", fontWeight: "600", color: "var(--text-primary)", marginBottom: "8px" }}>
-                  Please sign in or register to join an organization
-                </p>
-                <p style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "16px" }}>
-                  Your account will be linked as an Exam Author to the target workspace upon providing the invite code.
-                </p>
-                <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={() => setActiveTab("login")}
-                    style={{ padding: "8px 16px", fontSize: "13px" }}
-                  >
-                    Sign In First
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => setActiveTab("signup")}
-                    style={{ padding: "8px 16px", fontSize: "13px" }}
-                  >
-                    Register Account
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleJoinOrg} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                <div>
-                  <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "6px" }}>
-                    Organization Invite Code:
-                  </label>
-                  <input
-                    type="text"
-                    className="lunaris-input"
-                    value={joinCodeInput}
-                    onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-                    placeholder="ORG-ALLEN-KOTA-MOCK"
-                    style={{ fontFamily: "monospace", letterSpacing: "1px", textTransform: "uppercase" }}
-                    required
-                  />
-                  <span style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
-                    Invite codes begin with "ORG-" followed by the institution's identifier.
-                  </span>
-                </div>
-
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <button
-                    type="button"
-                    onClick={() => setJoinCodeInput("ORG-ALLEN-KOTA-MOCK")}
-                    style={{
-                      background: "none",
-                      border: "1px dashed var(--accent-blue)",
-                      color: "var(--accent-blue)",
-                      padding: "4px 8px",
-                      borderRadius: "4px",
-                      fontSize: "11px",
-                      fontWeight: "600",
-                      cursor: "pointer"
-                    }}
-                  >
-                    Use Sample: ORG-ALLEN-KOTA-MOCK
-                  </button>
-                </div>
-
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={joinLoading}
-                  style={{ height: "44px", fontSize: "14px", marginTop: "8px" }}
-                >
-                  {joinLoading ? "Validating & Joining..." : "Join Workspace as Exam Author →"}
-                </button>
-              </form>
-            )}
-          </div>
-        </section>
-      )}
-
-      {/* Sign In View */}
+      {/* Dedicated Sign In View */}
       {activeTab === "login" && (
-        <section style={{ maxWidth: "440px", margin: "60px auto 100px", padding: "0 20px" }}>
-          <div className="dash-card" style={{ padding: "32px" }}>
-            <h2 style={{ fontSize: "22px", fontWeight: "800", marginBottom: "6px" }}>Sign In to Workspace</h2>
+        <section style={{ maxWidth: "460px", margin: "40px auto 80px", padding: "0 16px" }}>
+          <div className="dash-card" style={{ padding: "32px 28px" }}>
+            {/* Segmented Switch for Workspace vs SuperAdmin */}
+            <div style={{
+              display: "flex",
+              background: "var(--bg-secondary)",
+              borderRadius: "8px",
+              padding: "4px",
+              marginBottom: "24px",
+              border: "1px solid var(--border-subtle)"
+            }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginRoleTab("creator");
+                  setAuthError("");
+                }}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  fontWeight: loginRoleTab === "creator" ? "700" : "500",
+                  background: loginRoleTab === "creator" ? "#ffffff" : "transparent",
+                  color: loginRoleTab === "creator" ? "var(--accent-blue)" : "var(--text-muted)",
+                  boxShadow: loginRoleTab === "creator" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  transition: "all 0.15s ease",
+                  cursor: "pointer"
+                }}
+              >
+                🏢 Workspace Login
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginRoleTab("superadmin");
+                  setAuthError("");
+                }}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  fontWeight: loginRoleTab === "superadmin" ? "700" : "500",
+                  background: loginRoleTab === "superadmin" ? "#ffffff" : "transparent",
+                  color: loginRoleTab === "superadmin" ? "var(--text-primary)" : "var(--text-muted)",
+                  boxShadow: loginRoleTab === "superadmin" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  transition: "all 0.15s ease",
+                  cursor: "pointer"
+                }}
+              >
+                🛡️ SuperAdmin Login
+              </button>
+            </div>
+
+            <h2 style={{ fontSize: "22px", fontWeight: "800", marginBottom: "6px" }}>
+              {loginRoleTab === "superadmin" ? "Platform SuperAdmin Sign In" : "Sign In to Workspace"}
+            </h2>
             <p style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "20px" }}>
-              Access your assessment dashboard as an Exam Creator or Platform SuperAdmin.
+              {loginRoleTab === "superadmin"
+                ? "Authorized platform administration and audit console. Strict multi-tenant control."
+                : "Sign in with your registered account to manage your institution's assessments."}
             </p>
 
             {authError && (
@@ -806,7 +827,7 @@ export default function PublicWebsite({
               </div>
             )}
 
-            <form onSubmit={handleCreatorLogin} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <form onSubmit={handleLoginSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
               <div>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
                   Email Address
@@ -816,7 +837,7 @@ export default function PublicWebsite({
                   className="lunaris-input"
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder="faculty@allen.ac.in"
+                  placeholder={loginRoleTab === "superadmin" ? "admin@lunaris.com" : "faculty@institution.edu"}
                   required
                 />
               </div>
@@ -839,61 +860,29 @@ export default function PublicWebsite({
                 type="submit"
                 className="btn-primary"
                 disabled={authLoading}
-                style={{ marginTop: "8px", height: "42px" }}
+                style={{
+                  marginTop: "8px",
+                  height: "44px",
+                  background: loginRoleTab === "superadmin"
+                    ? "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)"
+                    : "var(--gradient-primary)"
+                }}
               >
-                {authLoading ? "Authenticating..." : "Sign In to Workspace →"}
+                {authLoading
+                  ? "Authenticating..."
+                  : loginRoleTab === "superadmin"
+                  ? "Sign In as Platform SuperAdmin →"
+                  : "Sign In to Workspace Dashboard →"}
               </button>
-
-              <div style={{ marginTop: "14px", padding: "10px", background: "var(--bg-secondary)", borderRadius: "6px", fontSize: "12px" }}>
-                <span style={{ color: "var(--text-muted)", display: "block", marginBottom: "6px" }}>One-Click Demo Sign In:</span>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAuthEmail("faculty@allen.ac.in");
-                      setAuthPassword("Password123!");
-                    }}
-                    style={{
-                      padding: "4px 8px",
-                      background: "#ffffff",
-                      border: "1px solid var(--border-subtle)",
-                      borderRadius: "4px",
-                      fontSize: "11px",
-                      fontWeight: "600",
-                      color: "var(--accent-blue)"
-                    }}
-                  >
-                    Faculty Demo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAuthEmail("superadmin@lunaris.com");
-                      setAuthPassword("SuperAdmin123!");
-                    }}
-                    style={{
-                      padding: "4px 8px",
-                      background: "#ffffff",
-                      border: "1px solid var(--border-subtle)",
-                      borderRadius: "4px",
-                      fontSize: "11px",
-                      fontWeight: "600",
-                      color: "var(--text-primary)"
-                    }}
-                  >
-                    SuperAdmin Demo
-                  </button>
-                </div>
-              </div>
             </form>
 
             <div style={{ marginTop: "24px", paddingTop: "16px", borderTop: "1px solid var(--border-subtle)", textAlign: "center", fontSize: "13px" }}>
-              Don't have an account?{" "}
+              Don't have a workspace?{" "}
               <span
                 style={{ color: "var(--accent-blue)", fontWeight: "600", cursor: "pointer" }}
                 onClick={() => changeRouteTab("signup")}
               >
-                Create one with a plan
+                Create an account
               </span>
             </div>
           </div>
@@ -902,14 +891,60 @@ export default function PublicWebsite({
 
       {/* Sign Up & Plan Selection Onboarding Wizard */}
       {activeTab === "signup" && (
-        <section style={{ maxWidth: "620px", margin: "40px auto 100px", padding: "0 20px" }}>
-          <div className="dash-card" style={{ padding: "36px" }}>
-            <h2 style={{ fontSize: "24px", fontWeight: "800", marginBottom: "4px" }}>
-              Create Account & Select Subscription
-            </h2>
-            <p style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "20px" }}>
-              Set up your educator workspace and activate your subscription entitlements.
-            </p>
+        <section style={{ maxWidth: "620px", margin: "40px auto 100px", padding: "0 16px" }}>
+          <div className="dash-card" style={{ padding: "32px 28px" }}>
+            {/* Segmented Switch: Create New Org vs Join Org */}
+            <div style={{
+              display: "flex",
+              background: "var(--bg-secondary)",
+              borderRadius: "8px",
+              padding: "4px",
+              marginBottom: "24px",
+              border: "1px solid var(--border-subtle)"
+            }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setRegMode("create_org");
+                  setAuthError("");
+                }}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  fontWeight: regMode === "create_org" ? "700" : "500",
+                  background: regMode === "create_org" ? "#ffffff" : "transparent",
+                  color: regMode === "create_org" ? "var(--accent-blue)" : "var(--text-muted)",
+                  boxShadow: regMode === "create_org" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  transition: "all 0.15s ease",
+                  cursor: "pointer"
+                }}
+              >
+                🏢 Create New Workspace
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setRegMode("join_org");
+                  setAuthError("");
+                }}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  fontWeight: regMode === "join_org" ? "700" : "500",
+                  background: regMode === "join_org" ? "#ffffff" : "transparent",
+                  color: regMode === "join_org" ? "var(--accent-blue)" : "var(--text-muted)",
+                  boxShadow: regMode === "join_org" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  transition: "all 0.15s ease",
+                  cursor: "pointer"
+                }}
+              >
+                🔑 Join Existing Organization
+              </button>
+            </div>
 
             {authError && (
               <div style={{
@@ -924,117 +959,252 @@ export default function PublicWebsite({
               </div>
             )}
 
-            {/* Interactive Plan Selector Bar */}
-            <div style={{ marginBottom: "20px" }}>
-              <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "8px" }}>
-                1. Select Initial Subscription Tier:
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
-                {[
-                  { code: "free", name: "Free Starter", price: "₹0", badge: "25 candidates" },
-                  { code: "creator_pro", name: "Creator Pro", price: "₹499/mo", badge: "250 candidates" },
-                  { code: "institution", name: "Institution", price: "₹1,999/mo", badge: "Proctoring + 5k" }
-                ].map((plan) => {
-                  const isSelected = selectedPlan === plan.code;
-                  return (
-                    <div
-                      key={plan.code}
-                      onClick={() => setSelectedPlan(plan.code)}
-                      style={{
-                        padding: "12px",
-                        borderRadius: "8px",
-                        border: isSelected ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
-                        background: isSelected ? "var(--accent-blue-subtle)" : "#ffffff",
-                        cursor: "pointer",
-                        textAlign: "center",
-                        transition: "all 0.15s ease"
-                      }}
-                    >
-                      <strong style={{ display: "block", fontSize: "13px", color: isSelected ? "var(--accent-blue)" : "var(--text-primary)" }}>
-                        {plan.name}
-                      </strong>
-                      <div style={{ fontSize: "14px", fontWeight: "800", margin: "2px 0" }}>
-                        {plan.price}
-                      </div>
-                      <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
-                        {plan.badge}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <form onSubmit={handleCreatorRegister} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <label style={{ display: "block", fontSize: "12px", fontWeight: "700" }}>
-                2. Account & Workspace Credentials:
-              </label>
-
+            {/* MODE 1: JOIN EXISTING ORGANIZATION */}
+            {regMode === "join_org" ? (
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
-                  Your Full Name
-                </label>
-                <input
-                  type="text"
-                  className="lunaris-input"
-                  value={authFullName}
-                  onChange={(e) => setAuthFullName(e.target.value)}
-                  placeholder="Prof. Ananya Sen"
-                  required
-                />
-              </div>
+                <h2 style={{ fontSize: "22px", fontWeight: "800", marginBottom: "4px" }}>
+                  Join Organization with Invite Code
+                </h2>
+                <p style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "18px" }}>
+                  Enter the organization code. Your email will be verified against the invitation issued by the organization owner.
+                </p>
 
+                <div style={{
+                  padding: "12px 14px",
+                  background: "var(--accent-blue-subtle)",
+                  border: "1px solid rgba(37, 99, 235, 0.2)",
+                  borderRadius: "8px",
+                  fontSize: "12px",
+                  color: "var(--text-secondary)",
+                  marginBottom: "18px",
+                  lineHeight: "1.5"
+                }}>
+                  🔒 <strong>Owner Authorization Required:</strong> For platform security, only email addresses pre-authorized or invited by the institution owner can join with an invite code.
+                </div>
+
+                <form onSubmit={handleRegisterSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
+                      Organization Invite Code
+                    </label>
+                    <input
+                      type="text"
+                      className="lunaris-input"
+                      value={authInviteCode}
+                      onChange={(e) => setAuthInviteCode(e.target.value.toUpperCase())}
+                      placeholder="ORG-YOUR-INSTITUTE"
+                      style={{ fontFamily: "monospace", letterSpacing: "1px", textTransform: "uppercase" }}
+                      required
+                    />
+                    <span style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
+                      Begins with "ORG-" followed by the institution name (e.g., ORG-ALLEN-KOTA).
+                    </span>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
+                      Your Full Name
+                    </label>
+                    <input
+                      type="text"
+                      className="lunaris-input"
+                      value={authFullName}
+                      onChange={(e) => setAuthFullName(e.target.value)}
+                      placeholder="Prof. Ananya Sen"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
+                      Invited Email Address
+                    </label>
+                    <input
+                      type="email"
+                      className="lunaris-input"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="faculty@allen.ac.in"
+                      required
+                    />
+                    <span style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
+                      Must match the email address where the institution owner sent your invite.
+                    </span>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
+                      Create Password
+                    </label>
+                    <input
+                      type="password"
+                      className="lunaris-input"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      placeholder="Minimum 8 characters"
+                      required
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                    disabled={authLoading}
+                    style={{ marginTop: "10px", height: "44px", fontSize: "14px" }}
+                  >
+                    {authLoading ? "Verifying with Owner & Joining..." : "Verify Invitation & Join Workspace →"}
+                  </button>
+                </form>
+              </div>
+            ) : (
+              /* MODE 2: CREATE NEW WORKSPACE */
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
-                  Academy or Organization Name
-                </label>
-                <input
-                  type="text"
-                  className="lunaris-input"
-                  value={authOrgName}
-                  onChange={(e) => setAuthOrgName(e.target.value)}
-                  placeholder="Apex IIT JEE Academy"
-                  required
-                />
-              </div>
+                <h2 style={{ fontSize: "24px", fontWeight: "800", marginBottom: "4px" }}>
+                  Create Account & Register Workspace
+                </h2>
+                <p style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "20px" }}>
+                  Set up your educator workspace. Free tier is activated instantly; paid tiers require payment verification.
+                </p>
 
-              <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
-                  Work Email Address
-                </label>
-                <input
-                  type="email"
-                  className="lunaris-input"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder="dean@apexiit.org"
-                  required
-                />
-              </div>
+                {/* Interactive Plan Selector Bar */}
+                <div style={{ marginBottom: "20px" }}>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "8px" }}>
+                    1. Select Desired Subscription Tier:
+                  </label>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                      gap: "10px"
+                    }}
+                  >
+                    {[
+                      { code: "free", name: "Free Starter", price: "₹0", badge: "25 candidates" },
+                      { code: "creator_pro", name: "Creator Pro", price: "₹499/mo", badge: "250 candidates" },
+                      { code: "institution", name: "Institution", price: "₹1,999/mo", badge: "Proctoring + 5k" }
+                    ].map((plan) => {
+                      const isSelected = selectedPlan === plan.code;
+                      return (
+                        <div
+                          key={plan.code}
+                          onClick={() => setSelectedPlan(plan.code)}
+                          style={{
+                            padding: "12px",
+                            borderRadius: "8px",
+                            border: isSelected ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
+                            background: isSelected ? "var(--accent-blue-subtle)" : "#ffffff",
+                            cursor: "pointer",
+                            textAlign: "center",
+                            transition: "all 0.15s ease"
+                          }}
+                        >
+                          <strong style={{ display: "block", fontSize: "13px", color: isSelected ? "var(--accent-blue)" : "var(--text-primary)" }}>
+                            {plan.name}
+                          </strong>
+                          <div style={{ fontSize: "14px", fontWeight: "800", margin: "2px 0" }}>
+                            {plan.price}
+                          </div>
+                          <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                            {plan.badge}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
 
-              <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
-                  Password
-                </label>
-                <input
-                  type="password"
-                  className="lunaris-input"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  placeholder="Minimum 8 characters"
-                  required
-                />
-              </div>
+                {/* Strict Notice regarding payment approval for paid plans */}
+                {selectedPlan !== "free" && (
+                  <div style={{
+                    padding: "12px 14px",
+                    background: "#fffbeb",
+                    border: "1px solid #fde68a",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    color: "#92400e",
+                    marginBottom: "18px",
+                    lineHeight: "1.5"
+                  }}>
+                    <strong>⚠️ Payment Approval Policy:</strong> To prevent unauthorized quota allotments, all workspaces start on the Free Starter tier upon registration. Your selected <strong>{selectedPlan === "creator_pro" ? "Creator Pro" : "Institution"}</strong> quotas and proctoring features will automatically activate once your UPI payment is submitted and approved by the SuperAdmin in your workspace Billing tab.
+                  </div>
+                )}
 
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={authLoading}
-                style={{ marginTop: "10px", height: "44px", fontSize: "14px" }}
-              >
-                {authLoading ? "Provisioning Workspace..." : `Create Workspace on ${selectedPlan.toUpperCase()} Plan →`}
-              </button>
-            </form>
+                <form onSubmit={handleRegisterSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: "700" }}>
+                    2. Account & Workspace Credentials:
+                  </label>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
+                      Your Full Name
+                    </label>
+                    <input
+                      type="text"
+                      className="lunaris-input"
+                      value={authFullName}
+                      onChange={(e) => setAuthFullName(e.target.value)}
+                      placeholder="Prof. Ananya Sen"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
+                      Academy or Organization Name
+                    </label>
+                    <input
+                      type="text"
+                      className="lunaris-input"
+                      value={authOrgName}
+                      onChange={(e) => setAuthOrgName(e.target.value)}
+                      placeholder="Apex IIT JEE Academy"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
+                      Work Email Address
+                    </label>
+                    <input
+                      type="email"
+                      className="lunaris-input"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="faculty@institution.org"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      className="lunaris-input"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      placeholder="Minimum 8 characters"
+                      required
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                    disabled={authLoading}
+                    style={{ marginTop: "10px", height: "44px", fontSize: "14px" }}
+                  >
+                    {authLoading
+                      ? "Provisioning Workspace..."
+                      : selectedPlan === "free"
+                      ? "Create Free Workspace →"
+                      : `Register & Select ${selectedPlan === "creator_pro" ? "Creator Pro" : "Institution"} Tier →`}
+                  </button>
+                </form>
+              </div>
+            )}
 
             <div style={{ marginTop: "24px", paddingTop: "16px", borderTop: "1px solid var(--border-subtle)", textAlign: "center", fontSize: "13px" }}>
               Already registered?{" "}
@@ -1049,43 +1219,46 @@ export default function PublicWebsite({
         </section>
       )}
 
-      {/* Footer */}
-      <footer style={{
-        borderTop: "1px solid var(--border-subtle)",
-        padding: "36px 32px",
-        background: "#ffffff",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        flexWrap: "wrap",
-        gap: "16px",
-        fontSize: "13px",
-        color: "var(--text-muted)"
-      }}>
+      {/* Clean Public Footer */}
+      <footer
+        className="public-footer"
+        style={{
+          borderTop: "1px solid var(--border-subtle)",
+          padding: "36px 32px",
+          background: "#ffffff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "16px",
+          fontSize: "13px",
+          color: "var(--text-muted)"
+        }}
+      >
         <div>
           © 2026 Lunaris Assessment Systems. Pure white-theme SaaS architecture.
         </div>
         <div style={{ display: "flex", gap: "20px", alignItems: "center" }}>
           <button
             type="button"
-            onClick={() => changeRouteTab("join_org")}
+            onClick={() => changeRouteTab("features")}
             style={{ background: "none", color: "var(--text-secondary)", fontWeight: "600", cursor: "pointer" }}
           >
-            🔑 Join Workspace by Code
+            Features & Modes
           </button>
           <button
             type="button"
-            onClick={() => changeRouteTab("security")}
+            onClick={() => changeRouteTab("pricing")}
             style={{ background: "none", color: "var(--text-secondary)", fontWeight: "600", cursor: "pointer" }}
           >
-            🛡️ Security & Privacy
+            Pricing & Plans
           </button>
           <button
             type="button"
-            onClick={() => navigate("/admin")}
+            onClick={() => changeRouteTab("login")}
             style={{ background: "none", color: "var(--accent-blue)", fontWeight: "700", cursor: "pointer" }}
           >
-            🛡️ SuperAdmin Portal
+            Sign In
           </button>
         </div>
       </footer>

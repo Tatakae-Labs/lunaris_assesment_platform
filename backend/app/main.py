@@ -17,13 +17,20 @@ from app.quick_quiz.router import router as quick_quiz_router
 from app.ai_generation.router import router as ai_router
 from app.plans.router import router as plans_router, ensure_plans_seeded
 from app.candidate.router import router as candidate_router
-from app.platform.router import router as platform_router
+from app.platform.router import router as platform_router, ensure_superadmin_seeded
 
 # Initialize tables and auto-migrate schema
 Base.metadata.create_all(bind=engine)
 from app.core.database import auto_migrate_sqlite, checkpoint_sqlite, SessionLocal
 auto_migrate_sqlite(engine)
 checkpoint_sqlite(engine)
+
+try:
+    with SessionLocal() as _db_init:
+        ensure_plans_seeded(_db_init)
+        ensure_superadmin_seeded(_db_init)
+except Exception as _seed_exc:
+    print(f"Startup superadmin/plan seed note: {_seed_exc}")
 
 # Initialize MongoDB Engine, Collections, Indexes, and Real-Time CDC Replication
 from app.core.mongodb import init_mongodb_indexes

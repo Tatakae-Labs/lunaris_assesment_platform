@@ -266,3 +266,57 @@ def process_billing_webhook(
         "event_id": req.event_id
     }
 
+@router.get("/upi-checkout-info")
+def get_plans_upi_checkout_info(
+    organization_id: str,
+    plan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from app.platform.router import get_upi_checkout_info as _get_upi_checkout_info
+    return _get_upi_checkout_info(organization_id, plan_id, current_user, db)
+
+@router.post("/submit-upi")
+def submit_plans_upi_payment(
+    req: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from app.platform.router import submit_upi_payment as _submit_upi_payment, UpiPaymentSubmissionRequest
+    typed_req = UpiPaymentSubmissionRequest(**req)
+    return _submit_upi_payment(typed_req, current_user, db)
+
+@router.get("/my-payments/{organization_id}")
+def list_org_payments(
+    organization_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    org = db.query(Organization).filter((Organization.id == organization_id) | (Organization.slug == organization_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    from app.models import PaymentEvent
+    events = db.query(PaymentEvent).filter(PaymentEvent.organization_id == org.id).order_by(PaymentEvent.created_at.desc()).all()
+
+    results = []
+    for ev in events:
+        meta = {}
+        if ev.payload_json:
+            try:
+                meta = json.loads(ev.payload_json)
+            except Exception:
+                pass
+        results.append({
+            "id": ev.id,
+            "utr_number": meta.get("utr_number") or ev.event_id.replace("UPI-", ""),
+            "plan_id": meta.get("plan_id"),
+            "plan_name": meta.get("plan_name", "Plan"),
+            "amount_inr": ev.amount_inr,
+            "status": meta.get("status", "approved" if ev.verified else "pending"),
+            "verified": ev.verified,
+            "submitted_at": meta.get("submitted_at") or ev.created_at.isoformat(),
+            "rejection_reason": meta.get("rejection_reason")
+        })
+    return results
+

@@ -41,6 +41,14 @@ def create_quick_quiz_room(
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
+    from app.models import Organization
+    org = db.query(Organization).filter(Organization.id == exam.organization_id).first()
+    if org and not org.is_service_enabled("quick_quiz"):
+        raise HTTPException(
+            status_code=403,
+            detail="Quick Quiz Live Arena service is disabled for your organization by the platform administrator."
+        )
+
     room_code = generate_room_code()
     exam.room_code = room_code
     exam.mode = "quick_quiz"

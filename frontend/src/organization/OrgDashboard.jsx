@@ -59,16 +59,28 @@ export default function OrgDashboard({
   const [loading, setLoading] = useState(false);
 
   // Derive active organization ID and meta
-  const activeOrgId = currentOrg?.id || currentOrg?.slug || "allen-kota-mock";
-  const orgName = currentOrg?.name || "Allen Kota JEE Division";
-  const currentPlan = currentOrg?.plan_id || "institution";
+  const activeOrgId = currentOrg?.id || currentOrg?.slug || "";
+  const orgName = currentOrg?.name || (activeOrgId ? "Organization Workspace" : "Select or Create Organization");
+  const currentPlan = currentOrg?.plan_id || "free";
 
   // Data states
+  const [orgServices, setOrgServices] = useState({
+    ai_studio: true,
+    live_proctoring: true,
+    proctor_console: true,
+    quick_quiz: true,
+    bulk_enrollment: true,
+    pdf_import: true,
+    detailed_analytics: true,
+    advanced_scoring: true
+  });
+  const [orgProperties, setOrgProperties] = useState({});
+  const [myOrgs, setMyOrgs] = useState([]);
   const [orgUsage, setOrgUsage] = useState(null);
   const [exams, setExams] = useState([]);
   const [questions, setQuestions] = useState([]);
   const [selectedSubject, setSelectedSubject] = useState("");
-  const [inviteCode, setInviteCode] = useState(`ORG-${activeOrgId.toUpperCase().replace(/[^A-Z0-9]/g, "-")}`);
+  const [inviteCode, setInviteCode] = useState(activeOrgId ? `ORG-${activeOrgId.toUpperCase().replace(/[^A-Z0-9]/g, "-")}` : "");
 
   // Modals
   const [showCreateQModal, setShowCreateQModal] = useState(false);
@@ -134,25 +146,47 @@ export default function OrgDashboard({
   }
 
   useEffect(() => {
-    loadAllData();
+    if (activeOrgId) {
+      loadAllData();
+    }
+    loadMyOrgs();
   }, [activeOrgId, selectedSubject]);
 
+  async function loadMyOrgs() {
+    try {
+      const list = await api.getMyOrganizations().catch(() => []);
+      if (list && list.length > 0) {
+        setMyOrgs(list);
+      }
+    } catch (e) {
+      console.warn("My orgs load notice:", e);
+    }
+  }
+
   async function loadAllData() {
+    if (!activeOrgId) return;
     setLoading(true);
     try {
-      // Load usage
+      // 1. Fetch organization services and properties configured by Platform SuperAdmin
+      const sData = await api.getOrgServices(activeOrgId).catch(() => null);
+      if (sData?.services) {
+        setOrgServices(sData.services);
+        if (sData.properties) setOrgProperties(sData.properties);
+      }
+
+      // 2. Load usage
       const usageData = await api.getOrgUsage(activeOrgId).catch(() => null);
       if (usageData) setOrgUsage(usageData);
 
-      // Load exams
+      // 3. Load exams
       const examsData = await api.getExams(activeOrgId).catch(() => []);
       setExams(examsData);
 
-      // Load questions
+      // 4. Load questions
       const qData = await api.getQuestions(activeOrgId, selectedSubject).catch(() => []);
       setQuestions(qData);
 
-      // Load real organization members from backend
+      // 5. Load real organization members from backend
       const membersData = await api.getOrgMembers(activeOrgId).catch(() => null);
       if (membersData && membersData.length > 0) {
         setMembers(membersData);
@@ -171,7 +205,7 @@ export default function OrgDashboard({
         setMembers([]);
       }
 
-      // Load organization invite code
+      // 6. Load organization invite code
       const inviteData = await api.getOrgInviteCode(activeOrgId).catch(() => null);
       if (inviteData?.invite_code) {
         setInviteCode(inviteData.invite_code);
@@ -413,6 +447,31 @@ export default function OrgDashboard({
                     {orgUsage?.plan_id || currentPlan}
                   </span>
 
+                  {/* Quick Upgrade / UPI Payment CTA button */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("billing")}
+                    style={{
+                      background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                      color: "#ffffff",
+                      border: "none",
+                      fontSize: "11px",
+                      fontWeight: "800",
+                      padding: "4px 12px",
+                      borderRadius: "9999px",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      boxShadow: "0 2px 6px rgba(16,185,129,0.35)",
+                      transition: "transform 0.1s ease"
+                    }}
+                    title="Upgrade your subscription tier and pay instantly via UPI"
+                  >
+                    <span>⚡</span>
+                    <span>Upgrade Plan & Pay via UPI</span>
+                  </button>
+
                   {/* MongoDB live badge with pulsing dot */}
                   <span
                     style={{
@@ -454,6 +513,62 @@ export default function OrgDashboard({
 
             {/* Right: action buttons */}
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+              {myOrgs.length > 1 && (
+                <select
+                  value={activeOrgId}
+                  onChange={(e) => {
+                    const sel = myOrgs.find(o => o.id === e.target.value || o.slug === e.target.value);
+                    if (sel) {
+                      const saved = localStorage.getItem("lunaris_user");
+                      if (saved) {
+                        const u = JSON.parse(saved);
+                        u.organization_id = sel.id;
+                        u.organization_slug = sel.slug;
+                        u.organization_name = sel.name;
+                        u.plan_id = sel.plan_id;
+                        localStorage.setItem("lunaris_user", JSON.stringify(u));
+                      }
+                      window.location.reload();
+                    }
+                  }}
+                  style={{
+                    padding: "7px 10px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--border-subtle)",
+                    fontSize: "12px",
+                    fontWeight: "700",
+                    background: "#ffffff",
+                    color: "var(--text-primary)",
+                    cursor: "pointer"
+                  }}
+                  title="Switch Organization Workspace"
+                >
+                  {myOrgs.map(o => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+              )}
+              {currentUser?.is_superadmin && (
+                <button
+                  type="button"
+                  onClick={() => navigate("/admin")}
+                  style={{
+                    padding: "8px 14px",
+                    background: "#0f172a",
+                    color: "#ffffff",
+                    border: "1px solid #1e293b",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "700",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px"
+                  }}
+                >
+                  🛡️ Platform SuperAdmin
+                </button>
+              )}
               {onExitToPublic && (
                 <button
                   type="button"
@@ -464,7 +579,7 @@ export default function OrgDashboard({
                   🌐 Public Site
                 </button>
               )}
-              {onOpenProctorConsole && (
+              {onOpenProctorConsole && orgServices.proctor_console !== false && (
                 <button
                   type="button"
                   onClick={onOpenProctorConsole}
@@ -603,18 +718,31 @@ export default function OrgDashboard({
           {[
             { key: "exams",        label: "Scheduled Exams",      icon: "📅" },
             { key: "questions",    label: "Question Banks",       icon: "📚" },
-            { key: "ai_studio",    label: "AI Question Studio",   icon: "🤖" },
-            { key: "live_proctor", label: "Live Proctor",         icon: "🛡️" },
+            {
+              key: "ai_studio",
+              label: orgServices.ai_studio === false ? "AI Studio (Disabled)" : "AI Question Studio",
+              icon: "🤖",
+              isDisabled: orgServices.ai_studio === false
+            },
+            {
+              key: "live_proctor",
+              label: orgServices.proctor_console === false ? "Live Proctor (Disabled)" : "Live Proctor",
+              icon: "🛡️",
+              isDisabled: orgServices.proctor_console === false
+            },
             { key: "members",      label: "Members",              icon: "👥" },
+            { key: "billing",      label: "Plans & UPI Payments", icon: "💳" },
           ].map((tab) => (
             <button
               key={tab.key}
               type="button"
               className={`tab-pill${activeTab === tab.key ? " active" : ""}`}
               onClick={() => setActiveTab(tab.key)}
+              style={tab.isDisabled ? { opacity: 0.7 } : {}}
             >
               <span>{tab.icon}</span>
               {tab.label}
+              {tab.isDisabled && <span style={{ fontSize: "10px", marginLeft: "4px" }}>🔒</span>}
             </button>
           ))}
         </div>
@@ -860,6 +988,31 @@ export default function OrgDashboard({
                     </td>
                     <td>
                       <div className="action-bar">
+                        {/* Direct Candidate Attempt */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onTakeExam) {
+                              onTakeExam(ex.slug || ex.id, "TEST-CANDIDATE-01", "2026");
+                            } else {
+                              navigate(`/exam/${ex.slug || ex.id}`);
+                            }
+                          }}
+                          title="Take / Give Attempt as Candidate"
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: "4px",
+                            fontSize: "11px",
+                            fontWeight: "700",
+                            background: "#eff6ff",
+                            color: "#2563eb",
+                            border: "1px solid #bfdbfe",
+                            cursor: "pointer"
+                          }}
+                        >
+                          🎯 Attempt
+                        </button>
+
                         {/* Copy Link */}
                         <button
                           type="button"
@@ -880,14 +1033,16 @@ export default function OrgDashboard({
                           >🚀 Publish</button>
                         )}
 
-                        <button
-                          type="button"
-                          onClick={() => setSelectedEnrollmentExam(ex)}
-                          title="Manage Candidate UIDs"
-                          className="primary-action"
-                        >👥 UIDs</button>
+                        {orgServices.bulk_enrollment !== false && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedEnrollmentExam(ex)}
+                            title="Manage Candidate UIDs"
+                            className="primary-action"
+                          >👥 UIDs</button>
+                        )}
 
-                        {ex.mode === "quick_quiz" && (
+                        {ex.mode === "quick_quiz" && orgServices.quick_quiz !== false && (
                           <button
                             type="button"
                             onClick={() => handleHostQuickQuizRoom(ex.id)}
@@ -897,11 +1052,13 @@ export default function OrgDashboard({
                           >⚡ Host</button>
                         )}
 
-                        <button
-                          type="button"
-                          onClick={() => setAnalyticsExamId(ex.id)}
-                          title="View Analytics"
-                        >📊 Stats</button>
+                        {orgServices.detailed_analytics !== false && (
+                          <button
+                            type="button"
+                            onClick={() => setAnalyticsExamId(ex.id)}
+                            title="View Analytics"
+                          >📊 Stats</button>
+                        )}
 
                         <button
                           type="button"
@@ -1090,10 +1247,21 @@ export default function OrgDashboard({
 
       {/* ── TAB 3: AI QUESTION STUDIO ─────────────────────────────────────── */}
       {activeTab === "ai_studio" && (
-        <AiQuestionStudio
-          organizationId={activeOrgId}
-          onQuestionApproved={loadAllData}
-        />
+        orgServices.ai_studio === false ? (
+          <div className="dash-card" style={{ padding: "48px 24px", textAlign: "center", background: "#ffffff" }}>
+            <div style={{ fontSize: "40px", marginBottom: "12px" }}>🔒</div>
+            <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a" }}>AI Question Studio Disabled</h3>
+            <p style={{ fontSize: "13px", color: "var(--text-muted)", maxWidth: "480px", margin: "8px auto 20px auto", lineHeight: "1.5" }}>
+              The AI Question Studio service is currently disabled for this organization by the platform administrator.
+              Please contact the platform owner to enable AI synthesis permissions.
+            </p>
+          </div>
+        ) : (
+          <AiQuestionStudio
+            organizationId={activeOrgId}
+            onQuestionApproved={loadAllData}
+          />
+        )
       )}
 
       {/* ── TAB 4: MEMBERS ───────────────────────────────────────────────── */}
@@ -1293,9 +1461,19 @@ export default function OrgDashboard({
 
       {/* ── TAB: LIVE PROCTOR ────────────────────────────────────────────── */}
       {activeTab === "live_proctor" && (
-        <div style={{ marginTop: "8px" }}>
-          <LiveProctorDashboard organizationId={activeOrgId} />
-        </div>
+        orgServices.proctor_console === false ? (
+          <div className="dash-card" style={{ padding: "48px 24px", textAlign: "center", background: "#ffffff" }}>
+            <div style={{ fontSize: "40px", marginBottom: "12px" }}>🔒</div>
+            <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a" }}>Live Proctor Console Disabled</h3>
+            <p style={{ fontSize: "13px", color: "var(--text-muted)", maxWidth: "480px", margin: "8px auto 20px auto", lineHeight: "1.5" }}>
+              Live invigilation and streaming proctor console services are currently disabled for this organization by the platform administrator.
+            </p>
+          </div>
+        ) : (
+          <div style={{ marginTop: "8px" }}>
+            <LiveProctorDashboard organizationId={activeOrgId} />
+          </div>
+        )
       )}
 
       {/* ── TAB 5: BILLING ───────────────────────────────────────────────── */}
@@ -1331,6 +1509,10 @@ export default function OrgDashboard({
         <ExamCreationWizard
           organizationId={activeOrgId}
           onClose={() => setShowCreateExamModal(false)}
+          onNavigateToBilling={() => {
+            setShowCreateExamModal(false);
+            setActiveTab("billing");
+          }}
           onExamCreated={(newEx) => {
             setShowCreateExamModal(false);
             loadAllData();

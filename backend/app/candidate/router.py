@@ -242,11 +242,6 @@ def start_candidate_attempt(
     if not version:
         # Auto-create version 1 snapshot for instant testing convenience
         questions = db.query(Question).filter(Question.organization_id == exam.organization_id).all()
-        if not questions:
-            # Fallback to system questions if org has none yet
-            allen_org = db.query(Organization).filter((Organization.slug == "allen-kota-mock") | (Organization.name.ilike("%allen%"))).first()
-            if allen_org:
-                questions = db.query(Question).filter(Question.organization_id == allen_org.id).all()
 
         snapshot_questions = []
         for q in questions:

@@ -178,13 +178,67 @@ export const api = {
   // Platform Admin (SuperAdmin)
   getPlatformStats: () => request("/platform/stats"),
   getPlatformOrgs: () => request("/platform/organizations"),
+  createPlatformOrg: (data) => request("/platform/organizations", { method: "POST", body: JSON.stringify(data) }),
+  getPlatformOrgDetail: (org_id) => request(`/platform/organizations/${org_id}`),
+  updatePlatformOrg: (org_id, data) => request(`/platform/organizations/${org_id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deletePlatformOrg: (org_id) => request(`/platform/organizations/${org_id}`, { method: "DELETE" }),
+  getPlatformOrgServices: (org_id) => request(`/platform/organizations/${org_id}/services`),
+  updatePlatformOrgServices: (org_id, services, properties) =>
+    request(`/platform/organizations/${org_id}/services`, { method: "PUT", body: JSON.stringify({ services, properties }) }),
+  updatePlatformOrgSubscription: (org_id, data) =>
+    request(`/platform/organizations/${org_id}/subscription`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteOrgExamSuperadmin: (org_id, exam_id) =>
+    request(`/platform/organizations/${org_id}/exams/${exam_id}`, { method: "DELETE" }),
+  purgeMockData: () => request("/platform/clean-mock-data", { method: "POST" }),
   updateOrgStatus: (org_id, status) =>
     request(`/platform/organizations/${org_id}/status`, { method: "POST", body: JSON.stringify({ status }) }),
   changeOrgPlan: (org_id, plan_id) =>
     request(`/platform/organizations/${org_id}/plan`, { method: "POST", body: JSON.stringify({ plan_id }) }),
   getPlatformPlans: () => request("/platform/plans"),
+  createPlatformPlan: (data) => request("/platform/plans", { method: "POST", body: JSON.stringify(data) }),
   updatePlan: (plan_id, data) => request(`/platform/plans/${plan_id}`, { method: "PUT", body: JSON.stringify(data) }),
-  getPlatformAuditLogs: () => request("/platform/audit-logs"),
+  deletePlatformPlan: (plan_id) => request(`/platform/plans/${plan_id}`, { method: "DELETE" }),
+  removePlatformOrgSubscription: (org_id) =>
+    request(`/platform/organizations/${org_id}/subscription`, { method: "DELETE" }),
+  getPlatformOrgMembers: (org_id) =>
+    request(`/platform/organizations/${org_id}/members`),
+  removePlatformOrgMember: (org_id, user_id) =>
+    request(`/platform/organizations/${org_id}/members/${user_id}`, { method: "DELETE" }),
+  deletePlatformUser: (user_id) =>
+    request(`/platform/users/${user_id}`, { method: "DELETE" }),
+  getPlatformCustomers: () =>
+    request("/platform/customers"),
+  getPlatformAuditLogs: (params = {}) => {
+    const q = new URLSearchParams();
+    if (params.page) q.append("page", params.page);
+    if (params.page_size) q.append("page_size", params.page_size);
+    if (params.search) q.append("search", params.search);
+    if (params.action_filter && params.action_filter !== "all") q.append("action_filter", params.action_filter);
+    const qs = q.toString();
+    return request(`/platform/audit-logs${qs ? `?${qs}` : ""}`);
+  },
+  clearPlatformAuditLogs: () => request("/platform/audit-logs", { method: "DELETE" }),
+  getPlatformAdmins: () => request("/platform/admins"),
+  createPlatformAdmin: (data) => request("/platform/admins", { method: "POST", body: JSON.stringify(data) }),
+  updatePlatformAdminRole: (userId, data) =>
+    request(`/platform/admins/${userId}/role`, { method: "PUT", body: JSON.stringify(data) }),
+  revokePlatformAdmin: (userId) =>
+    request(`/platform/admins/${userId}`, { method: "DELETE" }),
+  getPlatformDeepAnalytics: () => request("/platform/analytics"),
+  getPlatformPaymentSettings: () => request("/platform/payment-settings"),
+  updatePlatformPaymentSettings: (data) =>
+    request("/platform/payment-settings", { method: "PUT", body: JSON.stringify(data) }),
+  getPlatformPayments: (status_filter) =>
+    request(`/platform/payments${status_filter ? `?status_filter=${status_filter}` : ""}`),
+  verifyPlatformPayment: (payment_id, data) =>
+    request(`/platform/payments/${payment_id}/verify`, { method: "POST", body: JSON.stringify(data) }),
+  getUpiCheckoutInfo: (org_id, plan_id) =>
+    request(`/plans/upi-checkout-info?organization_id=${org_id}&plan_id=${plan_id}`),
+  submitUpiPayment: (data) =>
+    request("/plans/submit-upi", { method: "POST", body: JSON.stringify(data) }),
+  getOrgPayments: (org_id) =>
+    request(`/plans/my-payments/${org_id}`),
+  getOrgServices: (org_id) => request(`/organizations/${org_id}/services`),
 
   // MongoDB Dual-Engine Operations
   getMongoStatus: () => request("/platform/mongodb/status"),
