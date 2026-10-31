@@ -12,6 +12,9 @@ router = APIRouter(prefix="/organizations", tags=["Organizations"])
 class CreateOrgRequest(BaseModel):
     name: str
 
+class UpdateOrgRequest(BaseModel):
+    name: str
+
 class InviteMemberRequest(BaseModel):
     email: EmailStr
     role: str = "exam_author"  # admin, exam_author, proctor, candidate
@@ -25,12 +28,16 @@ def create_organization(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    slug = req.name.lower().replace(" ", "-")[:50]
-    existing_slug = db.query(Organization).filter(Organization.slug == slug).first()
-    if existing_slug:
-        slug = f"{slug}-{current_user.id[:6]}"
+    base_slug = "".join(c if c.isalnum() else "-" for c in req.name.lower()).strip("-")[:45]
+    if not base_slug:
+        base_slug = "academy"
+    slug = base_slug
+    counter = 1
+    while db.query(Organization).filter(Organization.slug == slug).first():
+        slug = f"{base_slug}-{counter}"
+        counter += 1
 
-    org = Organization(name=req.name, slug=slug)
+    org = Organization(name=req.name.strip(), slug=slug, plan_id="free")
     db.add(org)
     db.flush()
 
@@ -42,7 +49,61 @@ def create_organization(
     db.add(member)
     db.commit()
 
-    return {"id": org.id, "name": org.name, "slug": org.slug, "role": "owner"}
+    return {
+        "id": org.id,
+        "name": org.name,
+        "slug": org.slug,
+        "plan_id": org.plan_id or "free",
+        "role": "owner",
+        "message": f"Academy '{org.name}' created successfully!"
+    }
+
+
+@router.put("/{org_id}")
+@router.patch("/{org_id}")
+def update_organization(
+    org_id: str,
+    req: UpdateOrgRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Updates the organization / academy name.
+    """
+    clean_name = req.name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Organization name cannot be empty.")
+
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found.")
+
+    if not current_user.is_superadmin:
+        member = db.query(OrganizationMember).filter(
+            OrganizationMember.organization_id == org.id,
+            OrganizationMember.user_id == current_user.id
+        ).first()
+        if not member or member.role not in ("owner", "admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Only organization owners or administrators can change the organization name."
+            )
+
+    org.name = clean_name
+    db.commit()
+    db.refresh(org)
+
+    return {
+        "status": "success",
+        "message": f"Organization name updated to '{org.name}'",
+        "organization": {
+            "id": org.id,
+            "name": org.name,
+            "slug": org.slug,
+            "plan_id": org.plan_id or "free"
+        }
+    }
+
 
 @router.get("/my")
 def get_my_organizations(
@@ -171,6 +232,17 @@ def invite_member(
     if not membership:
         raise HTTPException(status_code=403, detail="You do not have permission to manage members for this organization")
 
+    # Check plan limit for team members
+    from app.plans.router import get_organization_entitlements
+    entitlements_info = get_organization_entitlements(db, org.id)
+    max_members = int(entitlements_info.get("entitlements", {}).get("team_members", 2))
+    current_members_count = db.query(OrganizationMember).filter(OrganizationMember.organization_id == org.id).count()
+    if current_members_count >= max_members:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Team member limit reached: Your current plan allows a maximum of {max_members} staff members (current: {current_members_count}). Please upgrade your plan in Plans & Billing to invite more faculty."
+        )
+
     target_user = db.query(User).filter(User.email == req.email.lower()).first()
     if not target_user:
         # Create lightweight placeholder account for invited user
@@ -279,7 +351,7 @@ def get_organization_usage(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    from app.models import Exam, Question, ExamAttempt
+    from app.models import Exam, Question, ExamAttempt, ExamEnrollment, ProctorSession
     org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -288,22 +360,82 @@ def get_organization_usage(
     exams_count = db.query(Exam).filter(Exam.organization_id == org.id).count()
     questions_count = db.query(Question).filter(Question.organization_id == org.id).count()
     attempts_count = db.query(ExamAttempt).filter(ExamAttempt.organization_id == org.id).count()
+    candidates_count = db.query(ExamEnrollment).filter(ExamEnrollment.organization_id == org.id).count()
+    proctoring_used = db.query(ProctorSession).join(
+        ExamAttempt, ProctorSession.attempt_id == ExamAttempt.id
+    ).filter(
+        ExamAttempt.organization_id == org.id
+    ).count()
 
     plan_limits = {
-        "starter": {"max_candidates": 50, "max_exams": 5, "proctoring_enabled": True},
-        "pro": {"max_candidates": 500, "max_exams": 50, "proctoring_enabled": True},
-        "enterprise": {"max_candidates": 5000, "max_exams": 500, "proctoring_enabled": True}
+        "free": {
+            "name": "Free Starter",
+            "max_candidates": 30,
+            "max_exams": 3,
+            "max_members": 2,
+            "max_proctoring_attempts": 5,
+            "proctoring_enabled": True
+        },
+        "starter": {
+            "name": "Free Starter",
+            "max_candidates": 30,
+            "max_exams": 3,
+            "max_members": 2,
+            "max_proctoring_attempts": 5,
+            "proctoring_enabled": True
+        },
+        "creator_pro": {
+            "name": "Creator Pro",
+            "max_candidates": 250,
+            "max_exams": 25,
+            "max_members": 5,
+            "max_proctoring_attempts": 100,
+            "proctoring_enabled": True
+        },
+        "pro": {
+            "name": "Creator Pro",
+            "max_candidates": 250,
+            "max_exams": 25,
+            "max_members": 5,
+            "max_proctoring_attempts": 100,
+            "proctoring_enabled": True
+        },
+        "institution": {
+            "name": "Institution",
+            "max_candidates": 5000,
+            "max_exams": 1000,
+            "max_members": 50,
+            "max_proctoring_attempts": 5000,
+            "proctoring_enabled": True
+        },
+        "enterprise": {
+            "name": "Institution",
+            "max_candidates": 5000,
+            "max_exams": 1000,
+            "max_members": 50,
+            "max_proctoring_attempts": 5000,
+            "proctoring_enabled": True
+        }
     }
-    limits = plan_limits.get(org.plan_id, plan_limits["starter"])
+    limits = plan_limits.get(org.plan_id or "free", plan_limits["free"])
 
     return {
         "organization_id": org.id,
         "organization_name": org.name,
-        "plan_id": org.plan_id or "starter",
-        "members_count": members_count,
+        "organization_slug": org.slug,
+        "plan_id": org.plan_id or "free",
+        "plan_name": limits.get("name", "Free Starter"),
+        "candidates_count": candidates_count,
+        "max_candidates": limits.get("max_candidates", 30),
         "exams_count": exams_count,
+        "max_exams": limits.get("max_exams", 3),
+        "members_count": members_count,
+        "max_members": limits.get("max_members", 2),
+        "proctoring_used": proctoring_used,
+        "max_proctoring_attempts": limits.get("max_proctoring_attempts", 5),
         "questions_count": questions_count,
         "attempts_count": attempts_count,
+        "ai_generation_credits": org.ai_generation_credits,
         "limits": limits
     }
 
@@ -412,24 +544,6 @@ def list_org_subjects(
     subjects = db.query(OrganizationSubject).filter(
         OrganizationSubject.organization_id == org.id
     ).order_by(OrganizationSubject.name.asc()).all()
-
-    # If first time accessing, auto-seed starter subjects so workspace is immediately usable
-    if not subjects:
-        starter_pack = DEFAULT_SUBJECT_PRESETS["stem"]
-        for p in starter_pack:
-            s_obj = OrganizationSubject(
-                organization_id=org.id,
-                name=p["name"],
-                code=p["code"],
-                category=p["category"],
-                color_hex=p["color_hex"],
-                description=p["description"]
-            )
-            db.add(s_obj)
-        db.commit()
-        subjects = db.query(OrganizationSubject).filter(
-            OrganizationSubject.organization_id == org.id
-        ).order_by(OrganizationSubject.name.asc()).all()
 
     return [
         {
@@ -543,6 +657,25 @@ def delete_org_subject(
     db.delete(sub)
     db.commit()
     return {"message": f"Subject '{name}' deleted successfully."}
+
+
+@router.post("/{org_id}/subjects/clear-all")
+def clear_all_org_subjects(
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Deletes all subjects in an organization so the user can start completely fresh."""
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    deleted_count = db.query(OrganizationSubject).filter(
+        OrganizationSubject.organization_id == org.id
+    ).delete(synchronize_session=False)
+    db.commit()
+
+    return {"message": f"All {deleted_count} subjects cleared successfully.", "deleted_count": deleted_count}
 
 
 @router.post("/{org_id}/subjects/seed-pack")

@@ -41,12 +41,12 @@ def get_plan_limits(db: Session, organization_id: str) -> Dict[str, Any]:
         plan = db.query(Plan).filter(Plan.id == "free").first()
     
     limits = {
-        "max_candidates": 25,
+        "max_candidates": 30,
         "max_exams": 3,
-        "ai_questions": 20,
-        "proctoring_enabled": False,
+        "ai_questions": 30,
+        "proctoring_enabled": True,
         "pdf_import": False,
-        "team_members": 1,
+        "team_members": 2,
     }
     if plan:
         for ent in plan.entitlements:

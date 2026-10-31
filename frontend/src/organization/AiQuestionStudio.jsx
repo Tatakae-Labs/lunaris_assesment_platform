@@ -9,7 +9,7 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
   const [questionFormat, setQuestionFormat] = useState("mixed");
   const [referenceNotes, setReferenceNotes] = useState("");
   const [showNotesInput, setShowNotesInput] = useState(false);
-  const [count, setCount] = useState(4);
+  const [count, setCount] = useState(25);
   const [generating, setGenerating] = useState(false);
   const [drafts, setDrafts] = useState([]);
   const [loadingDrafts, setLoadingDrafts] = useState(false);
@@ -104,6 +104,29 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
       loadDrafts();
     } catch (err) {
       alert("Rejection failed: " + err.message);
+    }
+  }
+
+  async function handleDeleteDraft(draftId) {
+    try {
+      await api.deleteAiDraft(draftId);
+      setDrafts((prev) => prev.filter((d) => d.id !== draftId));
+      setStatusMsg("Draft deleted.");
+    } catch (err) {
+      alert("Failed to delete draft: " + err.message);
+    }
+  }
+
+  async function handleClearAllDrafts() {
+    if (!window.confirm("Permanently clear all AI-generated drafts? Approved questions in your active Question Bank will remain safe.")) {
+      return;
+    }
+    try {
+      await api.clearAiDrafts(organizationId);
+      setDrafts([]);
+      setStatusMsg("All pending drafts cleared.");
+    } catch (err) {
+      alert("Failed to clear drafts: " + err.message);
     }
   }
 
@@ -320,10 +343,13 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
                   fontSize: "13px"
                 }}
               >
-                <option value="2">2 Qs</option>
-                <option value="4">4 Qs</option>
-                <option value="6">6 Qs</option>
-                <option value="8">8 Qs</option>
+                <option value="5">5 Qs</option>
+                <option value="10">10 Qs</option>
+                <option value="15">15 Qs</option>
+                <option value="20">20 Qs</option>
+                <option value="25">25 Qs (Batch Standard)</option>
+                <option value="30">30 Qs</option>
+                <option value="50">50 Qs (Full Exam Pack)</option>
               </select>
             </div>
 
@@ -407,21 +433,41 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
               All AI questions remain unlisted in exams until an authorized instructor verifies accuracy and approves.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={loadDrafts}
-            style={{
-              padding: "6px 12px",
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--border-subtle)",
-              borderRadius: "6px",
-              fontSize: "12px",
-              fontWeight: "600",
-              color: "var(--text-secondary)"
-            }}
-          >
-            ↻ Refresh Drafts
-          </button>
+          <div style={{ display: "flex", gap: "8px" }}>
+            {drafts.length > 0 && (
+              <button
+                type="button"
+                onClick={handleClearAllDrafts}
+                style={{
+                  padding: "6px 12px",
+                  background: "#fff5f5",
+                  border: "1px solid #fca5a5",
+                  borderRadius: "6px",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  color: "#dc2626",
+                  cursor: "pointer"
+                }}
+              >
+                🗑️ Clear All Drafts
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={loadDrafts}
+              style={{
+                padding: "6px 12px",
+                background: "var(--bg-secondary)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "6px",
+                fontSize: "12px",
+                fontWeight: "600",
+                color: "var(--text-secondary)"
+              }}
+            >
+              ↻ Refresh Drafts
+            </button>
+          </div>
         </div>
 
         {loadingDrafts ? (
@@ -474,6 +520,23 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
                   </div>
 
                   <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDraft(draft.id)}
+                      title="Delete draft"
+                      style={{
+                        padding: "6px 10px",
+                        background: "#fee2e2",
+                        color: "#dc2626",
+                        border: "1px solid #fca5a5",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        cursor: "pointer"
+                      }}
+                    >
+                      🗑️
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleReject(draft.id)}

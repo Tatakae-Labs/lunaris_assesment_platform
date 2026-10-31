@@ -210,13 +210,13 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
             border: subStatus.is_past_due
               ? "2px solid #ef4444"
               : subStatus.is_expiring_soon
-              ? "2px solid #f59e0b"
-              : "1px solid var(--border-subtle)",
+                ? "2px solid #f59e0b"
+                : "1px solid var(--border-subtle)",
             background: subStatus.is_past_due
               ? "#fef2f2"
               : subStatus.is_expiring_soon
-              ? "#fffbeb"
-              : "#ffffff"
+                ? "#fffbeb"
+                : "#ffffff"
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
@@ -252,25 +252,25 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                     background: subStatus.is_past_due
                       ? "#fecaca"
                       : subStatus.is_expiring_soon
-                      ? "#fde68a"
-                      : subStatus.is_free_tier
-                      ? "var(--bg-secondary)"
-                      : "#d1fae5",
+                        ? "#fde68a"
+                        : subStatus.is_free_tier
+                          ? "var(--bg-secondary)"
+                          : "#d1fae5",
                     color: subStatus.is_past_due
                       ? "#b91c1c"
                       : subStatus.is_expiring_soon
-                      ? "#b45309"
-                      : subStatus.is_free_tier
-                      ? "var(--text-muted)"
-                      : "#047857"
+                        ? "#b45309"
+                        : subStatus.is_free_tier
+                          ? "var(--text-muted)"
+                          : "#047857"
                   }}>
                     {subStatus.is_past_due
                       ? `Grace Period (${subStatus.grace_period_days_left}d left)`
                       : subStatus.is_expiring_soon
-                      ? `Renews in ${subStatus.days_remaining}d`
-                      : subStatus.is_free_tier
-                      ? "Lifetime Free"
-                      : `Active • ${subStatus.days_remaining}d remaining`}
+                        ? `Renews in ${subStatus.days_remaining}d`
+                        : subStatus.is_free_tier
+                          ? "Lifetime Free"
+                          : `Active • ${subStatus.days_remaining}d remaining`}
                   </span>
                 </div>
 
@@ -516,7 +516,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
             disabled={loadingPayments}
             style={{ fontSize: "12px", padding: "6px 12px" }}
           >
-            {loadingPayments ? "Refreshing..." : "🔄 Refresh Status"}
+            {loadingPayments ? "Refreshing..." : " Refresh Status"}
           </button>
         </div>
 

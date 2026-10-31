@@ -337,6 +337,11 @@ export default function LiveProctorDashboard({ organizationId }) {
       }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <img
+              src="/logo.png"
+              alt="Lunaris"
+              style={{ width: "28px", height: "28px", objectFit: "contain", borderRadius: "50%" }}
+            />
             <h2 style={{ fontSize: "24px", fontWeight: "800", color: "var(--text-primary)", fontFamily: "var(--font-display)" }}>
               Live CCTV Surveillance & Integrity Center
             </h2>
@@ -551,28 +556,32 @@ export default function LiveProctorDashboard({ organizationId }) {
             flexWrap: "wrap",
             gap: "12px",
             marginBottom: "16px",
-            padding: "10px 16px",
-            background: "#0f172a",
+            padding: "12px 18px",
+            background: "#ffffff",
+            border: "1px solid #e2e8f0",
             borderRadius: "10px",
-            color: "#e2e8f0"
+            boxShadow: "0 1px 3px rgba(0, 0, 0, 0.04)",
+            color: "#1e293b"
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
-                <span style={{ color: "#94a3b8" }}>Grid:</span>
+                <span style={{ color: "#64748b", fontWeight: "600" }}>Grid:</span>
                 {["2x2", "3x3", "4x4", "auto"].map((layout) => (
                   <button
                     key={layout}
                     type="button"
                     onClick={() => setGridLayout(layout)}
                     style={{
-                      padding: "4px 9px",
-                      borderRadius: "4px",
-                      border: "none",
+                      padding: "5px 11px",
+                      borderRadius: "6px",
+                      border: gridLayout === layout ? "1px solid var(--accent-blue)" : "1px solid #e2e8f0",
                       fontSize: "12px",
                       fontWeight: "700",
                       cursor: "pointer",
-                      background: gridLayout === layout ? "var(--accent-blue)" : "#1e293b",
-                      color: gridLayout === layout ? "#ffffff" : "#94a3b8"
+                      background: gridLayout === layout ? "var(--accent-blue)" : "#f8fafc",
+                      color: gridLayout === layout ? "#ffffff" : "#475569",
+                      boxShadow: gridLayout === layout ? "0 2px 4px rgba(37, 99, 235, 0.2)" : "none",
+                      transition: "all 0.15s ease"
                     }}
                   >
                     {layout.toUpperCase()}
@@ -581,18 +590,20 @@ export default function LiveProctorDashboard({ organizationId }) {
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
-                <span style={{ color: "#94a3b8" }}>Filter:</span>
+                <span style={{ color: "#64748b", fontWeight: "600" }}>Filter:</span>
                 <select
                   value={feedFilter}
                   onChange={(e) => setFeedFilter(e.target.value)}
                   style={{
-                    background: "#1e293b",
-                    color: "#f8fafc",
-                    border: "1px solid #334155",
+                    background: "#ffffff",
+                    color: "#1e293b",
+                    border: "1px solid #cbd5e1",
                     borderRadius: "6px",
-                    padding: "4px 8px",
+                    padding: "5px 10px",
                     fontSize: "12px",
-                    cursor: "pointer"
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    outline: "none"
                   }}
                 >
                   <option value="all">All Feeds ({sessions.length})</option>
@@ -606,17 +617,19 @@ export default function LiveProctorDashboard({ organizationId }) {
                 type="button"
                 onClick={() => setShowAiOverlay(!showAiOverlay)}
                 style={{
-                  background: showAiOverlay ? "rgba(56, 189, 248, 0.15)" : "#1e293b",
-                  color: showAiOverlay ? "#38bdf8" : "#94a3b8",
-                  border: `1px solid ${showAiOverlay ? "#38bdf8" : "#334155"}`,
+                  background: showAiOverlay ? "#eff6ff" : "#f8fafc",
+                  color: showAiOverlay ? "var(--accent-blue)" : "#64748b",
+                  border: `1px solid ${showAiOverlay ? "#93c5fd" : "#cbd5e1"}`,
                   borderRadius: "6px",
-                  padding: "4px 10px",
+                  padding: "5px 12px",
                   fontSize: "12px",
                   fontWeight: "700",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
-                  gap: "6px"
+                  gap: "6px",
+                  boxShadow: showAiOverlay ? "0 1px 3px rgba(37, 99, 235, 0.12)" : "none",
+                  transition: "all 0.15s ease"
                 }}
               >
                 <span>👁️</span>
@@ -625,12 +638,12 @@ export default function LiveProctorDashboard({ organizationId }) {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "12px" }}>
-              <span style={{ color: "#22c55e", display: "flex", alignItems: "center", gap: "5px", fontWeight: "600" }}>
-                <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#22c55e", display: "inline-block" }} />
+              <span style={{ color: "#16a34a", display: "flex", alignItems: "center", gap: "5px", fontWeight: "700" }}>
+                <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#16a34a", display: "inline-block" }} />
                 Auto-sync active (4s)
               </span>
-              <span style={{ color: "#64748b" }}>|</span>
-              <span style={{ color: "#94a3b8", fontFamily: "var(--font-mono)" }}>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <span style={{ color: "#64748b", fontFamily: "var(--font-mono)", fontWeight: "600" }}>
                 Showing {filteredSessions.length} feeds
               </span>
             </div>
@@ -639,16 +652,16 @@ export default function LiveProctorDashboard({ organizationId }) {
           {/* CCTV Multi-Camera Grid */}
           {filteredSessions.length === 0 ? (
             <div style={{
-              background: "#090d16",
-              border: "1px solid #1e293b",
+              background: "#ffffff",
+              border: "1.5px dashed #cbd5e1",
               borderRadius: "12px",
-              padding: "60px 20px",
+              padding: "70px 24px",
               textAlign: "center",
-              color: "#94a3b8"
+              boxShadow: "0 1px 3px rgba(0, 0, 0, 0.03)"
             }}>
-              <div style={{ fontSize: "36px", marginBottom: "12px" }}>📹</div>
-              <h3 style={{ fontSize: "18px", color: "#f8fafc", fontWeight: "700" }}>No Active Candidate Video Streams</h3>
-              <p style={{ fontSize: "13px", marginTop: "6px", maxWidth: "460px", margin: "6px auto 0" }}>
+              <div style={{ fontSize: "40px", marginBottom: "14px" }}>📹</div>
+              <h3 style={{ fontSize: "18px", color: "#1e293b", fontWeight: "800", margin: "0 0 8px 0" }}>No Active Candidate Video Streams</h3>
+              <p style={{ fontSize: "13px", color: "#64748b", maxWidth: "480px", margin: "0 auto", lineHeight: "1.6" }}>
                 When candidates verify their identity and start the examination, their live CCTV camera feeds will automatically appear on this surveillance wall.
               </p>
             </div>
@@ -667,11 +680,11 @@ export default function LiveProctorDashboard({ organizationId }) {
                   <div
                     key={s.attempt_id}
                     style={{
-                      background: "#070c16",
+                      background: "#ffffff",
                       borderRadius: "10px",
-                      border: isFlagged ? "2px solid #ef4444" : "1.5px solid #1e293b",
+                      border: isFlagged ? "2px solid #ef4444" : "1px solid #e2e8f0",
                       overflow: "hidden",
-                      boxShadow: isFlagged ? "0 0 16px rgba(239, 68, 68, 0.4)" : "0 4px 12px rgba(0, 0, 0, 0.25)",
+                      boxShadow: isFlagged ? "0 4px 16px rgba(239, 68, 68, 0.15)" : "0 2px 8px rgba(0, 0, 0, 0.05)",
                       display: "flex",
                       flexDirection: "column",
                       position: "relative",
@@ -684,8 +697,8 @@ export default function LiveProctorDashboard({ organizationId }) {
                       justifyContent: "space-between",
                       alignItems: "center",
                       padding: "8px 12px",
-                      background: "rgba(10, 15, 29, 0.95)",
-                      borderBottom: "1px solid #1e293b",
+                      background: "#f8fafc",
+                      borderBottom: "1px solid #e2e8f0",
                       zIndex: 2
                     }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -695,13 +708,13 @@ export default function LiveProctorDashboard({ organizationId }) {
                           gap: "5px",
                           fontSize: "11px",
                           fontWeight: "800",
-                          color: s.status === "in_progress" ? "#22c55e" : "#94a3b8"
+                          color: s.status === "in_progress" ? "#16a34a" : "#64748b"
                         }}>
                           <span style={{
                             width: "7px",
                             height: "7px",
                             borderRadius: "50%",
-                            background: s.status === "in_progress" ? "#ef4444" : "#64748b",
+                            background: s.status === "in_progress" ? "#dc2626" : "#94a3b8",
                             display: "inline-block",
                             animation: s.status === "in_progress" ? "pulse 1.2s infinite" : "none"
                           }} />
@@ -711,8 +724,8 @@ export default function LiveProctorDashboard({ organizationId }) {
                           fontSize: "11px",
                           fontFamily: "var(--font-mono)",
                           fontWeight: "700",
-                          color: "#94a3b8",
-                          background: "#1e293b",
+                          color: "#334155",
+                          background: "#e2e8f0",
                           padding: "1px 6px",
                           borderRadius: "4px"
                         }}>
@@ -720,7 +733,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                         </span>
                       </div>
 
-                      <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "#38bdf8" }}>
+                      <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "var(--accent-blue)", fontWeight: "600" }}>
                         {cctvTime} · 720p 30fps
                       </div>
                     </div>
@@ -938,8 +951,8 @@ export default function LiveProctorDashboard({ organizationId }) {
                     {/* Candidate Identity & Action Bar */}
                     <div style={{
                       padding: "10px 12px",
-                      background: "#0b1220",
-                      borderTop: "1px solid #1e293b",
+                      background: "#ffffff",
+                      borderTop: "1px solid #e2e8f0",
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center"
@@ -947,7 +960,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                       <div style={{ minWidth: 0 }}>
                         <div style={{
                           fontWeight: "700",
-                          color: "#f8fafc",
+                          color: "#0f172a",
                           fontSize: "13px",
                           whiteSpace: "nowrap",
                           overflow: "hidden",
@@ -973,9 +986,9 @@ export default function LiveProctorDashboard({ organizationId }) {
                           onClick={() => setZoomedCandidate(s)}
                           style={{
                             padding: "5px 10px",
-                            background: "#1e293b",
-                            color: "#38bdf8",
-                            border: "1px solid #334155",
+                            background: "#eff6ff",
+                            color: "var(--accent-blue)",
+                            border: "1px solid #bfdbfe",
                             borderRadius: "5px",
                             fontSize: "11px",
                             fontWeight: "700",
@@ -989,9 +1002,9 @@ export default function LiveProctorDashboard({ organizationId }) {
                           onClick={() => handleOpenTimeline(s.attempt_id)}
                           style={{
                             padding: "5px 10px",
-                            background: isFlagged ? "#7f1d1d" : "#0f172a",
-                            color: isFlagged ? "#fca5a5" : "#94a3b8",
-                            border: `1px solid ${isFlagged ? "#ef4444" : "#1e293b"}`,
+                            background: isFlagged ? "#fee2e2" : "#f8fafc",
+                            color: isFlagged ? "#b91c1c" : "#475569",
+                            border: `1px solid ${isFlagged ? "#fca5a5" : "#e2e8f0"}`,
                             borderRadius: "5px",
                             fontSize: "11px",
                             fontWeight: "700",
@@ -1252,8 +1265,8 @@ export default function LiveProctorDashboard({ organizationId }) {
         <div style={{
           position: "fixed",
           inset: 0,
-          background: "rgba(2, 6, 23, 0.85)",
-          backdropFilter: "blur(8px)",
+          background: "rgba(15, 23, 42, 0.65)",
+          backdropFilter: "blur(6px)",
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
@@ -1261,8 +1274,8 @@ export default function LiveProctorDashboard({ organizationId }) {
           padding: "20px"
         }}>
           <div style={{
-            background: "#0b1220",
-            border: "1px solid #1e293b",
+            background: "#ffffff",
+            border: "1px solid #e2e8f0",
             borderRadius: "14px",
             maxWidth: "960px",
             width: "100%",
@@ -1270,17 +1283,17 @@ export default function LiveProctorDashboard({ organizationId }) {
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
-            color: "#f8fafc",
-            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.7)"
+            color: "#0f172a",
+            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.2)"
           }}>
             {/* Modal Header */}
             <div style={{
               padding: "16px 20px",
-              borderBottom: "1px solid #1e293b",
+              borderBottom: "1px solid #e2e8f0",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              background: "#0f172a"
+              background: "#ffffff"
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <span style={{
@@ -1297,7 +1310,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                   <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#dc2626" }} />
                   CCTV CAMERA INSPECTOR
                 </span>
-                <span style={{ fontSize: "16px", fontWeight: "700" }}>{zoomedCandidate.candidate_name}</span>
+                <span style={{ fontSize: "16px", fontWeight: "700", color: "#0f172a" }}>{zoomedCandidate.candidate_name}</span>
                 <span style={{ fontSize: "12px", color: "#64748b", fontFamily: "var(--font-mono)" }}>
                   UID: {zoomedCandidate.candidate_email}
                 </span>
@@ -1306,10 +1319,11 @@ export default function LiveProctorDashboard({ organizationId }) {
                 type="button"
                 onClick={() => setZoomedCandidate(null)}
                 style={{
-                  background: "#1e293b",
-                  border: "none",
-                  color: "#94a3b8",
-                  fontSize: "18px",
+                  background: "#f1f5f9",
+                  border: "1px solid #e2e8f0",
+                  color: "#64748b",
+                  fontSize: "16px",
+                  fontWeight: "700",
                   width: "32px",
                   height: "32px",
                   borderRadius: "6px",
@@ -1327,11 +1341,11 @@ export default function LiveProctorDashboard({ organizationId }) {
             <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", flex: 1, overflowY: "auto" }}>
               {/* Left: Large Video Monitor */}
               <div style={{
-                background: "#020617",
+                background: "#f8fafc",
                 padding: "20px",
                 display: "flex",
                 flexDirection: "column",
-                borderRight: "1px solid #1e293b"
+                borderRight: "1px solid #e2e8f0"
               }}>
                 <div style={{
                   position: "relative",
@@ -1339,7 +1353,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                   background: "#070c16",
                   borderRadius: "10px",
                   overflow: "hidden",
-                  border: "1px solid #1e293b",
+                  border: "1px solid #cbd5e1",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center"
@@ -1404,7 +1418,7 @@ export default function LiveProctorDashboard({ organizationId }) {
 
                 {/* Instant Proctor Warning Controls */}
                 <div style={{ marginTop: "16px" }}>
-                  <label style={{ fontSize: "12px", fontWeight: "700", color: "#94a3b8", display: "block", marginBottom: "6px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: "700", color: "#475569", display: "block", marginBottom: "6px" }}>
                     📢 Issue Live Warning to Candidate Screen
                   </label>
                   <div style={{ display: "flex", gap: "6px", marginBottom: "8px", flexWrap: "wrap" }}>
@@ -1419,12 +1433,13 @@ export default function LiveProctorDashboard({ organizationId }) {
                         type="button"
                         onClick={() => setWarningText(preset)}
                         style={{
-                          background: "#1e293b",
-                          color: "#cbd5e1",
-                          border: "1px solid #334155",
+                          background: "#ffffff",
+                          color: "#334155",
+                          border: "1px solid #cbd5e1",
                           borderRadius: "4px",
-                          padding: "3px 8px",
+                          padding: "4px 8px",
                           fontSize: "11px",
+                          fontWeight: "500",
                           cursor: "pointer"
                         }}
                       >
@@ -1441,12 +1456,12 @@ export default function LiveProctorDashboard({ organizationId }) {
                       onChange={(e) => setWarningText(e.target.value)}
                       style={{
                         flex: 1,
-                        background: "#0f172a",
-                        border: "1px solid #334155",
+                        background: "#ffffff",
+                        border: "1px solid #cbd5e1",
                         borderRadius: "6px",
                         padding: "8px 12px",
                         fontSize: "13px",
-                        color: "#f8fafc"
+                        color: "#0f172a"
                       }}
                     />
                     <button
@@ -1468,7 +1483,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                     </button>
                   </div>
                   {warningSuccess && (
-                    <div style={{ marginTop: "6px", color: "#22c55e", fontSize: "12px", fontWeight: "600" }}>
+                    <div style={{ marginTop: "6px", color: "#16a34a", fontSize: "12px", fontWeight: "600" }}>
                       ✓ {warningSuccess}
                     </div>
                   )}
@@ -1476,33 +1491,33 @@ export default function LiveProctorDashboard({ organizationId }) {
               </div>
 
               {/* Right: Telemetry & Incident Actions */}
-              <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "16px", background: "#ffffff" }}>
                 <div>
-                  <h4 style={{ fontSize: "14px", fontWeight: "700", color: "#94a3b8", textTransform: "uppercase" }}>
+                  <h4 style={{ fontSize: "13px", fontWeight: "700", color: "#64748b", textTransform: "uppercase" }}>
                     Sensor Telemetry Metrics
                   </h4>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "10px" }}>
-                    <div style={{ background: "#0f172a", padding: "10px", borderRadius: "6px", border: "1px solid #1e293b" }}>
+                    <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
                       <div style={{ fontSize: "11px", color: "#64748b" }}>Face Detection</div>
-                      <div style={{ fontSize: "14px", fontWeight: "700", color: "#22c55e", marginTop: "2px" }}>
+                      <div style={{ fontSize: "14px", fontWeight: "700", color: "#16a34a", marginTop: "2px" }}>
                         Active · Centered
                       </div>
                     </div>
-                    <div style={{ background: "#0f172a", padding: "10px", borderRadius: "6px", border: "1px solid #1e293b" }}>
+                    <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
                       <div style={{ fontSize: "11px", color: "#64748b" }}>Room Audio</div>
-                      <div style={{ fontSize: "14px", fontWeight: "700", color: "#38bdf8", marginTop: "2px" }}>
+                      <div style={{ fontSize: "14px", fontWeight: "700", color: "#0284c7", marginTop: "2px" }}>
                         38 dB (Normal)
                       </div>
                     </div>
-                    <div style={{ background: "#0f172a", padding: "10px", borderRadius: "6px", border: "1px solid #1e293b" }}>
+                    <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
                       <div style={{ fontSize: "11px", color: "#64748b" }}>Browser Focus</div>
-                      <div style={{ fontSize: "14px", fontWeight: "700", color: "#22c55e", marginTop: "2px" }}>
+                      <div style={{ fontSize: "14px", fontWeight: "700", color: "#16a34a", marginTop: "2px" }}>
                         Fullscreen Locked
                       </div>
                     </div>
-                    <div style={{ background: "#0f172a", padding: "10px", borderRadius: "6px", border: "1px solid #1e293b" }}>
+                    <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
                       <div style={{ fontSize: "11px", color: "#64748b" }}>Object Scanner</div>
-                      <div style={{ fontSize: "14px", fontWeight: "700", color: zoomedCandidate.latest_event_type === "prohibited_object" ? "#ef4444" : "#22c55e", marginTop: "2px" }}>
+                      <div style={{ fontSize: "14px", fontWeight: "700", color: zoomedCandidate.latest_event_type === "prohibited_object" ? "#ef4444" : "#16a34a", marginTop: "2px" }}>
                         {zoomedCandidate.latest_event_type === "prohibited_object" ? "📱 Phone Alert" : "Clear"}
                       </div>
                     </div>
@@ -1511,7 +1526,7 @@ export default function LiveProctorDashboard({ organizationId }) {
 
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                    <h4 style={{ fontSize: "14px", fontWeight: "700", color: "#94a3b8", textTransform: "uppercase" }}>
+                    <h4 style={{ fontSize: "13px", fontWeight: "700", color: "#64748b", textTransform: "uppercase" }}>
                       Investigation Action
                     </h4>
                     <button
@@ -1522,7 +1537,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                       }}
                       style={{
                         background: "transparent",
-                        color: "#38bdf8",
+                        color: "var(--accent-blue)",
                         border: "none",
                         fontSize: "12px",
                         fontWeight: "700",
@@ -1534,21 +1549,21 @@ export default function LiveProctorDashboard({ organizationId }) {
                   </div>
 
                   <div style={{
-                    background: "#0f172a",
-                    border: "1px solid #1e293b",
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
                     borderRadius: "8px",
                     padding: "12px",
                     fontSize: "12px",
-                    color: "#94a3b8"
+                    color: "#475569"
                   }}>
                     <div style={{ marginBottom: "6px" }}>
-                      <strong style={{ color: "#f8fafc" }}>Total Recorded Events:</strong> {zoomedCandidate.total_incidents}
+                      <strong style={{ color: "#0f172a" }}>Total Recorded Events:</strong> {zoomedCandidate.total_incidents}
                     </div>
                     <div style={{ marginBottom: "6px" }}>
-                      <strong style={{ color: "#f8fafc" }}>Critical Flags:</strong> {zoomedCandidate.critical_incidents}
+                      <strong style={{ color: "#0f172a" }}>Critical Flags:</strong> {zoomedCandidate.critical_incidents}
                     </div>
                     <div>
-                      <strong style={{ color: "#f8fafc" }}>Started:</strong> {zoomedCandidate.started_at ? new Date(zoomedCandidate.started_at).toLocaleTimeString() : "—"}
+                      <strong style={{ color: "#0f172a" }}>Started:</strong> {zoomedCandidate.started_at ? new Date(zoomedCandidate.started_at).toLocaleTimeString() : "—"}
                     </div>
                   </div>
                 </div>

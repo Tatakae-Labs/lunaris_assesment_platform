@@ -16,9 +16,9 @@ export default function CandidateEntryPortal({
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const activeSlug = slug || searchParams.get("slug") || initialExamSlug;
-  const activeInitialUid = searchParams.get("uid") || initialUid;
-  const activeInitialPin = searchParams.get("pin") || initialPin;
+  const activeSlug = slug || searchParams.get("slug") || searchParams.get("room") || searchParams.get("room_code") || searchParams.get("exam_id") || initialExamSlug;
+  const activeInitialUid = searchParams.get("uid") || searchParams.get("id") || initialUid;
+  const activeInitialPin = searchParams.get("pin") || searchParams.get("password") || initialPin;
 
   // Step in candidate flow: 'uid_entry' -> 'preflight' -> 'attempt' -> 'completed'
   const [step, setStep] = useState("uid_entry");
@@ -30,9 +30,11 @@ export default function CandidateEntryPortal({
 
   useEffect(() => {
     if (slug) setExamSlug(slug);
-    const u = searchParams.get("uid");
+    const r = searchParams.get("room") || searchParams.get("room_code") || searchParams.get("slug") || searchParams.get("exam_id");
+    if (r) setExamSlug(r);
+    const u = searchParams.get("uid") || searchParams.get("id");
     if (u) setCandidateUid(u);
-    const p = searchParams.get("pin");
+    const p = searchParams.get("pin") || searchParams.get("password");
     if (p) setAccessPin(p);
   }, [slug, searchParams]);
   const [sessionToken, setSessionToken] = useState(null);
@@ -73,6 +75,10 @@ export default function CandidateEntryPortal({
   // Interactive Coding Sandbox State
   const [codingLang, setCodingLang] = useState("python");
   const [codingConsoleTab, setCodingConsoleTab] = useState("sample"); // 'sample', 'custom', 'evaluation'
+
+  // Google Classroom Auto Turn-In State
+  const [classroomTurnInStatus, setClassroomTurnInStatus] = useState("idle"); // 'idle', 'turning_in', 'turned_in'
+  const [classroomTurnInLoading, setClassroomTurnInLoading] = useState(false);
   const [codingCustomInput, setCodingCustomInput] = useState("");
   const [codingExecution, setCodingExecution] = useState({ running: false, result: null });
 
@@ -627,11 +633,42 @@ export default function CandidateEntryPortal({
       offlineStorage.clearSession(sessionToken);
       setSubmitResult(res);
       setStep("completed");
+
+      // Auto Turn-In to Google Classroom
+      if (res?.attempt_id || attemptId) {
+        triggerClassroomTurnIn(res?.attempt_id || attemptId, res?.score_total, res?.max_score);
+      }
     } catch (err) {
       alert("Submission error: " + err.message);
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function triggerClassroomTurnIn(targetAttemptId, score, maxScore) {
+    if (!targetAttemptId) return;
+    setClassroomTurnInLoading(true);
+    setClassroomTurnInStatus("turning_in");
+    try {
+      await api.turnInToClassroom({
+        attempt_id: targetAttemptId,
+        score: score,
+        max_score: maxScore,
+        candidate_email: candidateUid
+      });
+      setClassroomTurnInStatus("turned_in");
+    } catch (e) {
+      console.warn("Classroom turn-in notice:", e);
+      setClassroomTurnInStatus("idle");
+    } finally {
+      setClassroomTurnInLoading(false);
+    }
+  }
+
+  async function handleManualTurnIn() {
+    const targetId = submitResult?.attempt_id || attemptId;
+    if (!targetId) return;
+    triggerClassroomTurnIn(targetId, submitResult?.score_total, submitResult?.max_score);
   }
 
   // Calculate palette state counts
@@ -654,19 +691,19 @@ export default function CandidateEntryPortal({
         <div style={{ maxWidth: "480px", margin: "70px auto", padding: "0 20px" }}>
           <div className="dash-card" style={{ padding: "36px", background: "#ffffff" }}>
             <div style={{ textAlign: "center", marginBottom: "24px" }}>
-              <div style={{
-                width: "48px",
-                height: "48px",
-                borderRadius: "10px",
-                background: "var(--accent-blue-subtle)",
-                color: "var(--accent-blue)",
-                display: "grid",
-                placeItems: "center",
-                fontSize: "24px",
-                margin: "0 auto 12px"
-              }}>
-                📝
-              </div>
+              <img
+                src="/logo.png"
+                alt="Lunaris"
+                style={{
+                  width: "56px",
+                  height: "56px",
+                  objectFit: "contain",
+                  borderRadius: "50%",
+                  margin: "0 auto 14px auto",
+                  display: "block",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.08)"
+                }}
+              />
               <h2 style={{ fontSize: "24px", fontWeight: "800", color: "var(--text-primary)" }}>
                 Candidate Exam Portal
               </h2>
@@ -688,45 +725,58 @@ export default function CandidateEntryPortal({
               </div>
             )}
 
+            <div style={{
+              background: "#eff6ff",
+              border: "1px solid #bfdbfe",
+              borderRadius: "8px",
+              padding: "10px 14px",
+              fontSize: "12px",
+              color: "#1e40af",
+              marginBottom: "16px",
+              lineHeight: "1.5"
+            }}>
+              💡 <strong>Login with your Examination Credentials:</strong> Enter the Exam Room Code, Candidate UID, and Access Password/PIN from your Credentials PDF Sheet or Google Classroom announcement.
+            </div>
+
             <form onSubmit={handleVerifyAccess} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
-                  Exam Slug or Room Code
+                <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px", color: "var(--text-primary)" }}>
+                  Exam Room Code or Identifier
                 </label>
                 <input
                   type="text"
                   className="lunaris-input"
                   value={examSlug}
                   onChange={(e) => setExamSlug(e.target.value)}
-                  placeholder="e.g. jee-main-test or entrance-exam"
+                  placeholder="e.g. ROOM-8492 or midterm-exam"
                   required
                 />
               </div>
 
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
-                  Candidate Enrollment UID
+                <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px", color: "var(--text-primary)" }}>
+                  Candidate Login UID
                 </label>
                 <input
                   type="text"
                   className="lunaris-input"
                   value={candidateUid}
                   onChange={(e) => setCandidateUid(e.target.value)}
-                  placeholder="e.g. LUN-AIR-2026"
+                  placeholder="e.g. LUN-481920 (from your Credentials Sheet)"
                   required
                 />
               </div>
 
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}>
-                  Access PIN (if required)
+                <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px", color: "var(--text-primary)" }}>
+                  Access Password / PIN
                 </label>
                 <input
-                  type="text"
+                  type="password"
                   className="lunaris-input"
                   value={accessPin}
                   onChange={(e) => setAccessPin(e.target.value)}
-                  placeholder="e.g. 2026"
+                  placeholder="e.g. 6-digit passcode from your Credentials Sheet"
                 />
               </div>
 
@@ -1054,6 +1104,11 @@ export default function CandidateEntryPortal({
             gap: "12px"
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+              <img
+                src="/logo.png"
+                alt="Lunaris"
+                style={{ width: "26px", height: "26px", objectFit: "contain", borderRadius: "50%" }}
+              />
               <span style={{ fontWeight: "800", fontSize: "16px", color: "var(--text-primary)" }}>
                 {paper?.title || "Computer-Based Examination"}
               </span>
@@ -2309,6 +2364,71 @@ export default function CandidateEntryPortal({
                 </div>
               </div>
             )}
+
+            {/* Google Classroom Turn In Status Card */}
+            <div style={{
+              padding: "16px 20px",
+              background: "#f0fdf4",
+              borderRadius: "10px",
+              border: "1px solid #bbf7d0",
+              marginBottom: "20px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "12px",
+              textAlign: "left"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <div style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "8px",
+                  background: "#16a34a",
+                  color: "#ffffff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "20px"
+                }}>
+                  🎓
+                </div>
+                <div>
+                  <div style={{ fontSize: "14px", fontWeight: "800", color: "#166534" }}>
+                    Google Classroom Turn-In
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#15803d" }}>
+                    {classroomTurnInStatus === "turned_in"
+                      ? "✓ Assignment turned in & grade recorded in Classroom"
+                      : "Syncing score & turning in assignment to Google Classroom..."}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleManualTurnIn}
+                disabled={classroomTurnInLoading || classroomTurnInStatus === "turned_in"}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: "6px",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  background: classroomTurnInStatus === "turned_in" ? "#dcfce7" : "#16a34a",
+                  color: classroomTurnInStatus === "turned_in" ? "#166534" : "#ffffff",
+                  border: "none",
+                  cursor: classroomTurnInStatus === "turned_in" ? "default" : "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px"
+                }}
+              >
+                {classroomTurnInLoading
+                  ? "Turning in..."
+                  : classroomTurnInStatus === "turned_in"
+                  ? "✓ Turned In"
+                  : "Turn In to Classroom →"}
+              </button>
+            </div>
 
             <button
               type="button"

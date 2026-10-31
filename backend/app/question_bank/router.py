@@ -101,6 +101,49 @@ def list_questions(
         for q in questions
     ]
 
+@router.delete("/bulk/clear-org")
+def clear_org_questions(
+    organization_id: str,
+    subject: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Bulk deletes questions in an organization question bank (optionally filtered by subject)."""
+    org = check_org_author_permission(db, current_user.id, organization_id)
+    query = db.query(Question).filter(Question.organization_id == org.id)
+    if subject and subject.strip():
+        query = query.filter(Question.subject == subject.strip())
+    
+    # Cascade delete revisions first
+    q_ids = [q.id for q in query.all()]
+    if q_ids:
+        db.query(QuestionRevision).filter(QuestionRevision.question_id.in_(q_ids)).delete(synchronize_session=False)
+        deleted_count = query.delete(synchronize_session=False)
+        db.commit()
+    else:
+        deleted_count = 0
+
+    return {"message": f"Successfully deleted {deleted_count} questions from Question Bank", "count": deleted_count}
+
+@router.delete("/{question_id}")
+def delete_question(
+    question_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Permanently deletes a question from the question bank."""
+    question = db.query(Question).filter(Question.id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    
+    check_org_author_permission(db, current_user.id, question.organization_id)
+    
+    # Delete associated revisions
+    db.query(QuestionRevision).filter(QuestionRevision.question_id == question.id).delete(synchronize_session=False)
+    db.delete(question)
+    db.commit()
+    return {"message": "Question permanently deleted from Question Bank", "id": question_id}
+
 @router.put("/{question_id}")
 def update_question(
     question_id: str,

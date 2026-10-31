@@ -260,7 +260,7 @@ export default function CreateQuestionModal({ organizationId, onClose, onCreated
               Author New Question
             </h3>
             <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-              Add to Organization Question Bank with JEE marking rules
+              Add to Organization Question Bank with custom assessment marking rules
             </p>
           </div>
           <button
@@ -346,10 +346,7 @@ export default function CreateQuestionModal({ organizationId, onClose, onCreated
                   ))
                 ) : (
                   <>
-                    <option value="Physics">Physics</option>
-                    <option value="Chemistry">Chemistry</option>
-                    <option value="Mathematics">Mathematics</option>
-                    <option value="Computer Science">Computer Science / Coding</option>
+                    <option value="General">General</option>
                   </>
                 )}
               </select>

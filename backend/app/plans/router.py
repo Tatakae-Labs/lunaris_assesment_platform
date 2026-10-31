@@ -17,12 +17,12 @@ DEFAULT_PLANS = [
         "billing_period": "forever",
         "description": "For individual educators and small classroom tests.",
         "entitlements": {
-            "max_candidates": 25,
+            "max_candidates": 30,
             "max_exams": 3,
-            "ai_questions": 20,
-            "proctoring_enabled": "false",
+            "ai_questions": 30,
+            "proctoring_enabled": "true",
             "pdf_import": "false",
-            "team_members": 1
+            "team_members": 2
         }
     },
     {

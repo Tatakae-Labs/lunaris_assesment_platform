@@ -84,6 +84,10 @@ class User(Base):
     status = Column(String(50), default="active")
     is_superadmin = Column(Boolean, default=False)
     admin_role = Column(String(50), default="platform_admin", nullable=True)  # superadmin (primary sole owner), platform_admin, platform_auditor, platform_support
+    google_id = Column(String(100), nullable=True, index=True)
+    google_picture = Column(String(500), nullable=True)
+    google_access_token = Column(Text, nullable=True)
+    google_refresh_token = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     memberships = relationship("OrganizationMember", back_populates="user", cascade="all, delete-orphan")
@@ -178,6 +182,9 @@ class Exam(Base):
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
     results_released = Column(Boolean, default=False)
     settings_json = Column(Text, nullable=True)  # Marking schemes, sections, shuffle options
+    classroom_course_id = Column(String(100), nullable=True)
+    classroom_coursework_id = Column(String(100), nullable=True)
+    classroom_alternate_link = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     organization = relationship("Organization", back_populates="exams")
@@ -200,6 +207,9 @@ class ExamVersion(Base):
     settings_json = Column(Text, nullable=False)
     snapshot_json = Column(Text, nullable=False)  # Full questions and scoring scheme snapshot
     results_released = Column(Boolean, default=False)
+    classroom_course_id = Column(String(100), nullable=True)
+    classroom_coursework_id = Column(String(100), nullable=True)
+    classroom_alternate_link = Column(String(500), nullable=True)
     published_at = Column(DateTime(timezone=True), default=utcnow)
 
     exam = relationship("Exam", back_populates="versions")
@@ -372,6 +382,9 @@ class ExamAttempt(Base):
     status = Column(String(50), default="in_progress")  # in_progress, submitted, expired, terminated
     score_total = Column(Float, nullable=True)
     score_details_json = Column(Text, nullable=True)
+    classroom_submission_id = Column(String(100), nullable=True)
+    classroom_turned_in = Column(Boolean, default=False)
+    classroom_turned_in_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     assignment = relationship("ExamAssignment", back_populates="attempts")

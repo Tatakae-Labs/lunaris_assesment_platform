@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../shared/api";
+import { toast } from "../shared/toast";
 
 export default function EnrollmentManagerModal({
   exam,
+  organizationId,
   onClose,
   onTestAsCandidate
 }) {
@@ -11,6 +13,7 @@ export default function EnrollmentManagerModal({
   const [generateCount, setGenerateCount] = useState(5);
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
+  const [isClassroomSyncing, setIsClassroomSyncing] = useState(false);
 
   // Single Candidate Add Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -62,11 +65,80 @@ export default function EnrollmentManagerModal({
         max_attempts: 1
       });
       setStatusMsg(`Successfully generated ${generateCount} candidate UIDs & PINs!`);
+      toast.success(`Successfully generated ${generateCount} candidate UIDs & PINs!`);
       loadEnrollments();
     } catch (err) {
-      alert("Error generating UIDs: " + err.message);
+      toast.error("Error generating UIDs: " + err.message);
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function handleImportFromClassroom() {
+    const orgId = organizationId || exam?.organization_id;
+    if (!orgId) {
+      toast.error("Organization context missing.");
+      return;
+    }
+    setIsClassroomSyncing(true);
+    setStatusMsg("");
+    try {
+      const statusRes = await api.getClassroomStatus(orgId).catch(() => null);
+      if (!statusRes?.connected) {
+        // Prompt OAuth connection
+        const activeCid = import.meta.env.VITE_GOOGLE_CLIENT_ID || "539216233370-eca2ktq30qc3m74o04b17q7bp90sds0j.apps.googleusercontent.com";
+        if (!window.google?.accounts?.oauth2) {
+          toast.warning("Google Identity Services is initializing. Please try again in 2 seconds.");
+          setIsClassroomSyncing(false);
+          return;
+        }
+        const tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: activeCid,
+          scope: "https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.profile.emails https://www.googleapis.com/auth/classroom.coursework.students https://www.googleapis.com/auth/drive.file",
+          callback: async (tokenResp) => {
+            if (tokenResp?.access_token) {
+              await api.connectClassroom({ organization_id: orgId, access_token: tokenResp.access_token });
+              await proceedWithClassroomImport(orgId);
+            } else {
+              setIsClassroomSyncing(false);
+            }
+          }
+        });
+        tokenClient.requestAccessToken({ prompt: "consent" });
+        return;
+      }
+
+      await proceedWithClassroomImport(orgId);
+    } catch (err) {
+      toast.error("Classroom import error: " + err.message);
+      setIsClassroomSyncing(false);
+    }
+  }
+
+  async function proceedWithClassroomImport(orgId) {
+    try {
+      const courses = await api.getClassroomCourses(orgId);
+      if (!courses || courses.length === 0) {
+        toast.warning("No active Google Classroom courses found on your account.");
+        setIsClassroomSyncing(false);
+        return;
+      }
+      const courseId = exam?.classroom_course_id || courses[0].id;
+      const res = await api.importClassroomStudents(courseId, exam.id);
+      setStatusMsg(`✓ ${res.message}`);
+      toast.success(`✓ ${res.message}\n• Downloaded Candidate Credentials PDF (Login IDs & Passwords)`);
+      await loadEnrollments();
+
+      // Download updated credentials PDF automatically
+      try {
+        await api.downloadExamCredentialsPdf(exam.id, exam.room_code || "CLASSROOM");
+      } catch (pdfErr) {
+        console.warn("Could not auto-download PDF:", pdfErr);
+      }
+    } catch (err) {
+      toast.error("Failed to import students from Classroom: " + err.message);
+    } finally {
+      setIsClassroomSyncing(false);
     }
   }
 
@@ -74,16 +146,17 @@ export default function EnrollmentManagerModal({
     if (!window.confirm(`Are you sure you want to revoke access for UID ${uid}?`)) return;
     try {
       await api.revokeEnrollment(exam.id, enrollmentId);
+      toast.info(`Access revoked for candidate UID ${uid}.`);
       loadEnrollments();
     } catch (err) {
-      alert("Error revoking enrollment: " + err.message);
+      toast.error("Error revoking enrollment: " + err.message);
     }
   }
 
   async function handleCreateSingleCandidate(e) {
     e.preventDefault();
     if (!addForm.candidate_name.trim()) {
-      alert("Candidate name is required");
+      toast.warning("Candidate name is required");
       return;
     }
     setIsAddingCandidate(true);
@@ -96,6 +169,7 @@ export default function EnrollmentManagerModal({
         max_attempts: Number(addForm.max_attempts) || 1
       });
       setStatusMsg(`Enrolled student ${res.candidate_name} (UID: ${res.candidate_uid}, PIN: ${res.access_pin})!`);
+      toast.success(`Enrolled student ${res.candidate_name}!\n• UID: ${res.candidate_uid}\n• PIN: ${res.access_pin}`);
       setShowAddModal(false);
       setAddForm({
         candidate_name: "",
@@ -106,7 +180,7 @@ export default function EnrollmentManagerModal({
       });
       loadEnrollments();
     } catch (err) {
-      alert("Failed to enroll candidate: " + err.message);
+      toast.error("Failed to enroll candidate: " + err.message);
     } finally {
       setIsAddingCandidate(false);
     }
@@ -351,6 +425,26 @@ Important Instructions:
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
             <button
               type="button"
+              onClick={handleImportFromClassroom}
+              disabled={isClassroomSyncing}
+              style={{
+                padding: "7px 14px",
+                fontSize: "13px",
+                background: "#2563eb",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "6px",
+                fontWeight: "700",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px"
+              }}
+            >
+              {isClassroomSyncing ? "Syncing..." : "🏫 + Sync Google Classroom"}
+            </button>
+            <button
+              type="button"
               onClick={() => setShowAddModal(true)}
               style={{
                 padding: "7px 14px",
@@ -377,10 +471,26 @@ Important Instructions:
             <button
               type="button"
               className="btn-secondary"
+              onClick={() => api.downloadExamCredentialsPdf(exam.id, exam.room_code || "EXAM")}
+              disabled={enrollments.length === 0}
+              style={{
+                padding: "7px 14px",
+                fontSize: "13px",
+                fontWeight: "700",
+                background: "#eff6ff",
+                color: "#2563eb",
+                borderColor: "#bfdbfe"
+              }}
+            >
+              📄 Download Credentials PDF
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
               onClick={loadEnrollments}
               style={{ padding: "7px 12px", fontSize: "13px" }}
             >
-              🔄 Refresh
+              Refresh
             </button>
           </div>
         </div>

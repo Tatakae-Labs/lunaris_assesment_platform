@@ -467,15 +467,21 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
         padding: "0 20px",
         userSelect: "none"
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <img
+            src="/logo.png"
+            alt="Lunaris"
+            style={{ width: "28px", height: "28px", objectFit: "contain", borderRadius: "50%", background: "#ffffff" }}
+          />
           <div style={{
             background: "linear-gradient(135deg, #2563eb 0%, #06b6d4 100%)",
             color: "#fff",
             fontWeight: "800",
-            fontSize: "16px",
+            fontSize: "15px",
             padding: "4px 10px",
             borderRadius: "6px",
-            fontFamily: "var(--font-display)"
+            fontFamily: "var(--font-display)",
+            letterSpacing: "0.5px"
           }}>
             LUNARIS CBT
           </div>

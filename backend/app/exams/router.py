@@ -75,11 +75,19 @@ def create_exam(
 ):
     org = check_org_permission(db, current_user.id, req.organization_id)
 
+    from app.plans.entitlements import check_entitlement
+    allowed, reason, details = check_entitlement(db, org.id, "max_exams", requested=1)
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{reason} Please upgrade your plan in Plans & Billing to create more exams."
+        )
+
     settings = req.settings or {
         "shuffle_options": True,
-        "negative_marking": True,
+        "negative_marking": False,
         "allow_calculator": False,
-        "jee_sections": ["Physics", "Chemistry", "Mathematics"]
+        "sections": ["General"]
     }
 
     exam = Exam(
@@ -244,12 +252,193 @@ def delete_exam(
     db.commit()
     return {"message": "Exam and all associated data permanently deleted", "id": exam_id}
 
+def auto_sync_classroom_for_exam(db: Session, exam: Exam, user: User) -> tuple:
+    """
+    Checks if the educator has Google Classroom connected.
+    If so, fetches students from the active course, enrolls them into the exam with UID & PIN,
+    and publishes the coursework to Google Classroom stream.
+    Returns: (newly_enrolled_count, classroom_synced, course_name)
+    """
+    if not user.google_access_token:
+        return (0, False, None)
+
+    import urllib.request
+    import json
+    import random
+    from app.models import ExamEnrollment
+    from app.core.security import get_password_hash
+
+    course_id = exam.classroom_course_id
+    # Only sync with Classroom if this exam is explicitly designated for a Classroom course
+    if not course_id:
+        return (0, False, None)
+
+    # If already published to this classroom coursework, do not post duplicate!
+    if exam.classroom_coursework_id:
+        return (0, True, getattr(exam, 'classroom_course_name', 'Classroom Course'))
+
+    course_name = None
+
+    try:
+        # Fetch students
+        st_url = f"https://classroom.googleapis.com/v1/courses/{course_id}/students"
+        st_req = urllib.request.Request(st_url, headers={
+            "Authorization": f"Bearer {user.google_access_token}",
+            "Accept": "application/json"
+        })
+        newly_enrolled = 0
+        with urllib.request.urlopen(st_req, timeout=10) as st_resp:
+            if st_resp.status == 200:
+                st_data = json.loads(st_resp.read().decode("utf-8"))
+                for s in st_data.get("students", []):
+                    profile = s.get("profile", {})
+                    name_obj = profile.get("name", {})
+                    name = (name_obj.get("fullName") or f"{name_obj.get('givenName', '')} {name_obj.get('familyName', '')}".strip() or "Student")
+                    email = (profile.get("emailAddress") or "").strip().lower()
+                    user_id = str(s.get("userId") or "")
+                    if not email or email == "no email available":
+                        clean_n = "".join(ch for ch in name.lower() if ch.isalnum() or ch == ' ').strip().replace(' ', '.')
+                        email = f"{clean_n or 'student'}.{user_id[-4:] if user_id else random.randint(1000, 9999)}@classroom.google.com"
+
+                    # Check existing
+                    existing = db.query(ExamEnrollment).filter(
+                        ExamEnrollment.exam_id == exam.id,
+                        (ExamEnrollment.candidate_email == email) | (ExamEnrollment.candidate_name == name)
+                    ).first()
+                    if not existing:
+                        c_uid = f"LUN-{random.randint(100000, 999999)}"
+                        c_pin = str(random.randint(100000, 999999))
+                        enrollment = ExamEnrollment(
+                            organization_id=exam.organization_id,
+                            exam_id=exam.id,
+                            candidate_uid=c_uid,
+                            candidate_name=name,
+                            candidate_email=email,
+                            access_pin_plain=c_pin,
+                            access_pin_hash=get_password_hash(c_pin),
+                            max_attempts=1,
+                            status="active"
+                        )
+                        db.add(enrollment)
+                        newly_enrolled += 1
+
+        db.commit()
+
+        # Also publish assignment with credentials PDF to Classroom if not published
+        if not exam.classroom_coursework_id:
+            try:
+                if not exam.room_code:
+                    exam.room_code = f"LUN{random.randint(100, 999)}"
+                    db.commit()
+
+                exam_link = f"https://backendsolpay.rugveddev.tech/candidate/entry?room={exam.room_code}&exam_id={exam.id}"
+                pdf_url = f"https://backendsolpay.rugveddev.tech/api/v1/exams/{exam.id}/credentials-pdf"
+
+                # Instructions without exposing private student passwords or PINs in plaintext
+                cw_description = (
+                    f"📝 {exam.title}\n"
+                    f"Room Code: {exam.room_code} | Duration: {exam.duration_minutes} Minutes | Mode: {exam.mode.replace('_', ' ').title()}\n\n"
+                    f"👉 CANDIDATE EXAM PORTAL:\n"
+                    f"{exam_link}\n\n"
+                    f"INSTRUCTIONS:\n"
+                    f"1. Open the attached Candidate Credentials PDF file to view your personalized Login UID & 6-digit Access PIN.\n"
+                    f"2. Click the Exam Portal link above ({exam_link}).\n"
+                    f"3. Enter Room Code '{exam.room_code}', your UID, and PIN to begin.\n"
+                    f"4. Once submitted, your score and proctor verification badge will automatically sync to Google Classroom."
+                )
+
+                # Attempt to upload PDF directly into Google Drive for native attachment
+                drive_file_id = None
+                try:
+                    from app.integrations.classroom_router import upload_pdf_to_google_drive
+                    from app.exams.credentials_pdf import generate_credentials_roster_pdf
+                    from app.models import Organization
+
+                    org = db.query(Organization).filter(Organization.id == exam.organization_id).first()
+                    org_name = org.name if org else "Academic Institution"
+                    all_enrs = db.query(ExamEnrollment).filter(ExamEnrollment.exam_id == exam.id).all()
+                    enr_data = [
+                        {
+                            "candidate_name": e.candidate_name,
+                            "candidate_email": e.candidate_email,
+                            "candidate_uid": e.candidate_uid,
+                            "access_pin": e.access_pin_plain or "******",
+                            "status": e.status
+                        }
+                        for e in all_enrs
+                    ]
+                    pdf_bytes = generate_credentials_roster_pdf(
+                        exam_title=exam.title,
+                        room_code=exam.room_code,
+                        org_name=org_name,
+                        duration_minutes=exam.duration_minutes,
+                        enrollments=enr_data
+                    )
+                    drive_file_id = upload_pdf_to_google_drive(
+                        access_token=user.google_access_token,
+                        pdf_bytes=pdf_bytes,
+                        filename=f"Candidate_Credentials_{exam.title}.pdf"
+                    )
+                except Exception as up_err:
+                    print(f"Drive upload notice: {up_err}")
+
+                materials = [{"link": {"url": exam_link, "title": f"Take Examination: {exam.title}"}}]
+                if drive_file_id:
+                    materials.append({
+                        "driveFile": {
+                            "driveFile": {
+                                "id": drive_file_id,
+                                "title": f"Candidate Credentials Roster ({exam.title}).pdf"
+                            },
+                            "shareMode": "VIEW"
+                        }
+                    })
+                else:
+                    materials.append({"link": {"url": pdf_url, "title": f"Candidate Credentials Sheet ({exam.title} PDF)"}})
+
+                cw_payload = {
+                    "title": exam.title,
+                    "description": cw_description,
+                    "materials": materials,
+                    "state": "PUBLISHED",
+                    "maxPoints": 100.0,
+                    "workType": "ASSIGNMENT"
+                }
+                cw_url = f"https://classroom.googleapis.com/v1/courses/{course_id}/courseWork"
+                cw_req = urllib.request.Request(
+                    cw_url,
+                    data=json.dumps(cw_payload).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {user.google_access_token}",
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    }
+                )
+                with urllib.request.urlopen(cw_req, timeout=10) as cw_resp:
+                    if cw_resp.status in (200, 201):
+                        cw_res = json.loads(cw_resp.read().decode("utf-8"))
+                        exam.classroom_coursework_id = cw_res.get("id")
+                        exam.classroom_alternate_link = cw_res.get("alternateLink")
+                        db.commit()
+            except Exception as cw_err:
+                print(f"Could not post assignment to classroom stream: {cw_err}")
+
+        return (newly_enrolled, True, course_name)
+    except Exception as e:
+        print(f"Auto-sync classroom error on publish: {e}")
+        return (0, False, None)
+
+
 @router.post("/{exam_id}/publish")
 def publish_exam(
     exam_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    from app.models import ExamEnrollment
+    from app.core.security import get_password_hash
+    import random
+
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
@@ -289,12 +478,118 @@ def publish_exam(
     db.commit()
     db.refresh(version)
 
+    # Auto-enroll students from Google Classroom
+    newly_enrolled, classroom_synced, course_name = auto_sync_classroom_for_exam(db, exam, current_user)
+
+    # Ensure candidate enrollments exist
+    existing_enrollments = db.query(ExamEnrollment).filter(ExamEnrollment.exam_id == exam.id).all()
+    if not existing_enrollments:
+        starter_candidates = [
+            ("Candidate #1 (Demo Roster)", "candidate1@institution.edu"),
+            ("Candidate #2 (Demo Roster)", "candidate2@institution.edu"),
+            ("Candidate #3 (Demo Roster)", "candidate3@institution.edu"),
+            ("Candidate #4 (Demo Roster)", "candidate4@institution.edu"),
+            ("Candidate #5 (Demo Roster)", "candidate5@institution.edu")
+        ]
+        for name, email in starter_candidates:
+            c_uid = f"LUN-{random.randint(100000, 999999)}"
+            c_pin = str(random.randint(100000, 999999))
+            enrollment = ExamEnrollment(
+                organization_id=exam.organization_id,
+                exam_id=exam.id,
+                candidate_uid=c_uid,
+                candidate_name=name,
+                candidate_email=email,
+                access_pin_plain=c_pin,
+                access_pin_hash=get_password_hash(c_pin),
+                max_attempts=1,
+                status="active"
+            )
+            db.add(enrollment)
+        db.commit()
+        existing_enrollments = db.query(ExamEnrollment).filter(ExamEnrollment.exam_id == exam.id).all()
+
+    enrollments_summary = [
+        {
+            "candidate_name": e.candidate_name,
+            "candidate_email": e.candidate_email,
+            "candidate_uid": e.candidate_uid,
+            "access_pin": e.access_pin_plain or "******",
+            "status": e.status
+        }
+        for e in existing_enrollments
+    ]
+
     return {
         "version_id": version.id,
         "version_number": version.version_number,
         "question_count": len(snapshot_questions),
-        "status": "published"
+        "status": "published",
+        "exam_id": exam.id,
+        "room_code": exam.room_code or f"ROOM-{exam.id[:6].upper()}",
+        "enrolled_count": len(existing_enrollments),
+        "classroom_synced": classroom_synced,
+        "classroom_course_name": course_name,
+        "credentials_pdf_url": f"/api/v1/exams/{exam.id}/credentials-pdf",
+        "enrollments": enrollments_summary
     }
+
+
+@router.get("/{exam_id}/credentials-pdf")
+def download_credentials_pdf(
+    exam_id: str,
+    token: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Downloads the official candidate credentials and login roster sheet in printable PDF format.
+    """
+    from fastapi.responses import Response
+    from app.models import Organization, ExamEnrollment
+    from app.exams.credentials_pdf import generate_credentials_roster_pdf
+
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    org = db.query(Organization).filter(Organization.id == exam.organization_id).first()
+    org_name = org.name if org else "Academic Institution"
+
+    enrollments = (
+        db.query(ExamEnrollment)
+        .filter(ExamEnrollment.exam_id == exam.id)
+        .order_by(ExamEnrollment.candidate_name.asc())
+        .all()
+    )
+
+    enr_data = [
+        {
+            "candidate_name": e.candidate_name,
+            "candidate_email": e.candidate_email,
+            "candidate_uid": e.candidate_uid,
+            "access_pin": e.access_pin_plain or "******",
+            "status": e.status
+        }
+        for e in enrollments
+    ]
+
+    pdf_bytes = generate_credentials_roster_pdf(
+        exam_title=exam.title,
+        room_code=exam.room_code or f"ROOM-{exam.id[:6].upper()}",
+        org_name=org_name,
+        duration_minutes=exam.duration_minutes,
+        enrollments=enr_data
+    )
+
+    filename = f"Credentials_{exam.room_code or exam.id[:6]}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
+    )
 
 class BulkGenerateEnrollmentsRequest(BaseModel):
     count: Optional[int] = 10
@@ -321,9 +616,9 @@ def bulk_generate_enrollments(
     # Check organization plan entitlement limit
     from app.plans.router import get_organization_entitlements
     entitlements_info = get_organization_entitlements(db, exam.organization_id)
-    max_candidates_allowed = entitlements_info.get("entitlements", {}).get("max_candidates", 25)
+    max_candidates_allowed = int(entitlements_info.get("entitlements", {}).get("max_candidates", 30))
 
-    existing_count = db.query(ExamEnrollment).filter(ExamEnrollment.exam_id == exam.id).count()
+    existing_count = db.query(ExamEnrollment).filter(ExamEnrollment.organization_id == exam.organization_id).count()
 
     created_enrollments = []
     now = datetime.now(timezone.utc)
@@ -466,12 +761,12 @@ def create_student_enrollment(
 
     from app.plans.router import get_organization_entitlements
     entitlements_info = get_organization_entitlements(db, exam.organization_id)
-    max_candidates_allowed = entitlements_info.get("entitlements", {}).get("max_candidates", 500)
-    existing_count = db.query(ExamEnrollment).filter(ExamEnrollment.exam_id == exam.id).count()
+    max_candidates_allowed = int(entitlements_info.get("entitlements", {}).get("max_candidates", 30))
+    existing_count = db.query(ExamEnrollment).filter(ExamEnrollment.organization_id == exam.organization_id).count()
     if existing_count >= max_candidates_allowed:
         raise HTTPException(
             status_code=403,
-            detail=f"Subscription entitlement limit reached: Maximum {max_candidates_allowed} candidates allowed."
+            detail=f"Candidate seats limit reached: Your current plan allows a maximum of {max_candidates_allowed} candidate seats (current: {existing_count}). Please upgrade your plan in Plans & Billing to add more candidates."
         )
 
     c_uid = (req.candidate_uid or f"LUN-{random.randint(100000, 999999)}").strip().upper()

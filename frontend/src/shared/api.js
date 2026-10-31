@@ -36,10 +36,13 @@ export const api = {
       body: JSON.stringify({ email, password, captcha_id, captcha_solution })
     }),
   register: (data) => request("/auth/register", { method: "POST", body: JSON.stringify(data) }),
+  googleAuth: (data) => request("/auth/google", { method: "POST", body: JSON.stringify(data) }),
+  getGoogleConfig: () => request("/auth/google-config"),
   getProfile: () => request("/auth/me"),
 
   // Organizations & Workspace
   createOrganization: (name) => request("/organizations", { method: "POST", body: JSON.stringify({ name }) }),
+  updateOrganization: (org_id, name) => request(`/organizations/${org_id}`, { method: "PUT", body: JSON.stringify({ name }) }),
   getMyOrganizations: () => request("/organizations/my"),
   inviteMember: (org_id, email, role) =>
     request(`/organizations/${org_id}/members`, { method: "POST", body: JSON.stringify({ email, role }) }),
@@ -56,18 +59,24 @@ export const api = {
   createOrgSubject: (org_id, data) => request(`/organizations/${org_id}/subjects`, { method: "POST", body: JSON.stringify(data) }),
   updateOrgSubject: (org_id, subject_id, data) => request(`/organizations/${org_id}/subjects/${subject_id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteOrgSubject: (org_id, subject_id) => request(`/organizations/${org_id}/subjects/${subject_id}`, { method: "DELETE" }),
+  clearAllOrgSubjects: (org_id) => request(`/organizations/${org_id}/subjects/clear-all`, { method: "POST" }),
   seedOrgSubjectPack: (org_id, pack_name) => request(`/organizations/${org_id}/subjects/seed-pack?pack_name=${pack_name}`, { method: "POST" }),
 
   // Question Bank
   createQuestion: (data) => request("/questions", { method: "POST", body: JSON.stringify(data) }),
   getQuestions: (org_id, subject = "") =>
-    request(`/questions?organization_id=${org_id}${subject ? `&subject=${subject}` : ""}`),
+    request(`/questions?organization_id=${org_id}${subject ? `&subject=${encodeURIComponent(subject)}` : ""}`),
+  deleteQuestion: (question_id) => request(`/questions/${question_id}`, { method: "DELETE" }),
+  clearQuestions: (org_id, subject = "") =>
+    request(`/questions/bulk/clear-org?organization_id=${org_id}${subject ? `&subject=${encodeURIComponent(subject)}` : ""}`, { method: "DELETE" }),
 
   // AI Question Generation
   generateAiQuestions: (data) => request("/ai/generate-questions", { method: "POST", body: JSON.stringify(data) }),
   getAiDrafts: (org_id) => request(`/ai/drafts?organization_id=${org_id}`),
   approveAiDraft: (draft_id) => request(`/ai/drafts/${draft_id}/approve`, { method: "POST" }),
   rejectAiDraft: (draft_id) => request(`/ai/drafts/${draft_id}/reject`, { method: "POST" }),
+  deleteAiDraft: (draft_id) => request(`/ai/drafts/${draft_id}`, { method: "DELETE" }),
+  clearAiDrafts: (org_id) => request(`/ai/drafts/bulk/clear?organization_id=${org_id}`, { method: "DELETE" }),
 
   // Exams & Publishing
   createExam: (data) => request("/exams", { method: "POST", body: JSON.stringify(data) }),
@@ -76,6 +85,24 @@ export const api = {
   updateExam: (exam_id, data) => request(`/exams/${exam_id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteExam: (exam_id) => request(`/exams/${exam_id}`, { method: "DELETE" }),
   publishExam: (exam_id) => request(`/exams/${exam_id}/publish`, { method: "POST" }),
+  downloadExamCredentialsPdf: async (exam_id, room_code = "Exam") => {
+    const token = localStorage.getItem("lunaris_token");
+    const res = await fetch(`/api/v1/exams/${exam_id}/credentials-pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!res.ok) {
+      throw new Error("Failed to download credentials PDF");
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Candidate_Credentials_${room_code}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
   assignCandidates: (exam_id, emails) =>
     request(`/exams/${exam_id}/assignments`, { method: "POST", body: JSON.stringify({ candidate_emails: emails }) }),
 
@@ -271,5 +298,16 @@ export const api = {
   evaluateCode: (data) => request("/coding/evaluate", { method: "POST", body: JSON.stringify(data) }),
 
   // Seed JEE Demo
-  seedDemo: () => request("/seed/jee-demo", { method: "POST" })
+  seedDemo: () => request("/seed/jee-demo", { method: "POST" }),
+
+  // Google Classroom Integration
+  getClassroomStatus: (org_id) => request(`/integrations/classroom/status?organization_id=${org_id}`),
+  connectClassroom: (data) => request("/integrations/classroom/connect", { method: "POST", body: JSON.stringify(data) }),
+  disconnectClassroom: () => request("/integrations/classroom/disconnect", { method: "POST" }),
+  getClassroomCourses: (org_id) => request(`/integrations/classroom/courses?organization_id=${org_id}`),
+  getClassroomStudents: (org_id, course_id) => request(`/integrations/classroom/courses/${course_id}/students?organization_id=${org_id}`),
+  importClassroomStudents: (course_id, exam_id, students = null) =>
+    request(`/integrations/classroom/courses/${course_id}/import-students`, { method: "POST", body: JSON.stringify({ exam_id, students }) }),
+  publishToClassroom: (data) => request("/integrations/classroom/publish", { method: "POST", body: JSON.stringify(data) }),
+  turnInToClassroom: (data) => request("/integrations/classroom/turn-in", { method: "POST", body: JSON.stringify(data) })
 };

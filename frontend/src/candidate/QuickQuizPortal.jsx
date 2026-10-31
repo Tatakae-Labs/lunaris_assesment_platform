@@ -132,21 +132,23 @@ export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
           borderRadius: "20px",
           textAlign: "center"
         }}>
-          <div style={{
-            background: "linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)",
-            width: "56px",
-            height: "56px",
-            borderRadius: "14px",
-            margin: "0 auto 16px auto",
-            display: "grid",
-            placeItems: "center",
-            fontSize: "26px",
-            fontWeight: "bold"
-          }}>
-            ⚡
-          </div>
+          <img
+            src="/logo.png"
+            alt="Lunaris"
+            style={{
+              width: "56px",
+              height: "56px",
+              objectFit: "contain",
+              borderRadius: "50%",
+              margin: "0 auto 16px auto",
+              display: "block",
+              background: "#ffffff",
+              padding: "2px",
+              boxShadow: "0 4px 14px rgba(0,0,0,0.3)"
+            }}
+          />
           <h2 style={{ fontSize: "24px", fontWeight: "800", color: "#f8fafc", fontFamily: "var(--font-display)" }}>
-            Quick Quiz Arena
+            Lunaris Quick Quiz
           </h2>
           <p style={{ color: "#94a3b8", fontSize: "14px", marginTop: "6px", marginBottom: "24px" }}>
             Enter your room code to join the live timed speed challenge!

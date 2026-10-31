@@ -13,6 +13,7 @@ import CandidateEntryPortal from "./candidate/CandidateEntryPortal";
 import OrgDashboard from "./organization/OrgDashboard";
 import QuickQuizPortal from "./candidate/QuickQuizPortal";
 import LiveProctorDashboard from "./proctor-console/LiveProctorDashboard";
+import { ToastContainer } from "./shared/toast";
 
 function AppRoutes() {
   const navigate = useNavigate();
@@ -184,6 +185,22 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/candidate/entry"
+        element={
+          <CandidateEntryPortal
+            onExit={() => navigate(currentUser ? "/dashboard" : "/")}
+          />
+        }
+      />
+      <Route
+        path="/candidate/login"
+        element={
+          <CandidateEntryPortal
+            onExit={() => navigate(currentUser ? "/dashboard" : "/")}
+          />
+        }
+      />
+      <Route
         path="/exam/:slug"
         element={
           <CandidateEntryPortal
@@ -316,6 +333,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <div style={{ minHeight: "100vh", background: "#ffffff", color: "var(--text-primary)" }}>
+        <ToastContainer />
         <AppRoutes />
       </div>
     </BrowserRouter>

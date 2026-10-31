@@ -710,20 +710,17 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
         {/* Brand Header */}
         <div style={{ padding: "24px 20px 20px 20px", borderBottom: "1px solid #f1f5f9" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{
-              width: "36px",
-              height: "36px",
-              background: "linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)",
-              borderRadius: "10px",
-              display: "grid",
-              placeItems: "center",
-              fontSize: "18px",
-              fontWeight: "900",
-              color: "#ffffff",
-              boxShadow: "0 4px 14px rgba(37, 99, 235, 0.25)"
-            }}>
-              🛡️
-            </div>
+            <img
+              src="/logo.png"
+              alt="Lunaris"
+              style={{
+                width: "38px",
+                height: "38px",
+                objectFit: "contain",
+                borderRadius: "50%",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
+              }}
+            />
             <div>
               <div style={{ fontSize: "15px", fontWeight: "800", color: "#0f172a", letterSpacing: "-0.2px" }}>LUNARIS</div>
               <div style={{ fontSize: "10px", color: "#2563eb", fontWeight: "700", letterSpacing: "0.5px" }}>SUPER ADMIN CONTROL</div>

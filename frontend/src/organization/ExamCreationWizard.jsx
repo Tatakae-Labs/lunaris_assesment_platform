@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../shared/api";
+import { toast } from "../shared/toast";
 
 export default function ExamCreationWizard({
   organizationId,
@@ -20,8 +21,10 @@ export default function ExamCreationWizard({
   const [language, setLanguage] = useState("English");
   const [instructions, setInstructions] = useState("1. Read all questions carefully.\n2. Ensure your webcam and network connection remain steady throughout.\n3. Do not switch tabs or exit fullscreen mode during proctored examinations.");
 
-  // Step 2: Exam Mode
-  const [mode, setMode] = useState("proctored_cbt"); // 'standard_quiz', 'quick_quiz', 'proctored_cbt'
+  // Step 2: Exam Mode & Custom Type
+  const [mode, setMode] = useState("proctored_cbt"); // 'standard_quiz', 'quick_quiz', 'proctored_cbt', or custom
+  const [customExamType, setCustomExamType] = useState("");
+  const [isCustomMode, setIsCustomMode] = useState(false);
 
   // Step 3: Questions
   const [questionSource, setQuestionSource] = useState("question_bank"); // 'manual', 'question_bank', 'ai_generate', 'pdf_import'
@@ -37,10 +40,18 @@ export default function ExamCreationWizard({
   const [passPercentage, setPassPercentage] = useState(40);
 
   // Step 5: Enrollment
-  const [enrollmentType, setEnrollmentType] = useState("uid_batch"); // 'uid_batch', 'csv_import'
+  const [enrollmentType, setEnrollmentType] = useState("classroom"); // 'classroom', 'uid_batch', 'csv_import'
   const [candidateCount, setCandidateCount] = useState(25);
   const [csvCandidatesText, setCsvCandidatesText] = useState("Name,Email\nAarav Sharma,aarav@student.org\nRohan Verma,rohan@student.org");
   const [maxAttempts, setMaxAttempts] = useState(1);
+
+  // Classroom state inside Wizard
+  const [classroomConnected, setClassroomConnected] = useState(false);
+  const [classroomCourses, setClassroomCourses] = useState([]);
+  const [selectedClassroomCourse, setSelectedClassroomCourse] = useState("");
+  const [classroomStudents, setClassroomStudents] = useState([]);
+  const [classroomLoading, setClassroomLoading] = useState(false);
+  const [classroomAutoPublish, setClassroomAutoPublish] = useState(true);
 
   // Step 6: Proctoring Permitted Checks
   const [proctoringChecks, setProctoringChecks] = useState({
@@ -53,7 +64,7 @@ export default function ExamCreationWizard({
   });
   const [retentionDays, setRetentionDays] = useState(30);
 
-  // Load available questions, curriculum subjects, and subscription entitlements
+  // Load available questions, curriculum subjects, subscription entitlements, and Classroom status
   useEffect(() => {
     async function loadInitial() {
       try {
@@ -77,9 +88,94 @@ export default function ExamCreationWizard({
       } catch (err) {
         console.warn("Error loading wizard dependencies:", err.message);
       }
+
+      // Check Classroom status
+      try {
+        const statusRes = await api.getClassroomStatus(organizationId);
+        if (statusRes?.connected) {
+          setClassroomConnected(true);
+          const courses = await api.getClassroomCourses(organizationId);
+          setClassroomCourses(courses || []);
+          if (courses && courses.length > 0) {
+            setSelectedClassroomCourse(courses[0].id);
+            await loadClassroomStudentsForCourse(courses[0].id);
+            setEnrollmentType("classroom");
+          }
+        } else {
+          setClassroomConnected(false);
+          setEnrollmentType("uid_batch");
+        }
+      } catch (clsErr) {
+        console.warn("Classroom check in wizard:", clsErr);
+        setClassroomConnected(false);
+        setEnrollmentType("uid_batch");
+      }
     }
     loadInitial();
   }, [organizationId]);
+
+  async function loadClassroomStudentsForCourse(courseId) {
+    if (!courseId) {
+      setClassroomStudents([]);
+      return;
+    }
+    setClassroomLoading(true);
+    try {
+      const stus = await api.getClassroomStudents(organizationId, courseId);
+      setClassroomStudents(stus || []);
+    } catch (e) {
+      console.warn("Failed loading classroom students in wizard:", e);
+      setClassroomStudents([]);
+    } finally {
+      setClassroomLoading(false);
+    }
+  }
+
+  async function handleCourseChangeInWizard(courseId) {
+    setSelectedClassroomCourse(courseId);
+    await loadClassroomStudentsForCourse(courseId);
+  }
+
+  function handleConnectGoogleClassroomInWizard() {
+    const activeCid = import.meta.env.VITE_GOOGLE_CLIENT_ID || "539216233370-eca2ktq30qc3m74o04b17q7bp90sds0j.apps.googleusercontent.com";
+    if (!window.google?.accounts?.oauth2) {
+      toast.warning("Google Identity Services is initializing. Please try again in a moment.");
+      return;
+    }
+    const tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: activeCid,
+      scope: "https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.profile.emails https://www.googleapis.com/auth/classroom.coursework.students https://www.googleapis.com/auth/drive.file",
+      callback: async (tokenResp) => {
+        if (tokenResp?.error) {
+          toast.warning("Google Classroom authorization was cancelled: " + tokenResp.error);
+          return;
+        }
+        if (tokenResp?.access_token) {
+          setClassroomLoading(true);
+          try {
+            await api.connectClassroom({
+              organization_id: organizationId,
+              access_token: tokenResp.access_token
+            });
+            setClassroomConnected(true);
+            const courses = await api.getClassroomCourses(organizationId);
+            setClassroomCourses(courses || []);
+            if (courses && courses.length > 0) {
+              setSelectedClassroomCourse(courses[0].id);
+              await loadClassroomStudentsForCourse(courses[0].id);
+              setEnrollmentType("classroom");
+            }
+            toast.success("✓ Google Classroom connected successfully! Found your course and students.");
+          } catch (err) {
+            toast.error("Failed to connect Google Classroom: " + err.message);
+          } finally {
+            setClassroomLoading(false);
+          }
+        }
+      }
+    });
+    tokenClient.requestAccessToken({ prompt: "consent" });
+  }
 
   function handleToggleQuestion(id) {
     setSelectedQuestionIds((prev) =>
@@ -125,14 +221,19 @@ export default function ExamCreationWizard({
   const orgPlan = entitlements?.plan_id || "free";
   const proctoringAllowed = entitlements?.entitlements?.proctoring_enabled ?? false;
   const maxCandidatesAllowed = entitlements?.entitlements?.max_candidates ?? 25;
-  const candidateExceeded = candidateCount > maxCandidatesAllowed;
+  const effectiveCandidateCount = enrollmentType === "classroom"
+    ? (classroomStudents.length || 1)
+    : enrollmentType === "uid_batch"
+    ? candidateCount
+    : Math.max(1, csvCandidatesText.split("\n").filter((r) => r.trim()).length - 1);
+  const candidateExceeded = effectiveCandidateCount > maxCandidatesAllowed;
   const proctoringRestricted = mode === "proctored_cbt" && !proctoringAllowed;
 
   function validateSubscription() {
     if (proctoringRestricted) {
       setErrorMsg("Proctored CBT mode is only available on the Institution tier. Please upgrade or choose Standard Quiz mode.");
     } else if (candidateExceeded) {
-      setErrorMsg(`Your plan allows up to ${maxCandidatesAllowed} candidates. Please reduce candidate count or upgrade to Creator Pro / Institution.`);
+      setErrorMsg(`Your plan allows up to ${maxCandidatesAllowed} candidates (requested: ${effectiveCandidateCount}). Please reduce candidate count or upgrade to Creator Pro / Institution.`);
     }
   }
 
@@ -142,23 +243,26 @@ export default function ExamCreationWizard({
     setErrorMsg("");
     try {
       // 1. Create Exam
+      const effectiveMode = isCustomMode && customExamType.trim() ? customExamType.trim().toLowerCase().replace(/\s+/g, '_') : mode;
       const examRes = await api.createExam({
         organization_id: organizationId,
         title,
         description,
-        mode,
+        mode: effectiveMode,
         duration_minutes: durationMinutes,
         question_ids: selectedQuestionIds,
         settings: {
           category,
           language,
           instructions,
+          exam_type_label: isCustomMode && customExamType.trim() ? customExamType.trim() : mode,
           negative_marking: negativeMarking,
           shuffle_questions: shuffleQuestions,
           sections,
           pass_percentage: passPercentage,
           proctoring_checks: Object.keys(proctoringChecks).filter((k) => proctoringChecks[k]),
-          retention_days: retentionDays
+          retention_days: retentionDays,
+          classroom_course_id: enrollmentType === "classroom" ? selectedClassroomCourse : null
         }
       });
 
@@ -166,7 +270,24 @@ export default function ExamCreationWizard({
       await api.publishExam(examRes.id);
 
       // 3. Generate candidate enrollments
-      if (enrollmentType === "uid_batch") {
+      if (enrollmentType === "classroom" && selectedClassroomCourse) {
+        // Automatically stuff students from Google Classroom into the exam
+        await api.importClassroomStudents(selectedClassroomCourse, examRes.id, classroomStudents);
+
+        // If auto-publish to Classroom is checked, push quiz + candidate credentials PDF directly to stream
+        if (classroomAutoPublish) {
+          try {
+            await api.publishToClassroom({
+              organization_id: organizationId,
+              exam_id: examRes.id,
+              course_id: selectedClassroomCourse,
+              max_points: 100
+            });
+          } catch (pubErr) {
+            console.warn("Classroom stream auto-publish notice:", pubErr);
+          }
+        }
+      } else if (enrollmentType === "uid_batch") {
         await api.bulkGenerateEnrollments(examRes.id, {
           count: candidateCount,
           max_attempts: maxAttempts
@@ -184,6 +305,13 @@ export default function ExamCreationWizard({
           candidates: parsed,
           max_attempts: maxAttempts
         });
+      }
+
+      // 4. Automatically download candidate login credentials PDF sheet
+      try {
+        await api.downloadExamCredentialsPdf(examRes.id, examRes.room_code || "ROOM");
+      } catch (pdfErr) {
+        console.warn("Could not auto-download credentials PDF:", pdfErr);
       }
 
       onExamCreated(examRes);
@@ -394,58 +522,107 @@ export default function ExamCreationWizard({
                 Select how candidates will experience and submit this assessment:
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
                 <div
-                  onClick={() => setMode("standard_quiz")}
+                  onClick={() => {
+                    setMode("standard_quiz");
+                    setIsCustomMode(false);
+                  }}
                   style={{
-                    padding: "20px",
+                    padding: "18px",
                     borderRadius: "10px",
-                    border: mode === "standard_quiz" ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
-                    background: mode === "standard_quiz" ? "var(--accent-blue-subtle)" : "#ffffff",
+                    border: (!isCustomMode && mode === "standard_quiz") ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
+                    background: (!isCustomMode && mode === "standard_quiz") ? "var(--accent-blue-subtle)" : "#ffffff",
                     cursor: "pointer"
                   }}
                 >
                   <div style={{ fontSize: "24px", marginBottom: "8px" }}>📋</div>
-                  <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Standard Quiz</h4>
+                  <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Standard Assessment</h4>
                   <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
-                    Self-paced tests with instant scorecards. No strict webcam requirements.
+                    Self-paced test with instant scorecards, custom sections, and timer.
                   </p>
                 </div>
 
                 <div
-                  onClick={() => setMode("quick_quiz")}
+                  onClick={() => {
+                    setMode("quick_quiz");
+                    setIsCustomMode(false);
+                  }}
                   style={{
-                    padding: "20px",
+                    padding: "18px",
                     borderRadius: "10px",
-                    border: mode === "quick_quiz" ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
-                    background: mode === "quick_quiz" ? "var(--accent-blue-subtle)" : "#ffffff",
+                    border: (!isCustomMode && mode === "quick_quiz") ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
+                    background: (!isCustomMode && mode === "quick_quiz") ? "var(--accent-blue-subtle)" : "#ffffff",
                     cursor: "pointer"
                   }}
                 >
                   <div style={{ fontSize: "24px", marginBottom: "8px" }}>⚡</div>
                   <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Quick Quiz Arena</h4>
                   <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
-                    Live Kahoot-style classroom buzzer quiz with room codes and speed scoring.
+                    Live classroom speed quiz with room codes and leaderboard scoring.
                   </p>
                 </div>
 
                 <div
-                  onClick={() => setMode("proctored_cbt")}
+                  onClick={() => {
+                    setMode("proctored_cbt");
+                    setIsCustomMode(false);
+                  }}
                   style={{
-                    padding: "20px",
+                    padding: "18px",
                     borderRadius: "10px",
-                    border: mode === "proctored_cbt" ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
-                    background: mode === "proctored_cbt" ? "var(--accent-blue-subtle)" : "#ffffff",
+                    border: (!isCustomMode && mode === "proctored_cbt") ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
+                    background: (!isCustomMode && mode === "proctored_cbt") ? "var(--accent-blue-subtle)" : "#ffffff",
                     cursor: "pointer"
                   }}
                 >
-                  <div style={{ fontSize: "24px", marginBottom: "8px" }}>🏛️</div>
-                  <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Proctored JEE CBT</h4>
+                  <div style={{ fontSize: "24px", marginBottom: "8px" }}>🛡️</div>
+                  <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>AI Proctored Exam</h4>
                   <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
-                    Official NTA-standard 3-section exam with MediaPipe face & behavior telemetry.
+                    Secure CBT exam with MediaPipe face, audio, and browser lockdown telemetry.
+                  </p>
+                </div>
+
+                <div
+                  onClick={() => {
+                    setMode("custom");
+                    setIsCustomMode(true);
+                  }}
+                  style={{
+                    padding: "18px",
+                    borderRadius: "10px",
+                    border: isCustomMode ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
+                    background: isCustomMode ? "var(--accent-blue-subtle)" : "#ffffff",
+                    cursor: "pointer"
+                  }}
+                >
+                  <div style={{ fontSize: "24px", marginBottom: "8px" }}>✦</div>
+                  <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Custom Exam Type</h4>
+                  <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
+                    Define any bespoke assessment format (Midterms, Certifications, Bar Mocks, Coding Screens).
                   </p>
                 </div>
               </div>
+
+              {isCustomMode && (
+                <div style={{ marginTop: "16px", padding: "16px", background: "#f8fafc", borderRadius: "10px", border: "1px solid var(--border-subtle)" }}>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "6px" }}>
+                    Enter Custom Examination Format / Type Name *
+                  </label>
+                  <input
+                    type="text"
+                    className="lunaris-input"
+                    placeholder="e.g. Semester Midterm, Corporate Tech Screening, Law Bar Mock, USMLE Step 1"
+                    value={customExamType}
+                    onChange={(e) => setCustomExamType(e.target.value)}
+                    style={{ maxWidth: "460px", background: "#ffffff" }}
+                    autoFocus
+                  />
+                  <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+                    This custom type will be labeled on student portals, scorecards, and certificates.
+                  </div>
+                </div>
+              )}
 
               {mode === "proctored_cbt" && proctoringRestricted && (
                 <div style={{
@@ -686,18 +863,41 @@ export default function ExamCreationWizard({
           {/* STEP 5: Enrollment */}
           {currentStep === 5 && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div style={{ display: "flex", gap: "12px" }}>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => setEnrollmentType("classroom")}
+                  style={{
+                    padding: "9px 16px",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: "700",
+                    background: enrollmentType === "classroom" ? "var(--accent-blue-subtle)" : "var(--bg-secondary)",
+                    color: enrollmentType === "classroom" ? "var(--accent-blue)" : "var(--text-secondary)",
+                    border: enrollmentType === "classroom" ? "1.5px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px"
+                  }}
+                >
+                  🏫 Google Classroom (Import Students & Sync)
+                </button>
                 <button
                   type="button"
                   onClick={() => setEnrollmentType("uid_batch")}
                   style={{
-                    padding: "8px 16px",
-                    borderRadius: "6px",
+                    padding: "9px 16px",
+                    borderRadius: "8px",
                     fontSize: "13px",
-                    fontWeight: "600",
+                    fontWeight: "700",
                     background: enrollmentType === "uid_batch" ? "var(--accent-blue-subtle)" : "var(--bg-secondary)",
                     color: enrollmentType === "uid_batch" ? "var(--accent-blue)" : "var(--text-secondary)",
-                    border: enrollmentType === "uid_batch" ? "1px solid var(--accent-blue)" : "1px solid var(--border-subtle)"
+                    border: enrollmentType === "uid_batch" ? "1.5px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px"
                   }}
                 >
                   ⚡ Auto-Generate Batch UIDs & PINs
@@ -706,20 +906,187 @@ export default function ExamCreationWizard({
                   type="button"
                   onClick={() => setEnrollmentType("csv_import")}
                   style={{
-                    padding: "8px 16px",
-                    borderRadius: "6px",
+                    padding: "9px 16px",
+                    borderRadius: "8px",
                     fontSize: "13px",
-                    fontWeight: "600",
+                    fontWeight: "700",
                     background: enrollmentType === "csv_import" ? "var(--accent-blue-subtle)" : "var(--bg-secondary)",
                     color: enrollmentType === "csv_import" ? "var(--accent-blue)" : "var(--text-secondary)",
-                    border: enrollmentType === "csv_import" ? "1px solid var(--accent-blue)" : "1px solid var(--border-subtle)"
+                    border: enrollmentType === "csv_import" ? "1.5px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px"
                   }}
                 >
                   📄 CSV Candidate Import
                 </button>
               </div>
 
-              {enrollmentType === "uid_batch" ? (
+              {enrollmentType === "classroom" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                  {classroomConnected ? (
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
+                        <label style={{ fontSize: "13px", fontWeight: "700", color: "var(--text-primary)" }}>
+                          Select Google Classroom Course
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => loadInitial()}
+                          disabled={classroomLoading}
+                          style={{
+                            fontSize: "11px",
+                            padding: "4px 8px",
+                            background: "transparent",
+                            border: "1px solid var(--border-subtle)",
+                            borderRadius: "4px",
+                            cursor: "pointer",
+                            color: "var(--text-secondary)"
+                          }}
+                        >
+                          🔄 Refresh Courses
+                        </button>
+                      </div>
+
+                      {classroomCourses.length > 0 ? (
+                        <select
+                          className="lunaris-input"
+                          value={selectedClassroomCourse}
+                          onChange={(e) => handleCourseChangeInWizard(e.target.value)}
+                          style={{ maxWidth: "420px", marginBottom: "12px" }}
+                        >
+                          {classroomCourses.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name} {c.section ? `(${c.section})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "12px" }}>
+                          No active courses found on this Google Classroom account.
+                        </div>
+                      )}
+
+                      {/* Students List Display */}
+                      <div style={{
+                        padding: "12px 16px",
+                        background: "#f8fafc",
+                        borderRadius: "8px",
+                        border: "1px solid var(--border-subtle)",
+                        marginBottom: "12px"
+                      }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                          <span style={{ fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)" }}>
+                            Classroom Student Roster ({classroomStudents.length} Students)
+                          </span>
+                          <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: "600" }}>
+                            ✓ Will be auto-enrolled with login UIDs & PINs
+                          </span>
+                        </div>
+
+                        {classroomLoading ? (
+                          <div style={{ padding: "16px", textAlign: "center", fontSize: "12px", color: "var(--text-muted)" }}>
+                            🔄 Loading real students from Google Classroom...
+                          </div>
+                        ) : classroomStudents.length > 0 ? (
+                          <div style={{ maxHeight: "170px", overflowY: "auto", border: "1px solid var(--border-subtle)", borderRadius: "6px", background: "#ffffff" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                              <thead>
+                                <tr style={{ background: "#f1f5f9", textAlign: "left" }}>
+                                  <th style={{ padding: "6px 10px" }}>Student Name</th>
+                                  <th style={{ padding: "6px 10px" }}>Classroom Identifier</th>
+                                  <th style={{ padding: "6px 10px", textAlign: "right" }}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {classroomStudents.map((s, idx) => (
+                                  <tr key={s.userId || idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                    <td style={{ padding: "6px 10px", fontWeight: "600" }}>{s.name}</td>
+                                    <td style={{ padding: "6px 10px", fontFamily: "monospace", color: "var(--text-secondary)" }}>
+                                      {s.email || `${(s.name || "student").toLowerCase().replace(/[^a-z0-9]/g, '.')}@classroom.google.com`}
+                                    </td>
+                                    <td style={{ padding: "6px 10px", textAlign: "right" }}>
+                                      <span style={{ padding: "2px 6px", borderRadius: "8px", fontSize: "10px", fontWeight: "700", background: "#dcfce7", color: "#15803d" }}>
+                                        Ready to Enroll
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: "12px", color: "var(--text-muted)", textAlign: "center", padding: "10px" }}>
+                            No students currently found in this course.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Auto Push Checkbox */}
+                      <div style={{
+                        padding: "14px",
+                        background: "#f0fdf4",
+                        borderRadius: "8px",
+                        border: "1px solid #bbf7d0"
+                      }}>
+                        <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={classroomAutoPublish}
+                            onChange={(e) => setClassroomAutoPublish(e.target.checked)}
+                            style={{ width: "18px", height: "18px", accentColor: "#16a34a", marginTop: "2px" }}
+                          />
+                          <div>
+                            <div style={{ fontSize: "13px", fontWeight: "700", color: "#166534" }}>
+                              🚀 Automatically publish Quiz & Candidate Credentials PDF to Google Classroom stream
+                            </div>
+                            <div style={{ fontSize: "12px", color: "#15803d", marginTop: "2px" }}>
+                              Creates an official assignment in Google Classroom with the candidate exam portal link and attaches the printable Candidate Credentials PDF roster (UIDs & PINs) in one single step!
+                            </div>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{
+                      padding: "24px 20px",
+                      background: "#f8fafc",
+                      borderRadius: "10px",
+                      border: "1px dashed #cbd5e1",
+                      textAlign: "center"
+                    }}>
+                      <div style={{ fontSize: "28px", marginBottom: "8px" }}>🏫</div>
+                      <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "4px" }}>
+                        Connect Google Classroom
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--text-muted)", maxWidth: "420px", margin: "0 auto 16px", lineHeight: "1.5" }}>
+                        Connect your Google account to automatically import your course student roster into this exam and publish the quiz with candidate credentials in one seamless step.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleConnectGoogleClassroomInWizard}
+                        disabled={classroomLoading}
+                        style={{
+                          padding: "9px 18px",
+                          background: "#2563eb",
+                          color: "#ffffff",
+                          border: "none",
+                          borderRadius: "8px",
+                          fontSize: "13px",
+                          fontWeight: "700",
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px"
+                        }}
+                      >
+                        {classroomLoading ? "Connecting..." : "🔗 Connect Google Classroom"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : enrollmentType === "uid_batch" ? (
                 <div>
                   <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
                     Number of Candidate UIDs to Generate
@@ -936,14 +1303,28 @@ export default function ExamCreationWizard({
                 border: "1px solid var(--border-subtle)"
               }}>
                 <h3 style={{ fontSize: "18px", fontWeight: "800", marginBottom: "8px" }}>{title}</h3>
-                <div style={{ display: "flex", gap: "14px", fontSize: "12px", color: "var(--text-secondary)", marginBottom: "12px" }}>
+                <div style={{ display: "flex", gap: "14px", fontSize: "12px", color: "var(--text-secondary)", marginBottom: "12px", flexWrap: "wrap" }}>
                   <span>Mode: <strong>{mode.toUpperCase()}</strong></span>
                   <span>•</span>
                   <span>Duration: <strong>{durationMinutes} Min</strong></span>
                   <span>•</span>
                   <span>Questions: <strong>{selectedQuestionIds.length}</strong></span>
                   <span>•</span>
-                  <span>Candidates: <strong>{candidateCount}</strong></span>
+                  <span>Candidates: <strong>
+                    {enrollmentType === "classroom"
+                      ? `${classroomStudents.length} Students (Google Classroom)`
+                      : enrollmentType === "uid_batch"
+                      ? `${candidateCount} Auto-Generated UIDs`
+                      : "CSV Import"}
+                  </strong></span>
+                  {enrollmentType === "classroom" && (
+                    <>
+                      <span>•</span>
+                      <span style={{ color: classroomAutoPublish ? "#16a34a" : "var(--text-muted)", fontWeight: "700" }}>
+                        {classroomAutoPublish ? "🚀 Auto-Push Quiz & Credentials PDF to Classroom: ON" : "Classroom Stream Push: OFF"}
+                      </span>
+                    </>
+                  )}
                 </div>
                 <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                   Instructions: {instructions}

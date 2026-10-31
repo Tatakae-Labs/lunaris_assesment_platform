@@ -97,6 +97,19 @@ def auto_migrate_sqlite(engine_instance):
             ("organizations", "features_json", "TEXT DEFAULT '{}'"),
             ("organizations", "properties_json", "TEXT DEFAULT '{}'"),
             ("users", "admin_role", "VARCHAR(50) DEFAULT 'platform_admin'"),
+            ("users", "google_id", "VARCHAR(100)"),
+            ("users", "google_picture", "VARCHAR(500)"),
+            ("users", "google_access_token", "TEXT"),
+            ("users", "google_refresh_token", "TEXT"),
+            ("exams", "classroom_course_id", "VARCHAR(100)"),
+            ("exams", "classroom_coursework_id", "VARCHAR(100)"),
+            ("exams", "classroom_alternate_link", "VARCHAR(500)"),
+            ("exam_versions", "classroom_course_id", "VARCHAR(100)"),
+            ("exam_versions", "classroom_coursework_id", "VARCHAR(100)"),
+            ("exam_versions", "classroom_alternate_link", "VARCHAR(500)"),
+            ("exam_attempts", "classroom_submission_id", "VARCHAR(100)"),
+            ("exam_attempts", "classroom_turned_in", "BOOLEAN DEFAULT 0"),
+            ("exam_attempts", "classroom_turned_in_at", "TIMESTAMP"),
         ]
 
         with engine_instance.connect() as conn:

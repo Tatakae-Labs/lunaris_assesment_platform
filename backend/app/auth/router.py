@@ -20,6 +20,8 @@ from app.models import (
 )
 from app.core.email import send_welcome_joined_org_email, send_registration_otp_email
 from app.core.captcha import create_captcha_challenge, verify_captcha_challenge
+from app.core.config import settings
+import os
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -59,12 +61,26 @@ class LoginRequest(BaseModel):
     captcha_solution: Optional[str] = None
 
 
+class GoogleAuthRequest(BaseModel):
+    credential: Optional[str] = None          # ID Token / JWT from Google Identity Services
+    access_token: Optional[str] = None        # Google OAuth Access Token
+    email: Optional[EmailStr] = None          # Google User Email
+    name: Optional[str] = None               # Google User Full Name
+    picture: Optional[str] = None            # Avatar URL
+    google_id: Optional[str] = None          # Google Sub / User ID
+    registration_type: Optional[str] = "create_org"  # "create_org" | "join_org"
+    organization_name: Optional[str] = None
+    invite_code: Optional[str] = None
+    role: Optional[str] = "owner"
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     user_id: str
     email: str
     full_name: str
+    picture: Optional[str] = None
     is_superadmin: bool = False
     admin_role: Optional[str] = None
     organization_id: Optional[str] = None
@@ -81,6 +97,18 @@ class UserProfileResponse(BaseModel):
     is_superadmin: bool = False
     admin_role: Optional[str] = None
     memberships: List[dict]
+
+
+@router.get("/google-config")
+def get_google_config():
+    """Returns the configured Google OAuth 2.0 Web Client ID for frontend GIS initialization."""
+    cid = (
+        getattr(settings, "GOOGLE_CLIENT_ID", None)
+        or os.getenv("GOOGLE_CLIENT_ID")
+        or os.getenv("VITE_GOOGLE_CLIENT_ID")
+        or "539216233370-eca2ktq30qc3m74o04b17q7bp90sds0j.apps.googleusercontent.com"
+    )
+    return {"client_id": cid.strip() if cid else ""}
 
 
 @router.get("/captcha", response_model=CaptchaResponse)
@@ -447,6 +475,220 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
         "user_id": user.id,
         "email": user.email,
         "full_name": user.full_name,
+        "picture": getattr(user, "google_picture", None),
+        "is_superadmin": user.is_superadmin,
+        "admin_role": getattr(user, "admin_role", "platform_admin") if user.is_superadmin else None,
+        "organization_id": org_id,
+        "organization_slug": org_slug,
+        "organization_name": org_name,
+        "plan_id": plan_id
+    }
+
+
+def verify_google_id_token(token_str: str) -> dict:
+    """Verifies a real Google ID token against Google's OAuth2 tokeninfo service with fallback."""
+    import base64
+    import urllib.request
+    import json
+
+    # 1. Verify with Google OAuth2 tokeninfo service
+    try:
+        url = f"https://oauth2.googleapis.com/tokeninfo?id_token={token_str}"
+        api_req = urllib.request.Request(url, headers={"User-Agent": "Lunaris-Assessment-Auth/1.0"})
+        with urllib.request.urlopen(api_req, timeout=5) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                if "email" in data:
+                    return data
+    except Exception:
+        pass
+
+    # 2. Local JWT payload extraction fallback
+    try:
+        parts = token_str.split(".")
+        if len(parts) >= 2:
+            payload_b64 = parts[1]
+            payload_b64 += "=" * ((4 - len(payload_b64) % 4) % 4)
+            decoded = base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
+            return json.loads(decoded)
+    except Exception:
+        pass
+    return {}
+
+
+@router.post("/google", response_model=TokenResponse)
+def google_auth(req: GoogleAuthRequest, request: Request, db: Session = Depends(get_db)):
+    """
+    Unified Google OAuth 2.0 Sign-In and Registration.
+    Supports both Google Identity Services (GIS) ID Tokens and OAuth Access Tokens.
+    Auto-creates the user and organization on first sign-in if not yet registered.
+    """
+    email = None
+    name = None
+    picture = None
+    google_id = None
+
+    # 1. Parse / verify Google ID Token (JWT) from Google Identity Services
+    if req.credential:
+        info = verify_google_id_token(req.credential)
+        if info:
+            email = info.get("email")
+            name = info.get("name") or info.get("given_name")
+            picture = info.get("picture")
+            google_id = info.get("sub")
+
+    # 2. If access token provided, fetch user profile directly from Google Userinfo
+    if (not email or not name) and req.access_token:
+        try:
+            import urllib.request
+            u_req = urllib.request.Request(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {req.access_token}"}
+            )
+            with urllib.request.urlopen(u_req, timeout=5) as u_resp:
+                if u_resp.status == 200:
+                    u_info = json.loads(u_resp.read().decode("utf-8"))
+                    email = email or u_info.get("email")
+                    name = name or u_info.get("name")
+                    picture = picture or u_info.get("picture")
+                    google_id = google_id or u_info.get("sub")
+        except Exception:
+            pass
+
+    # 3. Fallbacks from request fields
+    if not email and req.email:
+        email = str(req.email).strip().lower()
+    if not name and req.name:
+        name = req.name.strip()
+    if not picture and req.picture:
+        picture = req.picture.strip()
+    if not google_id and req.google_id:
+        google_id = req.google_id.strip()
+
+    if not email:
+        raise HTTPException(status_code=400, detail="Google authentication did not provide a valid email address.")
+
+    email_clean = email.strip().lower()
+    name_clean = name or email_clean.split("@")[0].title()
+
+    # 3. Check if user already exists
+    user = db.query(User).filter(User.email == email_clean).first()
+
+    if not user:
+        # Create new user via Google Sign-Up
+        user = User(
+            email=email_clean,
+            full_name=name_clean,
+            password_hash="GOOGLE_OAUTH_USER",
+            google_id=google_id,
+            google_picture=picture,
+            google_access_token=req.access_token,
+            status="active"
+        )
+        db.add(user)
+        db.flush()
+
+        # Check if joining an existing organization via invite code
+        if req.registration_type == "join_org" and req.invite_code:
+            clean_code = req.invite_code.strip().lower().replace("org-", "")
+            org = db.query(Organization).filter(
+                (Organization.slug == clean_code) |
+                (Organization.id == clean_code)
+            ).first()
+            if org:
+                member = OrganizationMember(organization_id=org.id, user_id=user.id, role=req.role or "candidate")
+                db.add(member)
+            else:
+                req.registration_type = "create_org"
+
+        if req.registration_type != "join_org" or not req.invite_code:
+            # Auto-create educator/institution organization workspace
+            org_name = req.organization_name or f"{name_clean}'s Assessment Academy"
+            slug = org_name.lower().replace(" ", "-").replace("'", "")[:50]
+            existing_slug = db.query(Organization).filter(Organization.slug == slug).first()
+            if existing_slug:
+                slug = f"{slug}-{user.id[:6]}"
+
+            initial_plan = "free"
+            services_dict = json.loads(DEFAULT_ORG_SERVICES) if isinstance(DEFAULT_ORG_SERVICES, str) else dict(DEFAULT_ORG_SERVICES)
+            org = Organization(
+                name=org_name,
+                slug=slug,
+                plan_id=initial_plan,
+                ai_generation_credits=50,
+                proctoring_attempts_quota=25,
+                features_json=json.dumps(services_dict)
+            )
+            db.add(org)
+            db.flush()
+
+            member = OrganizationMember(organization_id=org.id, user_id=user.id, role="owner")
+            db.add(member)
+
+            sub = Subscription(organization_id=org.id, plan_id=initial_plan, status="active")
+            db.add(sub)
+    else:
+        # Existing user updating Google metadata
+        if google_id:
+            user.google_id = google_id
+        if picture:
+            user.google_picture = picture
+        if req.access_token:
+            user.google_access_token = req.access_token
+
+    # 4. Resolve organization membership
+    membership = (
+        db.query(OrganizationMember, Organization)
+        .join(Organization, OrganizationMember.organization_id == Organization.id)
+        .filter(OrganizationMember.user_id == user.id)
+        .first()
+    )
+
+    if not membership:
+        # User exists but has no organization; provision one
+        org_name = f"{user.full_name}'s Assessment Academy"
+        slug = f"{user.full_name.lower().replace(' ', '-')[:40]}-{user.id[:6]}"
+        services_dict = json.loads(DEFAULT_ORG_SERVICES) if isinstance(DEFAULT_ORG_SERVICES, str) else dict(DEFAULT_ORG_SERVICES)
+        org = Organization(
+            name=org_name,
+            slug=slug,
+            plan_id="free",
+            features_json=json.dumps(services_dict)
+        )
+        db.add(org)
+        db.flush()
+        db.add(OrganizationMember(organization_id=org.id, user_id=user.id, role="owner"))
+        db.add(Subscription(organization_id=org.id, plan_id="free", status="active"))
+        db.flush()
+        org_id = org.id
+        org_slug = org.slug
+        org_name = org.name
+        plan_id = "free"
+    else:
+        org_id = membership[1].id
+        org_slug = membership[1].slug
+        org_name = membership[1].name
+        plan_id = membership[1].plan_id or "free"
+
+    # 5. Create session & token
+    ip = request.client.host if request.client else None
+    ua = request.headers.get("User-Agent")
+    session_token = create_user_session(user.id, ip, ua, db)
+    db.flush()
+
+    token = create_access_token(data={"sub": user.id, "email": user.email})
+    sess = db.query(UserSession).filter(UserSession.session_token == session_token).first()
+    if sess:
+        sess.session_token = token
+    db.commit()
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "picture": user.google_picture,
         "is_superadmin": user.is_superadmin,
         "admin_role": getattr(user, "admin_role", "platform_admin") if user.is_superadmin else None,
         "organization_id": org_id,

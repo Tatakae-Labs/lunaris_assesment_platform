@@ -41,6 +41,11 @@ export default function PublicWebsite({
   const [otpNotice, setOtpNotice] = useState("");
   const [otpCountdown, setOtpCountdown] = useState(0);
 
+  // Real Google Sign-In & Google Identity Services State
+  const [googleClientId, setGoogleClientId] = useState(
+    () => localStorage.getItem("lunaris_google_client_id") || import.meta.env.VITE_GOOGLE_CLIENT_ID || "539216233370-eca2ktq30qc3m74o04b17q7bp90sds0j.apps.googleusercontent.com"
+  );
+
   async function loadLoginCaptcha() {
     try {
       const c = await api.getCaptcha();
@@ -61,9 +66,21 @@ export default function PublicWebsite({
     }
   }
 
+  async function loadGoogleConfig() {
+    try {
+      const res = await api.getGoogleConfig();
+      if (res?.client_id && !googleClientId) {
+        setGoogleClientId(res.client_id);
+      }
+    } catch (e) {
+      console.warn("Could not fetch server Google client id:", e);
+    }
+  }
+
   useEffect(() => {
     loadLoginCaptcha();
     loadRegCaptcha();
+    loadGoogleConfig();
   }, []);
 
   useEffect(() => {
@@ -80,6 +97,34 @@ export default function PublicWebsite({
       return () => clearTimeout(timer);
     }
   }, [otpCountdown]);
+
+  // Initialize Google Identity Services (GIS) when Google Script & Client ID are ready
+  useEffect(() => {
+    if (!googleClientId) return;
+
+    function initGsi() {
+      if (window.google?.accounts?.id) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: googleClientId,
+            callback: handleGoogleCredentialResponse,
+            auto_select: false
+          });
+        } catch (e) {
+          console.warn("Google GSI init notice:", e);
+        }
+      }
+    }
+
+    const timer = setInterval(() => {
+      if (window.google?.accounts?.id) {
+        initGsi();
+        clearInterval(timer);
+      }
+    }, 400);
+
+    return () => clearInterval(timer);
+  }, [googleClientId]);
 
   useEffect(() => {
     if (initialTab) {
@@ -149,6 +194,86 @@ export default function PublicWebsite({
       loadLoginCaptcha();
     } finally {
       setAuthLoading(false);
+    }
+  }
+
+  async function handleGoogleCredentialResponse(response) {
+    if (!response?.credential) return;
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const res = await api.googleAuth({
+        credential: response.credential,
+        registration_type: activeTab === "signup" && regMode === "join_org" ? "join_org" : "create_org",
+        invite_code: activeTab === "signup" && regMode === "join_org" ? authInviteCode.trim().toUpperCase() : undefined,
+        organization_name: authOrgName.trim() || undefined
+      });
+
+      localStorage.setItem("lunaris_token", res.access_token);
+      localStorage.setItem("lunaris_user", JSON.stringify(res));
+      if (onLoginSuccess) onLoginSuccess(res);
+      if (res.is_superadmin) navigate("/admin");
+      else navigate("/dashboard");
+    } catch (err) {
+      setAuthError(err.message || "Google authentication failed.");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  function triggerGoogleSignIn(mode = "signin") {
+    setAuthError("");
+
+    const activeCid = (googleClientId || "").trim() || localStorage.getItem("lunaris_google_client_id") || "539216233370-eca2ktq30qc3m74o04b17q7bp90sds0j.apps.googleusercontent.com";
+
+    if (!window.google?.accounts?.oauth2) {
+      setAuthError("Google Identity Services library is initializing. Please click again in 2 seconds.");
+      return;
+    }
+
+    try {
+      const tokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: activeCid,
+        scope: "email profile openid",
+        callback: async (tokenResponse) => {
+          if (tokenResponse?.error) {
+            setAuthError("Google Sign-In was cancelled or failed: " + tokenResponse.error);
+            return;
+          }
+          if (tokenResponse?.access_token) {
+            setAuthLoading(true);
+            try {
+              const userInfoResp = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+                headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
+              });
+              const userInfo = await userInfoResp.json();
+              const res = await api.googleAuth({
+                access_token: tokenResponse.access_token,
+                email: userInfo.email,
+                name: userInfo.name,
+                picture: userInfo.picture,
+                google_id: userInfo.sub,
+                registration_type: mode === "signup" && regMode === "join_org" ? "join_org" : "create_org",
+                invite_code: mode === "signup" && regMode === "join_org" ? authInviteCode.trim().toUpperCase() : undefined,
+                organization_name: authOrgName.trim() || undefined
+              });
+
+              localStorage.setItem("lunaris_token", res.access_token);
+              localStorage.setItem("lunaris_user", JSON.stringify(res));
+              if (onLoginSuccess) onLoginSuccess(res);
+              if (res.is_superadmin) navigate("/admin");
+              else navigate("/dashboard");
+            } catch (err) {
+              setAuthError(err.message || "Failed to process Google sign-in response.");
+            } finally {
+              setAuthLoading(false);
+            }
+          }
+        }
+      });
+      tokenClient.requestAccessToken({ prompt: "select_account" });
+    } catch (err) {
+      setAuthError("Could not launch Google Sign-In popup: " + err.message);
     }
   }
 
@@ -269,19 +394,17 @@ export default function PublicWebsite({
           style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}
           onClick={() => changeRouteTab("home")}
         >
-          <div style={{
-            background: "linear-gradient(135deg, #2563eb 0%, #0284c7 100%)",
-            width: "36px",
-            height: "36px",
-            borderRadius: "8px",
-            display: "grid",
-            placeItems: "center",
-            fontWeight: "900",
-            fontSize: "18px",
-            color: "#ffffff"
-          }}>
-            L
-          </div>
+          <img
+            src="/logo.png"
+            alt="Lunaris"
+            style={{
+              width: "38px",
+              height: "38px",
+              objectFit: "contain",
+              borderRadius: "50%",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.06)"
+            }}
+          />
           <div>
             <div style={{ fontSize: "18px", fontWeight: "800", letterSpacing: "0.5px", lineHeight: "1" }}>
               LUNARIS
@@ -798,7 +921,7 @@ export default function PublicWebsite({
               </p>
               <ul style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: "2", flex: 1, marginBottom: "24px", listStyle: "none" }}>
                 <li>✓ 3 Published Exams</li>
-                <li>✓ 25 Candidates per exam</li>
+                <li>✓ 30 Candidates per exam</li>
                 <li>✓ 20 AI Question Drafts</li>
                 <li>✓ Standard Quiz engine</li>
                 <li>✗ Full proctoring module</li>
@@ -876,6 +999,21 @@ export default function PublicWebsite({
       {activeTab === "login" && (
         <section style={{ maxWidth: "460px", margin: "40px auto 80px", padding: "0 16px" }}>
           <div className="dash-card" style={{ padding: "32px 28px" }}>
+            <div style={{ textAlign: "center", marginBottom: "20px" }}>
+              <img
+                src="/logo.png"
+                alt="Lunaris"
+                style={{
+                  width: "52px",
+                  height: "52px",
+                  objectFit: "contain",
+                  borderRadius: "50%",
+                  margin: "0 auto 10px auto",
+                  display: "block",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.06)"
+                }}
+              />
+            </div>
             {/* Segmented Switch for Workspace vs SuperAdmin */}
             <div style={{
               display: "flex",
@@ -999,7 +1137,7 @@ export default function PublicWebsite({
                     onClick={loadLoginCaptcha}
                     style={{ background: "none", border: "none", color: "#2563eb", fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: 0 }}
                   >
-                    🔄 Refresh
+                     Refresh
                   </button>
                 </div>
                 <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
@@ -1035,8 +1173,44 @@ export default function PublicWebsite({
                 {authLoading
                   ? "Authenticating..."
                   : loginRoleTab === "superadmin"
-                  ? "Sign In as Platform SuperAdmin →"
-                  : "Sign In to Workspace Dashboard →"}
+                    ? "Sign In as Platform SuperAdmin →"
+                    : "Sign In to Workspace Dashboard →"}
+              </button>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "6px 0 2px" }}>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-subtle)" }} />
+                <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: "700" }}>OR</span>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-subtle)" }} />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => triggerGoogleSignIn("signin")}
+                disabled={authLoading}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "10px",
+                  height: "44px",
+                  background: "#ffffff",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  color: "#334155",
+                  cursor: "pointer",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                  transition: "all 0.15s ease"
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                </svg>
+                Continue with Google
               </button>
             </form>
 
@@ -1057,6 +1231,21 @@ export default function PublicWebsite({
       {activeTab === "signup" && (
         <section style={{ maxWidth: "620px", margin: "40px auto 100px", padding: "0 16px" }}>
           <div className="dash-card" style={{ padding: "32px 28px" }}>
+            <div style={{ textAlign: "center", marginBottom: "20px" }}>
+              <img
+                src="/logo.png"
+                alt="Lunaris"
+                style={{
+                  width: "52px",
+                  height: "52px",
+                  objectFit: "contain",
+                  borderRadius: "50%",
+                  margin: "0 auto 10px auto",
+                  display: "block",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.06)"
+                }}
+              />
+            </div>
             {/* Segmented Switch: Create New Org vs Join Org */}
             <div style={{
               display: "flex",
@@ -1333,7 +1522,7 @@ export default function PublicWebsite({
                         onClick={loadRegCaptcha}
                         style={{ background: "none", border: "none", color: "#2563eb", fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: 0 }}
                       >
-                        🔄 Refresh
+                         Refresh
                       </button>
                     </div>
                     <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
@@ -1362,6 +1551,42 @@ export default function PublicWebsite({
                   >
                     {authLoading ? "Verifying with Owner & Sending Code..." : "Verify Email & Join Workspace →"}
                   </button>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "14px 0 6px" }}>
+                    <div style={{ flex: 1, height: "1px", background: "var(--border-subtle)" }} />
+                    <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: "700" }}>OR</span>
+                    <div style={{ flex: 1, height: "1px", background: "var(--border-subtle)" }} />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => triggerGoogleSignIn("signup")}
+                    disabled={authLoading}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "10px",
+                      height: "44px",
+                      background: "#ffffff",
+                      border: "1px solid #cbd5e1",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      fontWeight: "600",
+                      color: "#334155",
+                      cursor: "pointer",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                      transition: "all 0.15s ease"
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                    </svg>
+                    Continue with Google
+                  </button>
                 </form>
               </div>
             ) : (
@@ -1387,7 +1612,7 @@ export default function PublicWebsite({
                     }}
                   >
                     {[
-                      { code: "free", name: "Free Starter", price: "₹0", badge: "25 candidates" },
+                      { code: "free", name: "Free Starter", price: "₹0", badge: "30 candidates" },
                       { code: "creator_pro", name: "Creator Pro", price: "₹499/mo", badge: "250 candidates" },
                       { code: "institution", name: "Institution", price: "₹1,999/mo", badge: "Proctoring + 5k" }
                     ].map((plan) => {
@@ -1517,7 +1742,7 @@ export default function PublicWebsite({
                         onClick={loadRegCaptcha}
                         style={{ background: "none", border: "none", color: "#2563eb", fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: 0 }}
                       >
-                        🔄 Refresh
+                         Refresh
                       </button>
                     </div>
                     <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
@@ -1547,8 +1772,44 @@ export default function PublicWebsite({
                     {authLoading
                       ? "Sending Verification Code..."
                       : selectedPlan === "free"
-                      ? "Verify Email & Create Workspace →"
-                      : `Verify Email & Continue to ${selectedPlan === "creator_pro" ? "Creator Pro" : "Institution"} →`}
+                        ? "Verify Email & Create Workspace →"
+                        : `Verify Email & Continue to ${selectedPlan === "creator_pro" ? "Creator Pro" : "Institution"} →`}
+                  </button>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "14px 0 6px" }}>
+                    <div style={{ flex: 1, height: "1px", background: "var(--border-subtle)" }} />
+                    <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: "700" }}>OR</span>
+                    <div style={{ flex: 1, height: "1px", background: "var(--border-subtle)" }} />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => triggerGoogleSignIn("signup")}
+                    disabled={authLoading}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "10px",
+                      height: "44px",
+                      background: "#ffffff",
+                      border: "1px solid #cbd5e1",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      fontWeight: "600",
+                      color: "#334155",
+                      cursor: "pointer",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                      transition: "all 0.15s ease"
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                    </svg>
+                    Sign up with Google
                   </button>
                 </form>
               </div>
@@ -1583,8 +1844,13 @@ export default function PublicWebsite({
           color: "var(--text-muted)"
         }}
       >
-        <div>
-          © 2026 Lunaris Assessment Systems. Pure white-theme SaaS architecture.
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <img
+            src="/logo.png"
+            alt="Lunaris"
+            style={{ width: "24px", height: "24px", objectFit: "contain", borderRadius: "50%" }}
+          />
+          <span>© 2026 Lunaris Assessment Systems. Pure white-theme SaaS architecture.</span>
         </div>
         <div style={{ display: "flex", gap: "20px", alignItems: "center" }}>
           <button
