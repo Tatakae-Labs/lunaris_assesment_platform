@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../shared/api";
+import { CheckIcon, XIcon, TrophyIcon, ZapIcon } from "../shared/Icons";
 
 export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
   const [phase, setPhase] = useState("lobby"); // 'lobby', 'in_quiz', 'answered_reveal', 'podium'
@@ -90,7 +91,14 @@ export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
       setLastAnswerResult(null);
       setPhase("in_quiz");
     } else {
-      // Finished all questions -> load podium
+      // Finished all questions -> mark attempt completed & load podium
+      try {
+        if (quizData.session_id) {
+          await api.finishQuickQuiz(quizData.room_code, quizData.session_id);
+        }
+      } catch (e) {
+        console.error("Failed to complete quiz session:", e);
+      }
       try {
         const lbRes = await api.getQuickQuizLeaderboard(quizData.room_code);
         setLeaderboard(lbRes.leaderboard || []);
@@ -103,59 +111,59 @@ export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
 
   const currentQ = quizData?.questions?.[currentIndex];
   const blockColors = [
-    { bg: "#ef4444", label: "A" },
-    { bg: "#2563eb", label: "B" },
-    { bg: "#eab308", label: "C" },
-    { bg: "#16a34a", label: "D" }
+    { badgeBg: "#2563eb", badgeColor: "#ffffff", label: "A" },
+    { badgeBg: "#7c3aed", badgeColor: "#ffffff", label: "B" },
+    { badgeBg: "#059669", badgeColor: "#ffffff", label: "C" },
+    { badgeBg: "#d97706", badgeColor: "#ffffff", label: "D" }
   ];
 
   return (
     <div style={{
-      minHeight: "100vh",
-      background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)",
-      color: "#f8fafc",
+      minHeight: "100%",
+      background: "#f8fafc",
+      color: "#0f172a",
       display: "flex",
       flexDirection: "column",
       alignItems: "center",
       justifyContent: "center",
-      padding: "24px"
+      padding: "32px 20px"
     }}>
       {/* Lobby / Join Screen */}
       {phase === "lobby" && (
-        <div className="dash-card" style={{
+        <div style={{
           maxWidth: "440px",
           width: "100%",
           padding: "36px",
-          background: "rgba(15, 23, 42, 0.9)",
-          backdropFilter: "blur(12px)",
-          border: "1px solid rgba(255, 255, 255, 0.12)",
-          borderRadius: "20px",
+          background: "#ffffff",
+          border: "1px solid #e2e8f0",
+          borderRadius: "16px",
+          boxShadow: "0 10px 25px -5px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.02)",
           textAlign: "center"
         }}>
           <img
             src="/logo.png"
             alt="Lunaris"
             style={{
-              width: "56px",
-              height: "56px",
+              width: "52px",
+              height: "52px",
               objectFit: "contain",
               borderRadius: "50%",
               margin: "0 auto 16px auto",
               display: "block",
               background: "#ffffff",
               padding: "2px",
-              boxShadow: "0 4px 14px rgba(0,0,0,0.3)"
+              boxShadow: "0 2px 8px rgba(0,0,0,0.06)"
             }}
           />
-          <h2 style={{ fontSize: "24px", fontWeight: "800", color: "#f8fafc", fontFamily: "var(--font-display)" }}>
+          <h2 style={{ fontSize: "24px", fontWeight: "800", color: "#0f172a", margin: 0, letterSpacing: "-0.01em" }}>
             Lunaris Quick Quiz
           </h2>
-          <p style={{ color: "#94a3b8", fontSize: "14px", marginTop: "6px", marginBottom: "24px" }}>
+          <p style={{ color: "#64748b", fontSize: "14px", marginTop: "6px", marginBottom: "24px" }}>
             Enter your room code to join the live timed speed challenge!
           </p>
 
           {error && (
-            <div style={{ padding: "10px", background: "rgba(239, 68, 68, 0.2)", color: "#fca5a5", borderRadius: "8px", fontSize: "13px", marginBottom: "16px" }}>
+            <div style={{ padding: "10px 14px", background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecdd3", borderRadius: "8px", fontSize: "13px", marginBottom: "16px", fontWeight: "500" }}>
               {error}
             </div>
           )}
@@ -171,15 +179,16 @@ export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
                 style={{
                   width: "100%",
                   padding: "14px",
-                  background: "#020617",
-                  border: "2px solid #334155",
+                  background: "#ffffff",
+                  border: "1.5px solid #cbd5e1",
                   borderRadius: "10px",
                   fontSize: "18px",
                   fontWeight: "bold",
                   textAlign: "center",
                   letterSpacing: "4px",
-                  fontFamily: "var(--font-mono)",
-                  color: "#38bdf8"
+                  fontFamily: "var(--font-mono, monospace)",
+                  color: "var(--accent-blue)",
+                  outline: "none"
                 }}
               />
             </div>
@@ -193,13 +202,14 @@ export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
                 maxLength={20}
                 style={{
                   width: "100%",
-                  padding: "14px",
-                  background: "#020617",
-                  border: "2px solid #334155",
+                  padding: "13px",
+                  background: "#ffffff",
+                  border: "1.5px solid #cbd5e1",
                   borderRadius: "10px",
-                  fontSize: "15px",
-                  color: "#f8fafc",
-                  textAlign: "center"
+                  fontSize: "14px",
+                  color: "#0f172a",
+                  textAlign: "center",
+                  outline: "none"
                 }}
               />
             </div>
@@ -208,27 +218,38 @@ export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
               type="submit"
               disabled={joining}
               style={{
-                padding: "14px",
-                background: "linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)",
+                padding: "13px",
+                background: "var(--accent-blue)",
                 color: "#ffffff",
-                fontSize: "16px",
-                fontWeight: "bold",
+                fontSize: "15px",
+                fontWeight: "700",
                 borderRadius: "10px",
-                boxShadow: "0 10px 25px -5px rgba(245, 158, 11, 0.4)",
-                cursor: "pointer"
+                border: "none",
+                boxShadow: "0 4px 14px rgba(37, 99, 235, 0.25)",
+                cursor: joining ? "not-allowed" : "pointer"
               }}
             >
               {joining ? "Entering Arena..." : "Join Game Now →"}
             </button>
           </form>
 
-          <button
-            type="button"
-            onClick={onExit}
-            style={{ marginTop: "20px", background: "transparent", color: "#64748b", fontSize: "13px" }}
-          >
-            ← Back to Dashboard
-          </button>
+          {onExit && (
+            <button
+              type="button"
+              onClick={onExit}
+              style={{
+                marginTop: "20px",
+                background: "transparent",
+                border: "none",
+                color: "#64748b",
+                fontSize: "13px",
+                fontWeight: "600",
+                cursor: "pointer"
+              }}
+            >
+              ← Back to Dashboard
+            </button>
+          )}
         </div>
       )}
 
@@ -236,53 +257,54 @@ export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
       {phase === "in_quiz" && currentQ && (
         <div style={{ maxWidth: "800px", width: "100%" }}>
           {/* Header Stats */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-            <span style={{ fontSize: "14px", fontWeight: "bold", color: "#94a3b8" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+            <span style={{ fontSize: "13px", fontWeight: "700", color: "#64748b" }}>
               Question {currentIndex + 1} of {quizData.questions.length}
             </span>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(0,0,0,0.4)", padding: "6px 14px", borderRadius: "9999px" }}>
-              <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#22c55e" }} />
-              <span style={{ fontSize: "13px", fontWeight: "bold", color: "#38bdf8" }}>Room: {quizData.room_code}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#ffffff", border: "1px solid #e2e8f0", padding: "5px 14px", borderRadius: "9999px" }}>
+              <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#10b981" }} />
+              <span style={{ fontSize: "12px", fontWeight: "700", color: "#0f172a", fontFamily: "monospace" }}>Room: {quizData.room_code}</span>
             </div>
-            <span style={{ fontSize: "14px", fontWeight: "bold", color: "#f59e0b", fontFamily: "var(--font-mono)" }}>
+            <span style={{ fontSize: "13px", fontWeight: "700", color: "var(--accent-blue)", fontFamily: "monospace" }}>
               Score: {lastAnswerResult?.current_total_score || 0} pts
             </span>
           </div>
 
           {/* Time Remaining Bar */}
           <div style={{
-            height: "12px",
-            background: "rgba(255, 255, 255, 0.1)",
+            height: "8px",
+            background: "#e2e8f0",
             borderRadius: "6px",
             overflow: "hidden",
-            marginBottom: "28px"
+            marginBottom: "24px"
           }}>
             <div style={{
               height: "100%",
               width: `${(timeLeft / (quizData.per_question_seconds || 20)) * 100}%`,
-              background: timeLeft <= 5 ? "#ef4444" : "#f59e0b",
+              background: timeLeft <= 5 ? "#ef4444" : "var(--accent-blue)",
               transition: "width 1s linear"
             }} />
           </div>
 
           {/* Question Stem Box */}
           <div style={{
-            background: "#0f172a",
-            border: "1px solid #1e293b",
-            borderRadius: "16px",
-            padding: "36px",
+            background: "#ffffff",
+            border: "1px solid #e2e8f0",
+            borderRadius: "14px",
+            padding: "32px",
             textAlign: "center",
-            fontSize: "20px",
+            fontSize: "19px",
             fontWeight: "700",
-            lineHeight: "1.5",
-            marginBottom: "28px",
-            boxShadow: "0 20px 25px -5px rgba(0,0,0,0.4)"
+            color: "#0f172a",
+            lineHeight: "1.55",
+            marginBottom: "24px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.04)"
           }}>
             {currentQ.text}
           </div>
 
-          {/* 4 Colored Option Blocks */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+          {/* 4 Clean Modern Option Blocks */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
             {currentQ.options.map((opt, i) => {
               const themeBlock = blockColors[i % 4];
               return (
@@ -290,35 +312,45 @@ export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
                   key={opt.id}
                   onClick={() => handleSelectOption(opt.id)}
                   style={{
-                    padding: "24px 20px",
-                    background: themeBlock.bg,
-                    borderRadius: "14px",
-                    color: "#ffffff",
-                    fontSize: "16px",
-                    fontWeight: "700",
+                    padding: "20px 18px",
+                    background: "#ffffff",
+                    border: "1.5px solid #e2e8f0",
+                    borderRadius: "12px",
+                    color: "#0f172a",
+                    fontSize: "15px",
+                    fontWeight: "600",
                     display: "flex",
                     alignItems: "center",
-                    gap: "14px",
+                    gap: "12px",
                     textAlign: "left",
-                    transition: "transform 0.1s, filter 0.15s",
-                    boxShadow: "0 10px 15px -3px rgba(0,0,0,0.3)"
+                    cursor: "pointer",
+                    transition: "border-color 0.15s, box-shadow 0.15s, transform 0.1s",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.02)"
                   }}
-                  onMouseOver={(e) => e.currentTarget.style.filter = "brightness(1.15)"}
-                  onMouseOut={(e) => e.currentTarget.style.filter = "none"}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.borderColor = themeBlock.badgeBg;
+                    e.currentTarget.style.boxShadow = `0 4px 12px ${themeBlock.badgeBg}22`;
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.borderColor = "#e2e8f0";
+                    e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.02)";
+                  }}
                 >
                   <span style={{
-                    width: "36px",
-                    height: "36px",
+                    width: "32px",
+                    height: "32px",
                     borderRadius: "8px",
-                    background: "rgba(0,0,0,0.25)",
+                    background: themeBlock.badgeBg,
+                    color: themeBlock.badgeColor,
                     display: "grid",
                     placeItems: "center",
-                    fontWeight: "900",
-                    fontSize: "18px"
+                    fontWeight: "800",
+                    fontSize: "15px",
+                    flexShrink: 0
                   }}>
                     {themeBlock.label}
                   </span>
-                  <span style={{ flex: 1 }}>{opt.text}</span>
+                  <span style={{ flex: 1, color: "#1e293b" }}>{opt.text}</span>
                 </button>
               );
             })}
@@ -329,31 +361,43 @@ export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
       {/* Answer Reveal Screen */}
       {phase === "answered_reveal" && lastAnswerResult && (
         <div style={{
-          maxWidth: "480px",
+          maxWidth: "460px",
           width: "100%",
-          background: "#0f172a",
-          border: "1px solid #1e293b",
-          borderRadius: "20px",
+          background: "#ffffff",
+          border: "1px solid #e2e8f0",
+          borderRadius: "16px",
           padding: "36px",
-          textAlign: "center"
+          textAlign: "center",
+          boxShadow: "0 20px 40px -10px rgba(0,0,0,0.08)"
         }}>
           <div style={{
-            fontSize: "56px",
-            marginBottom: "12px"
+            width: "64px",
+            height: "64px",
+            borderRadius: "50%",
+            background: lastAnswerResult.is_correct ? "#ecfdf5" : "#fee2e2",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 16px auto"
           }}>
-            {lastAnswerResult.is_correct ? "🎉" : "❌"}
+            {lastAnswerResult.is_correct ? (
+              <CheckIcon size={34} color="#059669" />
+            ) : (
+              <XIcon size={34} color="#dc2626" />
+            )}
           </div>
-          <h2 style={{ fontSize: "28px", fontWeight: "800", color: lastAnswerResult.is_correct ? "#22c55e" : "#ef4444" }}>
-            {lastAnswerResult.is_correct ? "CORRECT!" : "WRONG ANSWER!"}
+
+          <h2 style={{ fontSize: "24px", fontWeight: "800", color: lastAnswerResult.is_correct ? "#059669" : "#dc2626", margin: 0 }}>
+            {lastAnswerResult.is_correct ? "Correct!" : "Incorrect"}
           </h2>
 
-          <div style={{ margin: "24px 0", padding: "16px", background: "rgba(255,255,255,0.05)", borderRadius: "12px" }}>
-            <div style={{ fontSize: "14px", color: "#94a3b8" }}>Points Earned</div>
-            <div style={{ fontSize: "36px", fontWeight: "900", color: "#f59e0b", fontFamily: "var(--font-mono)" }}>
+          <div style={{ margin: "22px 0", padding: "18px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px" }}>
+            <div style={{ fontSize: "12px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Points Earned</div>
+            <div style={{ fontSize: "32px", fontWeight: "900", color: "var(--accent-blue)", fontFamily: "var(--font-mono, monospace)", margin: "4px 0" }}>
               +{lastAnswerResult.points_awarded} pts
             </div>
-            <div style={{ fontSize: "13px", color: "#64748b", marginTop: "4px" }}>
-              Current Total: {lastAnswerResult.current_total_score} pts
+            <div style={{ fontSize: "12px", color: "#64748b" }}>
+              Total Score: <strong>{lastAnswerResult.current_total_score}</strong> pts
             </div>
           </div>
 
@@ -362,15 +406,18 @@ export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
             onClick={handleNextQuestion}
             style={{
               width: "100%",
-              padding: "14px",
-              background: "#2563eb",
+              padding: "13px",
+              background: "var(--accent-blue)",
               color: "#ffffff",
-              fontSize: "16px",
-              fontWeight: "bold",
-              borderRadius: "10px"
+              fontSize: "15px",
+              fontWeight: "700",
+              borderRadius: "10px",
+              border: "none",
+              cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(37,99,235,0.25)"
             }}
           >
-            {currentIndex < (quizData?.questions?.length || 0) - 1 ? "Next Question →" : "View Final Podium 🏆"}
+            {currentIndex < (quizData?.questions?.length || 0) - 1 ? "Next Question →" : "View Final Standings"}
           </button>
         </div>
       )}
@@ -378,76 +425,96 @@ export default function QuickQuizPortal({ onExit, defaultRoomCode = "" }) {
       {/* Podium Leaderboard Screen */}
       {phase === "podium" && (
         <div style={{
-          maxWidth: "540px",
+          maxWidth: "520px",
           width: "100%",
-          background: "#0f172a",
-          border: "1px solid #1e293b",
-          borderRadius: "20px",
+          background: "#ffffff",
+          border: "1px solid #e2e8f0",
+          borderRadius: "16px",
           padding: "36px",
-          textAlign: "center"
+          textAlign: "center",
+          boxShadow: "0 20px 40px -10px rgba(0,0,0,0.08)"
         }}>
-          <div style={{ fontSize: "48px", marginBottom: "8px" }}>🏆</div>
-          <h2 style={{ fontSize: "28px", fontWeight: "800", color: "#f8fafc", fontFamily: "var(--font-display)" }}>
-            Quick Quiz Podium
+          <div style={{
+            width: "56px",
+            height: "56px",
+            borderRadius: "14px",
+            background: "var(--accent-blue-subtle)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 14px auto"
+          }}>
+            <TrophyIcon size={30} color="var(--accent-blue)" />
+          </div>
+
+          <h2 style={{ fontSize: "24px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+            Quick Quiz Standings
           </h2>
-          <p style={{ color: "#94a3b8", fontSize: "14px", marginBottom: "24px" }}>
+          <p style={{ color: "#64748b", fontSize: "14px", marginTop: "4px", marginBottom: "22px" }}>
             Speed & Accuracy Leaderboard
           </p>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "28px" }}>
-            {leaderboard.slice(0, 5).map((player, idx) => (
-              <div
-                key={player.session_id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "14px 18px",
-                  borderRadius: "10px",
-                  background: idx === 0 ? "rgba(245, 158, 11, 0.15)" : "#1e293b",
-                  border: `1px solid ${idx === 0 ? "#f59e0b" : "#334155"}`
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <span style={{
-                    width: "28px",
-                    height: "28px",
-                    borderRadius: "50%",
-                    background: idx === 0 ? "#f59e0b" : idx === 1 ? "#94a3b8" : idx === 2 ? "#d97706" : "#334155",
-                    color: "#fff",
-                    fontWeight: "bold",
-                    display: "grid",
-                    placeItems: "center",
-                    fontSize: "13px"
-                  }}>
-                    {idx + 1}
-                  </span>
-                  <span style={{ fontWeight: "700", fontSize: "15px", color: "#f8fafc" }}>
-                    {player.nickname} {player.session_id === quizData?.session_id && "(You)"}
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "24px" }}>
+            {leaderboard.slice(0, 5).map((player, idx) => {
+              const rank = idx + 1;
+              return (
+                <div
+                  key={player.session_id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "12px 16px",
+                    borderRadius: "10px",
+                    border: "1px solid #e2e8f0",
+                    background: rank === 1 ? "#fefce8" : "#f8fafc"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{
+                      width: "28px",
+                      height: "28px",
+                      borderRadius: "6px",
+                      background: rank === 1 ? "#fef08a" : rank === 2 ? "#e2e8f0" : rank === 3 ? "#fed7aa" : "#e2e8f0",
+                      color: rank === 1 ? "#854d0e" : rank === 2 ? "#334155" : rank === 3 ? "#9a3412" : "#475569",
+                      fontSize: "12px",
+                      fontWeight: "800",
+                      display: "grid",
+                      placeItems: "center"
+                    }}>
+                      #{rank}
+                    </span>
+                    <span style={{ fontWeight: "700", color: "#0f172a", fontSize: "14px" }}>
+                      {player.nickname}
+                    </span>
+                  </div>
+                  <span style={{ fontWeight: "800", color: "var(--accent-blue)", fontFamily: "monospace", fontSize: "14px" }}>
+                    {player.total_score} pts
                   </span>
                 </div>
-                <span style={{ fontFamily: "var(--font-mono)", fontWeight: "bold", fontSize: "16px", color: "#38bdf8" }}>
-                  {player.score} pts
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
-          <button
-            type="button"
-            onClick={onExit}
-            style={{
-              width: "100%",
-              padding: "14px",
-              background: "#2563eb",
-              color: "#ffffff",
-              fontSize: "15px",
-              fontWeight: "bold",
-              borderRadius: "10px"
-            }}
-          >
-            Exit to Organization Hub
-          </button>
+          {onExit && (
+            <button
+              type="button"
+              onClick={onExit}
+              style={{
+                width: "100%",
+                padding: "12px",
+                background: "#ffffff",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "8px",
+                color: "#334155",
+                fontSize: "14px",
+                fontWeight: "600",
+                cursor: "pointer"
+              }}
+            >
+              ← Return to Dashboard
+            </button>
+          )}
         </div>
       )}
     </div>

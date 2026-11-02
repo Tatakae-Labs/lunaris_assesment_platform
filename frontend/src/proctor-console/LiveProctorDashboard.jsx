@@ -33,7 +33,7 @@ function getCandidateBoxes(session) {
   if (isFaceAbsent) {
     return [{
       x: 25, y: 20, w: 50, h: 60,
-      label: "⚠️ CANDIDATE FACE ABSENT",
+      label: "Warning: CANDIDATE FACE ABSENT",
       conf: 0.96,
       color: "#ef4444",
       type: "face"
@@ -48,7 +48,7 @@ function getCandidateBoxes(session) {
   const boxes = [
     {
       x: primaryX, y: primaryY, w: primaryW, h: primaryH,
-      label: isGazeFlag ? "👁️ GAZE: OFF-SCREEN GLANCE" : "STUDENT FACE · VERIFIED",
+      label: isGazeFlag ? " GAZE: OFF-SCREEN GLANCE" : "STUDENT FACE · VERIFIED",
       conf: 0.96,
       color: isGazeFlag ? "#f59e0b" : "#22c55e",
       type: "face"
@@ -58,7 +58,7 @@ function getCandidateBoxes(session) {
       y: primaryY + primaryH * 0.34,
       w: primaryW * 0.64,
       h: primaryH * 0.16,
-      label: isGazeFlag ? "⚠️ OFF-SCREEN GAZE" : "👁️ EYE TRACK: SCREEN CENTER",
+      label: isGazeFlag ? "Warning: OFF-SCREEN GAZE" : " EYE TRACK: SCREEN CENTER",
       conf: 0.94,
       color: isGazeFlag ? "#f59e0b" : "#38bdf8",
       type: "eye"
@@ -68,7 +68,7 @@ function getCandidateBoxes(session) {
   if (isMultiFace) {
     boxes.push({
       x: 66, y: 12, w: 28, h: 36,
-      label: "⚠️ SECONDARY PERSON DETECTED",
+      label: "Warning: SECONDARY PERSON DETECTED",
       conf: 0.91,
       color: "#ef4444",
       type: "face"
@@ -78,7 +78,7 @@ function getCandidateBoxes(session) {
   if (isPhone) {
     boxes.push({
       x: 16, y: 52, w: 24, h: 40,
-      label: "📱 MOBILE PHONE DETECTED",
+      label: " MOBILE PHONE DETECTED",
       conf: 0.95,
       color: "#ef4444",
       type: "phone"
@@ -89,7 +89,7 @@ function getCandidateBoxes(session) {
 }
 
 /**
- * SVG Bounding Box Annotation Overlay – renders on top of the camera frame.
+ * SVG Bounding Box Annotation Overlay - renders on top of the camera frame.
  * Renders face corner brackets, glowing pupil crosshairs, and prohibited object indicators.
  */
 function BBoxOverlay({ boxes, width = "100%", height = "100%" }) {
@@ -396,7 +396,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                 boxShadow: activeTab === "cctv" ? "var(--card-shadow)" : "none"
               }}
             >
-              📹 CCTV Multi-Cam Wall ({activeCount})
+               CCTV Multi-Cam Wall ({activeCount})
             </button>
             <button
               type="button"
@@ -416,7 +416,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                 boxShadow: activeTab === "table" ? "var(--card-shadow)" : "none"
               }}
             >
-              📋 Audit Table ({sessions.length})
+               Audit Table ({sessions.length})
             </button>
             <button
               type="button"
@@ -436,7 +436,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                 boxShadow: activeTab === "appeals" ? "var(--card-shadow)" : "none"
               }}
             >
-              ⚖️ Candidate Appeals ({appeals.filter(a => a.status === 'pending').length})
+               Candidate Appeals ({appeals.filter(a => a.status === 'pending').length})
             </button>
           </div>
 
@@ -472,7 +472,7 @@ export default function LiveProctorDashboard({ organizationId }) {
       }}>
         <div className="dash-card" style={{ padding: "16px" }}>
           <div style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase" }}>
-            🟢 Supervised Active Cameras
+             Supervised Active Cameras
           </div>
           <div style={{ fontSize: "26px", fontWeight: "900", color: "var(--accent-blue)", marginTop: "4px" }}>
             {activeCount} <span style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: "500" }}>/ {sessions.length} enrolled</span>
@@ -481,7 +481,7 @@ export default function LiveProctorDashboard({ organizationId }) {
 
         <div className="dash-card" style={{ padding: "16px" }}>
           <div style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase" }}>
-            🚨 Flagged Anomalies
+             Flagged Anomalies
           </div>
           <div style={{ fontSize: "26px", fontWeight: "900", color: criticalIncidents > 0 ? "var(--accent-rose)" : "var(--accent-emerald)", marginTop: "4px" }}>
             {criticalIncidents} <span style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: "500" }}>critical</span>
@@ -490,7 +490,7 @@ export default function LiveProctorDashboard({ organizationId }) {
 
         <div className="dash-card" style={{ padding: "16px" }}>
           <div style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase" }}>
-            📱 Mobile &amp; Object Detection
+             Mobile &amp; Object Detection
           </div>
           <div style={{ fontSize: "26px", fontWeight: "900", color: "var(--text-primary)", marginTop: "4px" }}>
             {sessions.filter(s => s.latest_event_type === "prohibited_object").length} <span style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: "500" }}>alerts</span>
@@ -504,7 +504,7 @@ export default function LiveProctorDashboard({ organizationId }) {
           position: "relative", overflow: "hidden"
         }}>
           <div style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase", display: "flex", alignItems: "center", gap: "6px" }}>
-            👥 Multi-Face Detections
+             Multi-Face Detections
             <span style={{ fontSize: "10px", padding: "1px 5px", background: "#f5f3ff", color: "#7c3aed", borderRadius: "4px", fontWeight: "700" }}>NEURAL CV</span>
           </div>
           <div style={{ fontSize: "26px", fontWeight: "900", color: "#7c3aed", marginTop: "4px" }}>
@@ -523,7 +523,7 @@ export default function LiveProctorDashboard({ organizationId }) {
           position: "relative", overflow: "hidden"
         }}>
           <div style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase", display: "flex", alignItems: "center", gap: "6px" }}>
-            👁️ Eye &amp; Gaze Detection
+             Eye &amp; Gaze Detection
             <span style={{ fontSize: "10px", padding: "1px 5px", background: "#f0f9ff", color: "#0284c7", borderRadius: "4px", fontWeight: "700" }}>PUPIL CV</span>
           </div>
           <div style={{ fontSize: "26px", fontWeight: "900", color: "#0284c7", marginTop: "4px" }}>
@@ -537,7 +537,7 @@ export default function LiveProctorDashboard({ organizationId }) {
 
         <div className="dash-card" style={{ padding: "16px" }}>
           <div style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase" }}>
-            ⚡ CCTV System Clock
+             CCTV System Clock
           </div>
           <div style={{ fontSize: "22px", fontWeight: "800", color: "var(--text-primary)", fontFamily: "var(--font-mono)", marginTop: "6px" }}>
             {cctvTime} <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: "700" }}>● UTC</span>
@@ -607,8 +607,8 @@ export default function LiveProctorDashboard({ organizationId }) {
                   }}
                 >
                   <option value="all">All Feeds ({sessions.length})</option>
-                  <option value="flagged">🚨 Flagged / Anomalies Only</option>
-                  <option value="live">🟢 Active Cameras Only</option>
+                  <option value="flagged"> Flagged / Anomalies Only</option>
+                  <option value="live"> Active Cameras Only</option>
                   <option value="completed">Finished Attempts</option>
                 </select>
               </div>
@@ -632,7 +632,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                   transition: "all 0.15s ease"
                 }}
               >
-                <span>👁️</span>
+                <span></span>
                 <span>{showAiOverlay ? "AI HUD: ACTIVE" : "AI HUD: OFF"}</span>
               </button>
             </div>
@@ -659,7 +659,7 @@ export default function LiveProctorDashboard({ organizationId }) {
               textAlign: "center",
               boxShadow: "0 1px 3px rgba(0, 0, 0, 0.03)"
             }}>
-              <div style={{ fontSize: "40px", marginBottom: "14px" }}>📹</div>
+              <div style={{ fontSize: "40px", marginBottom: "14px" }}></div>
               <h3 style={{ fontSize: "18px", color: "#1e293b", fontWeight: "800", margin: "0 0 8px 0" }}>No Active Candidate Video Streams</h3>
               <p style={{ fontSize: "13px", color: "#64748b", maxWidth: "480px", margin: "0 auto", lineHeight: "1.6" }}>
                 When candidates verify their identity and start the examination, their live CCTV camera feeds will automatically appear on this surveillance wall.
@@ -806,7 +806,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                             color: "#38bdf8",
                             border: "1px dashed #38bdf8"
                           }}>
-                            👤
+                            
                           </div>
                           <div style={{ fontSize: "11px", fontWeight: "700", color: "#94a3b8", letterSpacing: "0.5px" }}>
                             CCTV STANDBY · AWAITING FRAME
@@ -889,7 +889,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                             boxShadow: "0 0 10px rgba(220, 38, 38, 0.8)",
                             letterSpacing: "0.5px"
                           }}>
-                            📱 PHONE DETECTED
+                             PHONE DETECTED
                           </span>
                         ) : isMultiFaceFlag ? (
                           <span style={{
@@ -902,7 +902,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                             boxShadow: "0 0 10px rgba(220, 38, 38, 0.8)",
                             letterSpacing: "0.5px"
                           }}>
-                            👥 MULTI-PEOPLE
+                             MULTI-PEOPLE
                           </span>
                         ) : s.latest_event_type && s.latest_event_type !== "cctv_frame" ? (
                           <span style={{
@@ -913,7 +913,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                             fontSize: "10px",
                             fontWeight: "800"
                           }}>
-                            ⚠️ {s.latest_event_type.replace(/_/g, " ").toUpperCase()}
+                            Warning: {s.latest_event_type.replace(/_/g, " ").toUpperCase()}
                           </span>
                         ) : (
                           <span style={{
@@ -924,7 +924,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                             fontSize: "10px",
                             fontWeight: "700"
                           }}>
-                            ✓ CLEAN
+                             CLEAN
                           </span>
                         )}
                       </div>
@@ -944,7 +944,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                         alignItems: "center",
                         gap: "4px"
                       }}>
-                        🔍 Zoom
+                        Zoom
                       </div>
                     </div>
 
@@ -1082,7 +1082,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                       )}
                     </td>
                     <td style={{ color: "var(--text-secondary)", fontSize: "13px", fontFamily: "var(--font-mono)" }}>
-                      {s.started_at ? new Date(s.started_at).toLocaleTimeString() : "—"}
+                      {s.started_at ? new Date(s.started_at).toLocaleTimeString() : "-"}
                     </td>
                     <td>
                       {s.latest_event_type ? (
@@ -1095,7 +1095,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                             background: ["multiple_faces_detected", "fullscreen_exit", "clipboard_copy_attempt", "prohibited_object"].includes(s.latest_event_type) ? "var(--accent-rose-subtle)" : "var(--accent-amber-subtle, rgba(217, 119, 6, 0.1))",
                             color: ["multiple_faces_detected", "fullscreen_exit", "clipboard_copy_attempt", "prohibited_object"].includes(s.latest_event_type) ? "var(--accent-rose)" : "var(--accent-amber)"
                           }}>
-                            {s.latest_event_type === "prohibited_object" ? "📱 PHONE DETECTED" : s.latest_event_type.replace(/_/g, " ").toUpperCase()}
+                            {s.latest_event_type === "prohibited_object" ? " PHONE DETECTED" : s.latest_event_type.replace(/_/g, " ").toUpperCase()}
                           </span>
                           {s.latest_event_time && (
                             <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
@@ -1117,11 +1117,11 @@ export default function LiveProctorDashboard({ organizationId }) {
                           fontSize: "12px",
                           fontWeight: "bold"
                         }}>
-                          ⚠️ {s.critical_incidents} Flagged
+                          Warning: {s.critical_incidents} Flagged
                         </span>
                       ) : (
                         <span style={{ color: "var(--accent-emerald)", fontSize: "13px", fontWeight: "600" }}>
-                          ✓ Clean Telemetry
+                          Clean Telemetry
                         </span>
                       )}
                     </td>
@@ -1227,7 +1227,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                               cursor: "pointer"
                             }}
                           >
-                            ✓ Accept (Dismiss Flag)
+                             Accept (Dismiss Flag)
                           </button>
                           <button
                             type="button"
@@ -1243,7 +1243,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                               cursor: "pointer"
                             }}
                           >
-                            ✕ Reject
+                             Reject
                           </button>
                         </div>
                       ) : (
@@ -1333,7 +1333,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                   justifyContent: "center"
                 }}
               >
-                ✕
+                
               </button>
             </div>
 
@@ -1377,7 +1377,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                     />
                   ) : (
                     <div style={{ textAlign: "center", color: "#64748b" }}>
-                      <div style={{ fontSize: "32px", marginBottom: "8px" }}>📹</div>
+                      <div style={{ fontSize: "32px", marginBottom: "8px" }}></div>
                       <div>Awaiting Live Camera Frame</div>
                     </div>
                   )}
@@ -1419,7 +1419,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                 {/* Instant Proctor Warning Controls */}
                 <div style={{ marginTop: "16px" }}>
                   <label style={{ fontSize: "12px", fontWeight: "700", color: "#475569", display: "block", marginBottom: "6px" }}>
-                    📢 Issue Live Warning to Candidate Screen
+                    Issue Live Warning to Candidate Screen
                   </label>
                   <div style={{ display: "flex", gap: "6px", marginBottom: "8px", flexWrap: "wrap" }}>
                     {[
@@ -1484,7 +1484,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                   </div>
                   {warningSuccess && (
                     <div style={{ marginTop: "6px", color: "#16a34a", fontSize: "12px", fontWeight: "600" }}>
-                      ✓ {warningSuccess}
+                       {warningSuccess}
                     </div>
                   )}
                 </div>
@@ -1518,7 +1518,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                     <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
                       <div style={{ fontSize: "11px", color: "#64748b" }}>Object Scanner</div>
                       <div style={{ fontSize: "14px", fontWeight: "700", color: zoomedCandidate.latest_event_type === "prohibited_object" ? "#ef4444" : "#16a34a", marginTop: "2px" }}>
-                        {zoomedCandidate.latest_event_type === "prohibited_object" ? "📱 Phone Alert" : "Clear"}
+                        {zoomedCandidate.latest_event_type === "prohibited_object" ? " Phone Alert" : "Clear"}
                       </div>
                     </div>
                   </div>
@@ -1563,7 +1563,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                       <strong style={{ color: "#0f172a" }}>Critical Flags:</strong> {zoomedCandidate.critical_incidents}
                     </div>
                     <div>
-                      <strong style={{ color: "#0f172a" }}>Started:</strong> {zoomedCandidate.started_at ? new Date(zoomedCandidate.started_at).toLocaleTimeString() : "—"}
+                      <strong style={{ color: "#0f172a" }}>Started:</strong> {zoomedCandidate.started_at ? new Date(zoomedCandidate.started_at).toLocaleTimeString() : "-"}
                     </div>
                   </div>
                 </div>
@@ -1614,7 +1614,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                 onClick={() => setSelectedAttemptId(null)}
                 style={{ background: "transparent", color: "var(--text-muted)", fontSize: "20px", fontWeight: "bold", border: "none", cursor: "pointer" }}
               >
-                ✕
+                
               </button>
             </div>
 
@@ -1623,7 +1623,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                 <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "40px" }}>Loading incidents...</div>
               ) : timeline.length === 0 ? (
                 <div style={{ textAlign: "center", color: "var(--accent-emerald)", padding: "40px" }}>
-                  ✓ No proctoring events or browser anomalies recorded for this candidate attempt.
+                   No proctoring events or browser anomalies recorded for this candidate attempt.
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -1647,7 +1647,7 @@ export default function LiveProctorDashboard({ organizationId }) {
                             background: ev.severity === "high" || ev.severity === "suspicious" ? "var(--accent-rose)" : "var(--accent-amber)",
                             color: "#fff"
                           }}>
-                            {ev.event_type === "prohibited_object" ? "📱 PROHIBITED DEVICE / PHONE" : ev.event_type === "multiple_faces_detected" ? "👥 MULTIPLE PEOPLE" : ev.event_type.replace(/_/g, " ").toUpperCase()}
+                            {ev.event_type === "prohibited_object" ? " PROHIBITED DEVICE / PHONE" : ev.event_type === "multiple_faces_detected" ? " MULTIPLE PEOPLE" : ev.event_type.replace(/_/g, " ").toUpperCase()}
                           </span>
                           <span style={{ fontSize: "12px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                             {new Date(ev.occurred_at).toLocaleTimeString()}

@@ -1,6 +1,19 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../shared/api";
+import {
+  BuildingIcon, BarChartIcon, TargetIcon, CreditCardIcon, ZapIcon, FileTextIcon,
+  UsersIcon, GlobeIcon, ShieldIcon, BotIcon, VideoIcon, CheckIcon, XIcon,
+  ChevronLeftIcon, ChevronRightIcon, SettingsIcon, RocketIcon, EditIcon,
+  TrashIcon, RefreshIcon, LogOutIcon, LockIcon, UnlockIcon, AlertTriangleIcon,
+  UploadIcon, DownloadIcon, SearchIcon, LinkIcon, CopyIcon, BellIcon,
+  MegaphoneIcon, MailIcon, PhoneIcon, PlusIcon, CrownIcon, SparklesIcon,
+  FolderIcon, CodeIcon, ClockIcon, TrophyIcon, UserIcon, GraduationCapIcon,
+  BookIcon, MenuIcon
+} from "../shared/Icons";
+import StageshowHeroDemo from "../stageshow/StageshowHeroDemo";
+import StageshowBentoGrid from "../stageshow/StageshowBentoGrid";
+import InteractiveModeDemos from "../stageshow/InteractiveModeDemos";
 
 export default function PublicWebsite({
   initialTab = "home",
@@ -13,6 +26,27 @@ export default function PublicWebsite({
   const [activeTab, setActiveTab] = useState(initialTab || "home"); // 'home', 'features', 'pricing', 'login', 'signup'
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loginRoleTab, setLoginRoleTab] = useState("creator"); // 'creator' | 'superadmin'
+
+  // Dynamic Plans & Public Website Settings controlled by SuperAdmin
+  const [plans, setPlans] = useState([]);
+  const [siteSettings, setSiteSettings] = useState({
+    announcement_active: false,
+    announcement_text: "",
+    announcement_link: "",
+    site_headline: "All-in-one assessment engine with on-device anti-cheat",
+    site_subtitle: "Conduct secure computer-based assessments, buzzer quick quizzes, and auto-graded evaluations with real-time video invigilation.",
+    contact_email: "support@lunaris.com",
+    support_phone: "+91 98765 43210",
+    platform_status: "Operational"
+  });
+  const [publicStats, setPublicStats] = useState({
+    total_exams: 0,
+    total_attempts: 0,
+    total_questions: 0,
+    total_organizations: 0,
+    uptime: "99.98%",
+    proctor_accuracy: "99.4%"
+  });
 
   // Selected Plan for Onboarding: 'free', 'creator_pro', 'institution'
   const [selectedPlan, setSelectedPlan] = useState("free");
@@ -77,10 +111,46 @@ export default function PublicWebsite({
     }
   }
 
+  async function loadPublicData() {
+    try {
+      const p = await api.getPlans();
+      if (Array.isArray(p) && p.length > 0) {
+        setPlans(p);
+      }
+    } catch (e) {
+      console.warn("Could not load dynamic plans:", e);
+    }
+    try {
+      const s = await api.getPublicSiteSettings();
+      if (s) setSiteSettings(s);
+    } catch (e) {
+      console.warn("Could not load public site settings:", e);
+    }
+    try {
+      const st = await api.getPublicStats();
+      if (st) setPublicStats(st);
+    } catch (e) {
+      console.warn("Could not load public stats:", e);
+    }
+  }
+
   useEffect(() => {
     loadLoginCaptcha();
     loadRegCaptcha();
     loadGoogleConfig();
+    loadPublicData();
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const joinParam = params.get("join");
+      if (joinParam && joinParam.trim()) {
+        const cleanJoin = joinParam.trim().toUpperCase();
+        setAuthInviteCode(cleanJoin);
+        setRegMode("join_org");
+        setShowAuthModal(true);
+      }
+    } catch (e) {
+      console.warn("Error reading URL search params:", e);
+    }
   }, []);
 
   useEffect(() => {
@@ -101,19 +171,27 @@ export default function PublicWebsite({
   // Initialize Google Identity Services (GIS) when Google Script & Client ID are ready
   useEffect(() => {
     if (!googleClientId) return;
+    if (window.__lunaris_gsi_initialized === googleClientId) return;
 
     function initGsi() {
       if (window.google?.accounts?.id) {
+        if (window.__lunaris_gsi_initialized === googleClientId) return;
         try {
           window.google.accounts.id.initialize({
             client_id: googleClientId,
             callback: handleGoogleCredentialResponse,
             auto_select: false
           });
+          window.__lunaris_gsi_initialized = googleClientId;
         } catch (e) {
           console.warn("Google GSI init notice:", e);
         }
       }
+    }
+
+    if (window.google?.accounts?.id) {
+      initGsi();
+      return;
     }
 
     const timer = setInterval(() => {
@@ -171,7 +249,8 @@ export default function PublicWebsite({
         authEmail.trim(),
         authPassword,
         loginCaptcha.id,
-        loginCaptchaInput.trim()
+        loginCaptchaInput.trim(),
+        authInviteCode.trim().toUpperCase() || null
       );
 
       // Validate role expectation if logging in specifically through the SuperAdmin tab
@@ -183,11 +262,9 @@ export default function PublicWebsite({
       localStorage.setItem("lunaris_user", JSON.stringify(res));
       if (onLoginSuccess) {
         onLoginSuccess(res);
-      }
-      if (res.is_superadmin) {
-        navigate("/admin");
       } else {
-        navigate("/dashboard");
+        if (res.is_superadmin) navigate("/admin");
+        else navigate("/dashboard");
       }
     } catch (err) {
       setAuthError(err.message || "Failed to log in. Please check your credentials.");
@@ -205,15 +282,18 @@ export default function PublicWebsite({
       const res = await api.googleAuth({
         credential: response.credential,
         registration_type: activeTab === "signup" && regMode === "join_org" ? "join_org" : "create_org",
-        invite_code: activeTab === "signup" && regMode === "join_org" ? authInviteCode.trim().toUpperCase() : undefined,
+        invite_code: authInviteCode.trim().toUpperCase() || undefined,
         organization_name: authOrgName.trim() || undefined
       });
 
       localStorage.setItem("lunaris_token", res.access_token);
       localStorage.setItem("lunaris_user", JSON.stringify(res));
-      if (onLoginSuccess) onLoginSuccess(res);
-      if (res.is_superadmin) navigate("/admin");
-      else navigate("/dashboard");
+      if (onLoginSuccess) {
+        onLoginSuccess(res);
+      } else {
+        if (res.is_superadmin) navigate("/admin");
+        else navigate("/dashboard");
+      }
     } catch (err) {
       setAuthError(err.message || "Google authentication failed.");
     } finally {
@@ -254,15 +334,18 @@ export default function PublicWebsite({
                 picture: userInfo.picture,
                 google_id: userInfo.sub,
                 registration_type: mode === "signup" && regMode === "join_org" ? "join_org" : "create_org",
-                invite_code: mode === "signup" && regMode === "join_org" ? authInviteCode.trim().toUpperCase() : undefined,
+                invite_code: authInviteCode.trim().toUpperCase() || undefined,
                 organization_name: authOrgName.trim() || undefined
               });
 
               localStorage.setItem("lunaris_token", res.access_token);
               localStorage.setItem("lunaris_user", JSON.stringify(res));
-              if (onLoginSuccess) onLoginSuccess(res);
-              if (res.is_superadmin) navigate("/admin");
-              else navigate("/dashboard");
+              if (onLoginSuccess) {
+                onLoginSuccess(res);
+              } else {
+                if (res.is_superadmin) navigate("/admin");
+                else navigate("/dashboard");
+              }
             } catch (err) {
               setAuthError(err.message || "Failed to process Google sign-in response.");
             } finally {
@@ -358,8 +441,9 @@ export default function PublicWebsite({
       localStorage.setItem("lunaris_user", JSON.stringify(res));
       if (onLoginSuccess) {
         onLoginSuccess(res);
+      } else {
+        navigate("/dashboard");
       }
-      navigate("/dashboard");
     } catch (err) {
       setAuthError(err.message || "Verification failed. Please check the code and try again.");
     } finally {
@@ -371,7 +455,38 @@ export default function PublicWebsite({
   const handleRegisterSubmit = handleRequestOtp;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#ffffff", color: "var(--text-primary)" }}>
+    <div style={{ minHeight: "100vh", background: "#ffffff", color: "var(--text-primary)", overflowX: "hidden", width: "100%", maxWidth: "100vw" }}>
+      {/* Dynamic Announcement Banner configured by SuperAdmin */}
+      {siteSettings.announcement_active && siteSettings.announcement_text && (
+        <div style={{
+          background: "linear-gradient(90deg, #1d4ed8 0%, #2563eb 50%, #4338ca 100%)",
+          color: "#ffffff",
+          padding: "9px 18px",
+          textAlign: "center",
+          fontSize: "13px",
+          fontWeight: "600",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexWrap: "wrap",
+          gap: "10px",
+          zIndex: 60,
+          position: "relative"
+        }}>
+          <MegaphoneIcon size={14} color="#ffffff" />
+          <span>{siteSettings.announcement_text}</span>
+          {siteSettings.announcement_link && (
+            <a
+              href={siteSettings.announcement_link}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: "#ffffff", textDecoration: "underline", marginLeft: "4px", fontWeight: "700" }}
+            >
+              Learn More ↗
+            </a>
+          )}
+        </div>
+      )}
       {/* Top Universal Public Navbar */}
       <header
         className="public-header"
@@ -468,7 +583,7 @@ export default function PublicWebsite({
                 className="btn-primary"
                 style={{ padding: "8px 16px", fontSize: "13px" }}
               >
-                {currentUser.is_superadmin ? "🛡️ Go to Admin Portal →" : "🏢 Go to Dashboard →"}
+                {currentUser.is_superadmin ? "Go to Admin Portal →" : "Go to Dashboard →"}
               </button>
               <div style={{ textAlign: "right", fontSize: "12px", lineHeight: "1.2" }}>
                 <strong style={{ color: "var(--text-primary)" }}>{currentUser.full_name || currentUser.email}</strong>
@@ -523,7 +638,7 @@ export default function PublicWebsite({
             color: "var(--text-primary)"
           }}
         >
-          {mobileMenuOpen ? "✕" : "☰"}
+          {mobileMenuOpen ? <XIcon size={18} /> : <MenuIcon size={18} />}
         </button>
       </header>
 
@@ -603,7 +718,7 @@ export default function PublicWebsite({
                 }}
                 style={{ width: "100%", padding: "10px" }}
               >
-                {currentUser.is_superadmin ? "🛡️ Go to Admin Portal →" : "🏢 Go to Dashboard →"}
+                {currentUser.is_superadmin ? "Go to Admin Portal →" : "Go to Dashboard →"}
               </button>
               <button
                 type="button"
@@ -646,64 +761,68 @@ export default function PublicWebsite({
           <section
             className="hero-section"
             style={{
-              padding: "80px 24px 60px",
+              padding: "60px 24px 40px",
               maxWidth: "1160px",
               margin: "0 auto",
               textAlign: "center"
             }}
           >
+            {/* Taste Skill v2 Eyebrow: Plain language topic without slop */}
             <div style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: "8px",
+              gap: "6px",
               background: "var(--accent-blue-subtle)",
               color: "var(--accent-blue)",
-              padding: "6px 14px",
+              padding: "4px 12px",
               borderRadius: "20px",
-              fontSize: "12px",
+              fontSize: "11px",
               fontWeight: "700",
-              marginBottom: "20px",
+              letterSpacing: "0.5px",
+              marginBottom: "16px",
               border: "1px solid rgba(37, 99, 235, 0.15)"
             }}>
-              <span>✦</span> Enterprise Assessment SaaS • Pure White Architecture
+              ASSESSMENT PLATFORM
             </div>
 
+            {/* Taste Skill v2 Headline: Max two lines on desktop */}
             <h1
               className="hero-headline"
               style={{
                 fontSize: "48px",
                 fontWeight: "900",
-                letterSpacing: "-0.8px",
+                letterSpacing: "-1px",
                 lineHeight: "1.15",
                 color: "var(--text-primary)",
-                marginBottom: "20px"
+                marginBottom: "16px",
+                textWrap: "balance"
               }}
             >
-              High-Stakes Examination Engine with <br />
-              <span style={{ color: "var(--accent-blue)" }}>Modular Face & Integrity Proctoring</span>
+              {siteSettings.site_headline || "Computer-Based Examination Platform for High-Stakes Assessments"}
             </h1>
 
+            {/* Taste Skill v2 Subtext: Max 20 words, max four lines */}
             <p
               className="hero-subtitle"
               style={{
-                fontSize: "18px",
+                fontSize: "17px",
                 color: "var(--text-secondary)",
-                maxWidth: "760px",
-                margin: "0 auto 36px",
-                lineHeight: "1.6"
+                maxWidth: "680px",
+                margin: "0 auto 28px",
+                lineHeight: "1.6",
+                textWrap: "balance"
               }}
             >
-              Create custom exams, invite students using secure UIDs with zero account creation required,
-              and monitor results with NTA JEE-standard CBT test engines.
+              {siteSettings.site_subtitle || "Author institutional assessments, sync rosters from Google Classroom, and proctor candidates with zero student accounts required."}
             </p>
 
-            {/* Quick Actions */}
-            <div className="hero-actions" style={{ display: "flex", justifyContent: "center", gap: "12px", marginBottom: "30px", flexWrap: "wrap" }}>
+            {/* Taste Skill v2 Primary CTA: Visible above the fold without scroll */}
+            <div className="hero-actions" style={{ display: "flex", justifyContent: "center", gap: "12px", marginBottom: "36px", flexWrap: "wrap" }}>
               <button
                 type="button"
                 className="btn-primary"
                 onClick={() => handleOpenSignupWithPlan("free")}
-                style={{ padding: "12px 24px", fontSize: "15px" }}
+                style={{ padding: "12px 26px", fontSize: "14px", fontWeight: "700" }}
               >
                 Create Workspace Account →
               </button>
@@ -711,118 +830,50 @@ export default function PublicWebsite({
                 type="button"
                 className="btn-secondary"
                 onClick={() => changeRouteTab("login")}
-                style={{ padding: "12px 24px", fontSize: "15px" }}
+                style={{ padding: "12px 24px", fontSize: "14px", fontWeight: "600" }}
               >
                 Sign In to Platform
               </button>
             </div>
+
+            {/* Flagship Product Demonstration */}
+            <div style={{ marginTop: "6px", marginBottom: "20px" }}>
+              <StageshowHeroDemo />
+            </div>
           </section>
 
-          {/* Three Assessment Modes */}
-          <section style={{ padding: "40px 24px 70px", background: "var(--bg-secondary)", borderTop: "1px solid var(--border-subtle)" }}>
-            <div style={{ maxWidth: "1160px", margin: "0 auto" }}>
-              <div style={{ textAlign: "center", marginBottom: "40px" }}>
-                <h2 style={{ fontSize: "28px", fontWeight: "800", color: "var(--text-primary)" }}>
-                  Three Scalable Assessment Modes
-                </h2>
-                <p style={{ color: "var(--text-secondary)", fontSize: "15px", marginTop: "6px" }}>
-                  Tailored engines for low-stakes classroom checks, gamified engagement, and strict high-stakes CBTs.
-                </p>
-              </div>
+          {/* Stageshow Bento Grid: Balanced 5-Tile Architecture */}
+          <section style={{ borderTop: "1px solid var(--border-subtle)", background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)", overflow: "hidden" }}>
+            <StageshowBentoGrid />
+          </section>
 
+          {/* Hands-on Interactive Mode Demonstrator */}
+          <section style={{ borderTop: "1px solid var(--border-subtle)", background: "#ffffff", overflow: "hidden" }}>
+            <div style={{ textAlign: "center", paddingTop: "50px", marginBottom: "-10px" }}>
               <div
-                className="responsive-grid-3"
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-                  gap: "24px"
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  background: "rgba(124, 58, 237, 0.08)",
+                  color: "#7c3aed",
+                  padding: "4px 12px",
+                  borderRadius: "20px",
+                  fontSize: "11px",
+                  fontWeight: "700",
+                  letterSpacing: "0.5px"
                 }}
               >
-                {/* Mode 1: Standard Quiz */}
-                <div className="dash-card" style={{ padding: "28px", background: "#ffffff" }}>
-                  <div style={{
-                    width: "44px",
-                    height: "44px",
-                    borderRadius: "10px",
-                    background: "var(--accent-blue-subtle)",
-                    color: "var(--accent-blue)",
-                    display: "grid",
-                    placeItems: "center",
-                    fontSize: "22px",
-                    marginBottom: "16px"
-                  }}>
-                    📋
-                  </div>
-                  <h3 style={{ fontSize: "18px", fontWeight: "700", marginBottom: "8px" }}>
-                    Standard Quiz
-                  </h3>
-                  <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.5", marginBottom: "16px" }}>
-                    Asynchronous modular assessments for regular chapter tests, homework checks, and hiring screenings.
-                  </p>
-                  <ul style={{ fontSize: "13px", color: "var(--text-muted)", lineHeight: "1.8", paddingLeft: "18px" }}>
-                    <li>Instant automatic grading & scorecards</li>
-                    <li>MCQ & Numerical question banks</li>
-                    <li>Configurable shuffle & review options</li>
-                  </ul>
-                </div>
-
-                {/* Mode 2: Quick Quiz Arena */}
-                <div className="dash-card" style={{ padding: "28px", background: "#ffffff" }}>
-                  <div style={{
-                    width: "44px",
-                    height: "44px",
-                    borderRadius: "10px",
-                    background: "var(--accent-amber-subtle)",
-                    color: "var(--accent-amber)",
-                    display: "grid",
-                    placeItems: "center",
-                    fontSize: "22px",
-                    marginBottom: "16px"
-                  }}>
-                    ⚡
-                  </div>
-                  <h3 style={{ fontSize: "18px", fontWeight: "700", marginBottom: "8px" }}>
-                    Quick Quiz Arena
-                  </h3>
-                  <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.5", marginBottom: "16px" }}>
-                    Live Kahoot-style engagement mode for classroom buzzer quizzes with per-question timers and speed scoring.
-                  </p>
-                  <ul style={{ fontSize: "13px", color: "var(--text-muted)", lineHeight: "1.8", paddingLeft: "18px" }}>
-                    <li>6-digit join room codes</li>
-                    <li>Speed-weighted bonus points</li>
-                    <li>Real-time podium leaderboard</li>
-                  </ul>
-                </div>
-
-                {/* Mode 3: NTA JEE Main CBT */}
-                <div className="dash-card" style={{ padding: "28px", background: "#ffffff", border: "1.5px solid var(--accent-blue)" }}>
-                  <div style={{
-                    width: "44px",
-                    height: "44px",
-                    borderRadius: "10px",
-                    background: "var(--accent-blue-subtle)",
-                    color: "var(--accent-blue)",
-                    display: "grid",
-                    placeItems: "center",
-                    fontSize: "22px",
-                    marginBottom: "16px"
-                  }}>
-                    🏛️
-                  </div>
-                  <h3 style={{ fontSize: "18px", fontWeight: "700", marginBottom: "8px" }}>
-                    NTA Proctored CBT Engine
-                  </h3>
-                  <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.5", marginBottom: "16px" }}>
-                    Pixel-perfect recreation of official Indian JEE Main CBT interface with 5-color status palettes and virtual numerical keypads.
-                  </p>
-                  <ul style={{ fontSize: "13px", color: "var(--text-muted)", lineHeight: "1.8", paddingLeft: "18px" }}>
-                    <li>Section switching (Physics, Chem, Math)</li>
-                    <li>Server-authoritative synchronized clock</li>
-                    <li>On-device MediaPipe integrity monitoring</li>
-                  </ul>
-                </div>
+                <ZapIcon size={13} color="#2563eb" /> LIVE INTERACTIVE WORKBENCH
               </div>
+              <h2 style={{ fontSize: "30px", fontWeight: "900", color: "#0f172a", marginTop: "8px" }}>
+                Test Drive the Assessment Engine
+              </h2>
+              <p style={{ color: "#64748b", fontSize: "15px", marginTop: "6px" }}>
+                Interact directly with the question palette, AI generation studio, and integrity monitor below.
+              </p>
             </div>
+            <InteractiveModeDemos />
           </section>
         </div>
       )}
@@ -848,8 +899,11 @@ export default function PublicWebsite({
             }}
           >
             <div className="dash-card" style={{ padding: "28px" }}>
-              <h3 style={{ fontSize: "18px", fontWeight: "700", color: "var(--accent-blue)", marginBottom: "8px" }}>
-                1. Exam-Specific UID Candidate Enrollment
+              <div style={{ fontSize: "11px", fontWeight: "800", color: "var(--accent-blue)", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                ONBOARDING
+              </div>
+              <h3 style={{ fontSize: "18px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "8px" }}>
+                Exam Specific Candidate UID Enrollment
               </h3>
               <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.6" }}>
                 Students take exams without creating a permanent account or password. Instructors generate batch UIDs
@@ -858,28 +912,37 @@ export default function PublicWebsite({
             </div>
 
             <div className="dash-card" style={{ padding: "28px" }}>
-              <h3 style={{ fontSize: "18px", fontWeight: "700", color: "var(--accent-blue)", marginBottom: "8px" }}>
-                2. On-Device MediaPipe Face & Behavior Telemetry
+              <div style={{ fontSize: "11px", fontWeight: "800", color: "var(--accent-blue)", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                AI TELEMETRY
+              </div>
+              <h3 style={{ fontSize: "18px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "8px" }}>
+                On-Device MediaPipe Face and Behavior Verification
               </h3>
               <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.6" }}>
                 Zero continuous video upload costs. MediaPipe tracks face presence, multiple faces, and head direction
-                on the client. Flags are saved as advisory evidence for human review—never automated candidate failure.
+                on the client. Flags are saved as advisory evidence for human review rather than automated candidate failure.
               </p>
             </div>
 
             <div className="dash-card" style={{ padding: "28px" }}>
-              <h3 style={{ fontSize: "18px", fontWeight: "700", color: "var(--accent-blue)", marginBottom: "8px" }}>
-                3. AI Question Studio & PDF Import
+              <div style={{ fontSize: "11px", fontWeight: "800", color: "var(--accent-blue)", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                QUESTION GENERATION
+              </div>
+              <h3 style={{ fontSize: "18px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "8px" }}>
+                AI Question Studio and Syllabus Synthesis
               </h3>
               <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.6" }}>
-                Generate JEE-standard Single MCQ, Multiple MCQ, and Numerical questions across Physics, Chemistry,
-                and Mathematics in seconds. Strict JSON schema validation with LaTeX math support.
+                Generate curriculum-aligned Single MCQ, Multiple MCQ, and Numerical questions across STEM, Technical,
+                and Academic disciplines in seconds. Strict JSON schema validation with LaTeX math support.
               </p>
             </div>
 
             <div className="dash-card" style={{ padding: "28px" }}>
-              <h3 style={{ fontSize: "18px", fontWeight: "700", color: "var(--accent-blue)", marginBottom: "8px" }}>
-                4. Live Proctor Invigilation Console
+              <div style={{ fontSize: "11px", fontWeight: "800", color: "var(--accent-blue)", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                LIVE SUPERVISION
+              </div>
+              <h3 style={{ fontSize: "18px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "8px" }}>
+                Live Proctor Invigilation and Audit Trails
               </h3>
               <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.6" }}>
                 Invigilators monitor active sessions with synchronized health signals, flagged anomaly timelines,
@@ -887,10 +950,15 @@ export default function PublicWebsite({
               </p>
             </div>
           </div>
+
+          {/* Interactive Feature Sandbox */}
+          <div style={{ marginTop: "40px" }}>
+            <InteractiveModeDemos />
+          </div>
         </section>
       )}
 
-      {/* Pricing View */}
+      {/* Pricing View - Dynamically Synchronized with SuperAdmin Plans */}
       {activeTab === "pricing" && (
         <section style={{ maxWidth: "1160px", margin: "40px auto 80px", padding: "0 24px" }}>
           <div style={{ textAlign: "center", marginBottom: "40px" }}>
@@ -898,7 +966,7 @@ export default function PublicWebsite({
               Transparent, Entitlement-Based Pricing
             </h1>
             <p style={{ color: "var(--text-secondary)", fontSize: "16px", marginTop: "8px" }}>
-              Choose a plan to provision your workspace. All paid subscriptions require UPI payment approval before activation.
+              Choose a plan to provision your workspace. Live pricing and quotas configured directly by platform administrators.
             </p>
           </div>
 
@@ -910,87 +978,99 @@ export default function PublicWebsite({
               gap: "28px"
             }}
           >
-            {/* Free */}
-            <div className="dash-card" style={{ padding: "32px", display: "flex", flexDirection: "column" }}>
-              <div style={{ fontWeight: "700", fontSize: "18px", marginBottom: "8px" }}>Free Starter</div>
-              <div style={{ fontSize: "32px", fontWeight: "900", color: "var(--text-primary)", marginBottom: "16px" }}>
-                ₹0 <span style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-muted)" }}>/ forever</span>
-              </div>
-              <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "20px" }}>
-                For individual educators and testing the platform.
-              </p>
-              <ul style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: "2", flex: 1, marginBottom: "24px", listStyle: "none" }}>
-                <li>✓ 3 Published Exams</li>
-                <li>✓ 30 Candidates per exam</li>
-                <li>✓ 20 AI Question Drafts</li>
-                <li>✓ Standard Quiz engine</li>
-                <li>✗ Full proctoring module</li>
-              </ul>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => handleOpenSignupWithPlan("free")}
-                style={{ width: "100%" }}
-              >
-                Choose Free Starter
-              </button>
-            </div>
-
-            {/* Creator Pro */}
-            <div className="dash-card" style={{ padding: "32px", display: "flex", flexDirection: "column", border: "1.5px solid var(--accent-blue)" }}>
-              <div style={{ fontWeight: "700", fontSize: "18px", color: "var(--accent-blue)", marginBottom: "8px" }}>
-                Creator Pro (Popular)
-              </div>
-              <div style={{ fontSize: "32px", fontWeight: "900", color: "var(--text-primary)", marginBottom: "16px" }}>
-                ₹499 <span style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-muted)" }}>/ month</span>
-              </div>
-              <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "20px" }}>
-                For coaching classes, independent faculty, and recruiters.
-              </p>
-              <ul style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: "2", flex: 1, marginBottom: "24px", listStyle: "none" }}>
-                <li>✓ 50 Published Exams</li>
-                <li>✓ 250 Candidates per exam</li>
-                <li>✓ 500 AI Question Generation Credits</li>
-                <li>✓ PDF document import</li>
-                <li>✓ Quick Quiz buzzer arena</li>
-                <li>✓ 3 Team Author seats</li>
-              </ul>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => handleOpenSignupWithPlan("creator_pro")}
-                style={{ width: "100%" }}
-              >
-                Choose Creator Pro →
-              </button>
-            </div>
-
-            {/* Institution */}
-            <div className="dash-card" style={{ padding: "32px", display: "flex", flexDirection: "column" }}>
-              <div style={{ fontWeight: "700", fontSize: "18px", marginBottom: "8px" }}>Institution Proctored</div>
-              <div style={{ fontSize: "32px", fontWeight: "900", color: "var(--text-primary)", marginBottom: "16px" }}>
-                ₹1,999 <span style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-muted)" }}>/ month</span>
-              </div>
-              <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "20px" }}>
-                For engineering colleges, large coaching institutes, and testing centers.
-              </p>
-              <ul style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: "2", flex: 1, marginBottom: "24px", listStyle: "none" }}>
-                <li>✓ 500 Published Exams</li>
-                <li>✓ 5,000 Candidates per exam</li>
-                <li>✓ Full NTA JEE CBT Engine</li>
-                <li>✓ On-Device MediaPipe Proctoring</li>
-                <li>✓ Live Invigilation Console</li>
-                <li>✓ 15 Team Members & Reviewers</li>
-              </ul>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => handleOpenSignupWithPlan("institution")}
-                style={{ width: "100%" }}
-              >
-                Choose Institution →
-              </button>
-            </div>
+            {(plans.length > 0 ? plans : [
+              {
+                id: "free",
+                code: "free",
+                name: "Free Starter",
+                price_inr: 0,
+                billing_period: "forever",
+                description: "For individual educators and small classroom tests.",
+                entitlements: { max_exams: 3, max_candidates: 30, ai_questions: 20, proctoring_enabled: false }
+              },
+              {
+                id: "creator_pro",
+                code: "creator_pro",
+                name: "Creator Pro",
+                price_inr: 499,
+                billing_period: "month",
+                description: "For coaching classes, independent faculty, and recruiters.",
+                entitlements: { max_exams: 50, max_candidates: 250, ai_questions: 500, proctoring_enabled: false, pdf_import: true, team_members: 3 }
+              },
+              {
+                id: "institution",
+                code: "institution",
+                name: "Institution Proctored",
+                price_inr: 8999,
+                billing_period: "month",
+                description: "For engineering colleges, large coaching institutes, and testing centers.",
+                entitlements: { max_exams: 500, max_candidates: 5000, ai_questions: 2000, proctoring_enabled: true, pdf_import: true, team_members: 15 }
+              }
+            ]).map((p) => {
+              const code = p.code || p.id;
+              const isPopular = code === "creator_pro";
+              const isInstitution = code === "institution";
+              return (
+                <div
+                  key={code}
+                  className="dash-card"
+                  style={{
+                    padding: "32px",
+                    display: "flex",
+                    flexDirection: "column",
+                    border: isPopular ? "1.5px solid var(--accent-blue)" : isInstitution ? "1.5px solid #7c3aed" : "1px solid var(--border-subtle)",
+                    position: "relative"
+                  }}
+                >
+                  {isPopular && (
+                    <span style={{
+                      position: "absolute", top: "-12px", right: "20px",
+                      background: "var(--accent-blue)", color: "#ffffff",
+                      fontSize: "11px", fontWeight: "700", padding: "2px 10px", borderRadius: "9999px"
+                    }}>
+                      Popular
+                    </span>
+                  )}
+                  {isInstitution && (
+                    <span style={{
+                      position: "absolute", top: "-12px", right: "20px",
+                      background: "#7c3aed", color: "#ffffff",
+                      fontSize: "11px", fontWeight: "700", padding: "2px 10px", borderRadius: "9999px"
+                    }}>
+                      Enterprise Grade
+                    </span>
+                  )}
+                  <div style={{ fontWeight: "700", fontSize: "18px", marginBottom: "8px", color: isPopular ? "var(--accent-blue)" : isInstitution ? "#7c3aed" : "inherit" }}>
+                    {p.name}
+                  </div>
+                  <div style={{ fontSize: "32px", fontWeight: "900", color: "var(--text-primary)", marginBottom: "16px", fontVariantNumeric: "tabular-nums" }}>
+                    {p.price_inr === 0 ? "₹0" : `₹${p.price_inr?.toLocaleString()}`}
+                    <span style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-muted)", marginLeft: "4px" }}>
+                      /{p.billing_period || (p.price_inr === 0 ? "forever" : "month")}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "20px", minHeight: "36px" }}>
+                    {p.description}
+                  </p>
+                  <ul style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: "2", flex: 1, marginBottom: "24px", listStyle: "none" }}>
+                    <li style={{ display: "flex", alignItems: "center", gap: "8px" }}><CheckIcon size={14} color="#16a34a" /> {p.entitlements?.max_exams ?? 3} Published Exams</li>
+                    <li style={{ display: "flex", alignItems: "center", gap: "8px" }}><CheckIcon size={14} color="#16a34a" /> {p.entitlements?.max_candidates ?? 30} Candidates per exam</li>
+                    <li style={{ display: "flex", alignItems: "center", gap: "8px" }}><CheckIcon size={14} color="#16a34a" /> {p.entitlements?.ai_questions ?? 20} AI Question Credits</li>
+                    <li>{p.entitlements?.proctoring_enabled ? "Full Proctoring Engine & Live Video" : " Full proctoring module"}</li>
+                    <li>{p.entitlements?.pdf_import ? "PDF Document Import" : "PDF document import"}</li>
+                    {p.entitlements?.team_members && <li style={{ display: "flex", alignItems: "center", gap: "8px" }}><CheckIcon size={14} color="#16a34a" /> {p.entitlements.team_members} Faculty & Author seats</li>}
+                  </ul>
+                  <button
+                    type="button"
+                    className={isPopular || isInstitution ? "btn-primary" : "btn-secondary"}
+                    onClick={() => handleOpenSignupWithPlan(code)}
+                    style={{ width: "100%" }}
+                  >
+                    Choose {p.name} →
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}
@@ -1042,7 +1122,7 @@ export default function PublicWebsite({
                   cursor: "pointer"
                 }}
               >
-                🏢 Workspace Login
+                Workspace Login
               </button>
               <button
                 type="button"
@@ -1063,7 +1143,7 @@ export default function PublicWebsite({
                   cursor: "pointer"
                 }}
               >
-                🛡️ SuperAdmin Login
+                SuperAdmin Login
               </button>
             </div>
 
@@ -1278,7 +1358,7 @@ export default function PublicWebsite({
                   cursor: "pointer"
                 }}
               >
-                🏢 Create New Workspace
+                Create New Workspace
               </button>
               <button
                 type="button"
@@ -1303,7 +1383,7 @@ export default function PublicWebsite({
                   cursor: "pointer"
                 }}
               >
-                🔑 Join Existing Organization
+                Join Existing Organization
               </button>
             </div>
 
@@ -1324,7 +1404,7 @@ export default function PublicWebsite({
             {otpSent ? (
               <div>
                 <div style={{ textAlign: "center", marginBottom: "20px" }}>
-                  <div style={{ fontSize: "40px", marginBottom: "8px" }}>📩</div>
+                  <div style={{ marginBottom: "8px" }}><MailIcon size={36} color="#2563eb" /></div>
                   <h2 style={{ fontSize: "22px", fontWeight: "800", marginBottom: "6px" }}>
                     Verify Your Email Address
                   </h2>
@@ -1436,7 +1516,7 @@ export default function PublicWebsite({
                   marginBottom: "18px",
                   lineHeight: "1.5"
                 }}>
-                  🔒 <strong>Owner Authorization Required:</strong> For platform security, only email addresses pre-authorized or invited by the institution owner can join with an invite code.
+                  <strong>Owner Authorization Required:</strong> For platform security, only email addresses pre-authorized or invited by the institution owner can join with an invite code.
                 </div>
 
                 <form onSubmit={handleRequestOtp} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -1611,11 +1691,12 @@ export default function PublicWebsite({
                       gap: "10px"
                     }}
                   >
-                    {[
-                      { code: "free", name: "Free Starter", price: "₹0", badge: "30 candidates" },
-                      { code: "creator_pro", name: "Creator Pro", price: "₹499/mo", badge: "250 candidates" },
-                      { code: "institution", name: "Institution", price: "₹1,999/mo", badge: "Proctoring + 5k" }
-                    ].map((plan) => {
+                    {(plans.length > 0 ? plans : [
+                      { code: "free", name: "Free Starter", price_inr: 0, badge: "25 candidates" },
+                      { code: "creator_pro", name: "Creator Pro", price_inr: 499, badge: "250 candidates" },
+                      { code: "institution", name: "Institution", price_inr: 8999, badge: "Proctoring + 5k" }
+                    ]).map((plan) => {
+                      const code = plan.code || plan.id;
                       const isSelected = selectedPlan === plan.code;
                       return (
                         <div
@@ -1658,7 +1739,7 @@ export default function PublicWebsite({
                     marginBottom: "18px",
                     lineHeight: "1.5"
                   }}>
-                    <strong>⚠️ Payment Approval Policy:</strong> To prevent unauthorized quota allotments, all workspaces start on the Free Starter tier upon registration. Your selected <strong>{selectedPlan === "creator_pro" ? "Creator Pro" : "Institution"}</strong> quotas and proctoring features will automatically activate once your UPI payment is submitted and approved by the SuperAdmin in your workspace Billing tab.
+                    <strong>Payment Approval Policy:</strong> To prevent unauthorized quota allotments, all workspaces start on the Free Starter tier upon registration. Your selected <strong>{selectedPlan === "creator_pro" ? "Creator Pro" : "Institution"}</strong> quotas and proctoring features will automatically activate once your UPI payment is submitted and approved by the SuperAdmin in your workspace Billing tab.
                   </div>
                 )}
 
@@ -1690,7 +1771,7 @@ export default function PublicWebsite({
                       className="lunaris-input"
                       value={authOrgName}
                       onChange={(e) => setAuthOrgName(e.target.value)}
-                      placeholder="Apex IIT JEE Academy"
+                      placeholder="Apex Academic & Assessment Academy"
                       required
                     />
                   </div>

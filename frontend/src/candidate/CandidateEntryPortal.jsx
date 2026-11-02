@@ -277,31 +277,31 @@ export default function CandidateEntryPortal({
   function handleProctorViolation(event) {
     if (!isProctoringRequired) return;
     if (event.severity === "suspicious" || event.eventType === "multiple_faces_detected" || event.eventType === "prohibited_object") {
-      let title = "⚠️ Integrity Advisory";
+      let title = "Integrity Advisory";
       let message = "";
-      let icon = "⚠️";
+      let icon = "";
       const isCritical = event.eventType === "prohibited_object" || event.eventType === "multiple_faces_detected";
 
       if (event.eventType === "prohibited_object") {
-        title = "📱 Prohibited Device Detected";
+        title = "Prohibited Device Detected";
         message = "A mobile phone or electronic device was detected in your camera view. Cell phones are strictly prohibited during the examination.";
-        icon = "📱";
+        icon = "";
       } else if (event.eventType === "multiple_faces_detected") {
-        title = "👥 Multiple Individuals Detected";
+        title = "Multiple Individuals Detected";
         message = "More than one person detected in camera view. Please ensure you are alone in your testing environment.";
-        icon = "👥";
+        icon = "";
       } else if (event.eventType === "excessive_movement") {
-        title = "👀 Gaze & Movement Alert";
+        title = "Gaze & Movement Alert";
         message = "Significant head movement or looking away from the screen detected.";
-        icon = "👀";
+        icon = "";
       } else if (event.eventType === "fullscreen_exit") {
-        title = "🖥️ Fullscreen Integrity Violation";
+        title = "Fullscreen Integrity Violation";
         message = "Exiting fullscreen mode has been recorded in the proctoring audit log.";
-        icon = "🖥️";
+        icon = "";
       } else if (event.eventType === "tab_switch") {
-        title = "🔄 Window Focus Lost";
+        title = " Window Focus Lost";
         message = "Navigating away from the active exam window has been logged.";
-        icon = "🔄";
+        icon = "";
       } else {
         message = `Proctor advisory: ${event.eventType.replace(/_/g, " ")}`;
       }
@@ -342,7 +342,7 @@ export default function CandidateEntryPortal({
           if (latest.id !== lastSeenWarningId) {
             lastSeenWarningId = latest.id;
             setProctorToast({
-              title: "📢 Official Proctor Warning",
+              title: " Official Proctor Warning",
               message: latest.message,
               icon: "🚨",
               isCritical: true,
@@ -894,7 +894,7 @@ export default function CandidateEntryPortal({
                 {isProctoringRequired ? (
                   <>
                     <li>Your browser will monitor window focus, tab switching, and fullscreen state.</li>
-                    <li>Face verification signals are evaluated as risk indicators for human proctors—never automated disqualification.</li>
+                    <li>Face verification signals are evaluated as risk indicators for human proctors rather than automated disqualification.</li>
                     <li>Your answers autosave continuously against our secure server clock.</li>
                     <li>If your camera or network disconnects, your progress remains intact.</li>
                   </>
@@ -1003,7 +1003,7 @@ export default function CandidateEntryPortal({
               color: "#ffffff",
               textAlign: "center"
             }}>
-              <div style={{ fontSize: "56px", marginBottom: "16px" }}>⚠️</div>
+              <div style={{ fontSize: "56px", marginBottom: "16px" }}></div>
               <h2 style={{ fontSize: "28px", fontWeight: "900", color: "#ef4444", marginBottom: "12px", fontFamily: "var(--font-display)" }}>
                 FULLSCREEN MODE REQUIRED
               </h2>
@@ -1073,7 +1073,7 @@ export default function CandidateEntryPortal({
               gap: "12px"
             }}>
               <span style={{ fontSize: "22px", flexShrink: 0 }}>
-                {proctorToast.icon || "⚠️"}
+                {proctorToast.icon || ""}
               </span>
               <div>
                 <div style={{
@@ -1120,7 +1120,7 @@ export default function CandidateEntryPortal({
                 background: isStandardQuiz ? "var(--accent-blue-subtle)" : "rgba(37, 99, 235, 0.1)",
                 color: isStandardQuiz ? "var(--accent-blue)" : "#2563eb"
               }}>
-                {isStandardQuiz ? "📝 Standard Practice Quiz" : "🛡️ NTA Proctored CBT"}
+                {isStandardQuiz ? "Standard Practice Quiz" : "Proctored Computer-Based Assessment"}
               </span>
               <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                 • Candidate: <strong>{candidateName}</strong> ({candidateUid})
@@ -1199,7 +1199,7 @@ export default function CandidateEntryPortal({
                 fontFamily: "var(--font-mono)",
                 border: "1px solid var(--border-subtle)"
               }}>
-                ⏱️ {formatTime(remainingSeconds)}
+                 {formatTime(remainingSeconds)}
               </div>
 
               {/* Mobile Palette Button */}
@@ -1228,7 +1228,7 @@ export default function CandidateEntryPortal({
                   boxShadow: "0 2px 4px rgba(22, 163, 74, 0.2)"
                 }}
               >
-                {isSubmitting ? "Submitting..." : "Submit Exam ✓"}
+                {isSubmitting ? "Submitting..." : "Submit Exam "}
               </button>
             </div>
           </header>
@@ -1249,7 +1249,7 @@ export default function CandidateEntryPortal({
               boxShadow: "0 2px 6px rgba(239, 68, 68, 0.15)"
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ fontSize: "18px" }}>⚠️</span>
+                <span style={{ fontSize: "18px" }}></span>
                 <div>
                   <strong>{activeViolationAlert.title} (#{violationCount}): </strong>
                   <span>{activeViolationAlert.message}</span>
@@ -1326,7 +1326,7 @@ export default function CandidateEntryPortal({
             {/* Global Summary Chips */}
             <div style={{ display: "flex", gap: "8px", alignItems: "center", fontSize: "11px", fontWeight: "700", flexWrap: "wrap" }}>
               <span style={{ background: "var(--accent-emerald-subtle)", color: "var(--accent-emerald)", padding: "3px 8px", borderRadius: "4px" }}>
-                ✓ Answered: {answeredCount}
+                 Answered: {answeredCount}
               </span>
               <span style={{ background: "rgba(147, 51, 234, 0.1)", color: "#9333ea", padding: "3px 8px", borderRadius: "4px" }}>
                 ⭐ Marked: {markedCount}
@@ -1435,7 +1435,7 @@ export default function CandidateEntryPortal({
                   ) : currentQ.type === "true_false" ? (
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", maxWidth: "480px" }}>
                       {[
-                        { val: "true", label: "TRUE", icon: "✓", bg: "#ecfdf5", border: "#10b981", activeBg: "#059669" },
+                        { val: "true", label: "TRUE", icon: "", bg: "#ecfdf5", border: "#10b981", activeBg: "#059669" },
                         { val: "false", label: "FALSE", icon: "✕", bg: "#fef2f2", border: "#ef4444", activeBg: "#dc2626" }
                       ].map((tf) => {
                         const isSelected = String(currentAns?.true_false || currentAns?.selected_options?.[0]).toLowerCase() === tf.val;
@@ -1628,7 +1628,7 @@ export default function CandidateEntryPortal({
                           </select>
 
                           <div style={{ display: "flex", gap: "8px", fontSize: "11px", color: "#64748b" }}>
-                            <span>⏱️ {currentQ.content.time_limit_sec || 2.0}s limit</span>
+                            <span> {currentQ.content.time_limit_sec || 2.0}s limit</span>
                             <span>•</span>
                             <span>💾 {currentQ.content.memory_limit_mb || 256}MB</span>
                           </div>
@@ -1908,7 +1908,7 @@ export default function CandidateEntryPortal({
                                         background: codingExecution.result.all_passed ? "#d1fae5" : "#fee2e2",
                                         color: codingExecution.result.all_passed ? "#059669" : "#dc2626"
                                       }}>
-                                        {codingExecution.result.all_passed ? "✓ All Test Cases Passed" : "✗ Some Test Cases Failed"}
+                                        {codingExecution.result.all_passed ? " All Test Cases Passed" : "✗ Some Test Cases Failed"}
                                       </span>
                                       <span style={{ fontSize: "12px", fontWeight: "700" }}>
                                         Score: {codingExecution.result.score_percentage}% ({codingExecution.result.passed_count}/{codingExecution.result.total_count})
@@ -2295,7 +2295,7 @@ export default function CandidateEntryPortal({
               fontSize: "28px",
               margin: "0 auto 16px"
             }}>
-              ✓
+              
             </div>
 
             <h2 style={{ fontSize: "26px", fontWeight: "800", color: "var(--text-primary)" }}>
@@ -2398,7 +2398,7 @@ export default function CandidateEntryPortal({
                   </div>
                   <div style={{ fontSize: "12px", color: "#15803d" }}>
                     {classroomTurnInStatus === "turned_in"
-                      ? "✓ Assignment turned in & grade recorded in Classroom"
+                      ? " Assignment turned in & grade recorded in Classroom"
                       : "Syncing score & turning in assignment to Google Classroom..."}
                   </div>
                 </div>
@@ -2425,7 +2425,7 @@ export default function CandidateEntryPortal({
                 {classroomTurnInLoading
                   ? "Turning in..."
                   : classroomTurnInStatus === "turned_in"
-                  ? "✓ Turned In"
+                  ? " Turned In"
                   : "Turn In to Classroom →"}
               </button>
             </div>

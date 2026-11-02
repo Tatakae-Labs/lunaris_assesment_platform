@@ -14,9 +14,16 @@ import OrgDashboard from "./organization/OrgDashboard";
 import QuickQuizPortal from "./candidate/QuickQuizPortal";
 import LiveProctorDashboard from "./proctor-console/LiveProctorDashboard";
 import { ToastContainer } from "./shared/toast";
+import { WebsiteInitialLoader, LoginSuccessOverlay } from "./shared/BrandTransition";
 
 function AppRoutes() {
   const navigate = useNavigate();
+
+  // Initial Website Loading Screen State
+  const [initialLoading, setInitialLoading] = useState(true);
+
+  // Post-Login Logo Rotation & Animation State
+  const [loginTransition, setLoginTransition] = useState(null);
 
   // User & Organization Auth State
   const [currentUser, setCurrentUser] = useState(() => {
@@ -60,7 +67,14 @@ function AppRoutes() {
       name: userData.organization_name,
       plan_id: userData.plan_id
     });
-    if (userData.is_superadmin) {
+    // Trigger logo rotation & celebration overlay
+    setLoginTransition(userData);
+  }
+
+  function handleFinishLoginTransition() {
+    const u = loginTransition;
+    setLoginTransition(null);
+    if (u?.is_superadmin) {
       navigate("/admin");
     } else {
       navigate("/dashboard");
@@ -76,7 +90,14 @@ function AppRoutes() {
   }
 
   return (
-    <Routes>
+    <>
+      {initialLoading && (
+        <WebsiteInitialLoader minDuration={3000} onComplete={() => setInitialLoading(false)} />
+      )}
+      {loginTransition && (
+        <LoginSuccessOverlay user={loginTransition} minDuration={3000} onComplete={handleFinishLoginTransition} />
+      )}
+      <Routes>
       {/* 1. Public Website Pages at Dedicated Routes */}
       <Route
         path="/"
@@ -263,6 +284,7 @@ function AppRoutes() {
       {/* Catch-all redirect */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }
 
@@ -300,14 +322,15 @@ function ProctorConsoleWrapper({ currentOrg, onBack }) {
 function QuickQuizWrapper({ onBack }) {
   const { roomCode } = useParams();
   return (
-    <div>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{
         background: "#ffffff",
         borderBottom: "1px solid var(--border-subtle)",
         padding: "10px 24px",
         display: "flex",
         justifyContent: "space-between",
-        alignItems: "center"
+        alignItems: "center",
+        flexShrink: 0
       }}>
         <button
           type="button"
@@ -317,14 +340,16 @@ function QuickQuizWrapper({ onBack }) {
         >
           ← Back to Creator Dashboard
         </button>
-        <span style={{ fontSize: "12px", color: "var(--accent-amber)", fontWeight: "700" }}>
-          ⚡ Quick Quiz Live Arena
+        <span style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "600" }}>
+          Quick Quiz Live Arena
         </span>
       </div>
-      <QuickQuizPortal
-        defaultRoomCode={roomCode || ""}
-        onExit={onBack}
-      />
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        <QuickQuizPortal
+          defaultRoomCode={roomCode || ""}
+          onExit={onBack}
+        />
+      </div>
     </div>
   );
 }

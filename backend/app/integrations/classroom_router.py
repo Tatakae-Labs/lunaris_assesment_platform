@@ -1,4 +1,15 @@
+import os
+import uuid
+
+CLASSROOM_FILES_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "data",
+    "classroom_files"
+)
+os.makedirs(CLASSROOM_FILES_DIR, exist_ok=True)
+import os
 import json
+import base64
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -15,6 +26,21 @@ from app.core.security import get_current_user
 from app.models import User, Organization, Exam, ExamVersion, ExamAttempt, ExamEnrollment, ExamAssignment
 
 router = APIRouter(prefix="/integrations/classroom", tags=["Google Classroom"])
+
+
+class UploadContentRequest(BaseModel):
+    organization_id: str
+    course_id: str
+    post_type: str = "assignment"  # "assignment", "material", "announcement"
+    title: str
+    description: Optional[str] = None
+    link_url: Optional[str] = None
+    exam_id: Optional[str] = None
+    max_points: Optional[float] = 100.0
+    due_date: Optional[str] = None
+    file_content_base64: Optional[str] = None
+    file_name: Optional[str] = None
+    file_mime_type: Optional[str] = "application/pdf"
 
 
 class ConnectClassroomRequest(BaseModel):
@@ -137,6 +163,9 @@ def list_classroom_courses(
                     })
     except urllib.error.HTTPError as he:
         err_body = he.read().decode("utf-8")
+        if he.code == 401:
+            current_user.google_access_token = None
+            db.commit()
         try:
             err_msg = json.loads(err_body).get("error", {}).get("message", err_body)
         except Exception:
@@ -704,3 +733,304 @@ def turn_in_submission(
         "turned_in_at": attempt.classroom_turned_in_at.isoformat(),
         "score_assigned": req.score or attempt.score_achieved
     }
+
+
+def upload_any_file_to_google_drive(
+    access_token: str,
+    file_bytes: bytes,
+    filename: str,
+    mime_type: str = "application/pdf"
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Uploads any arbitrary document, syllabus, test paper, or image to Google Drive.
+    Sets reader permission so Classroom students can view it.
+    Returns: (file_id, error_message)
+    """
+    try:
+        rand_suffix = "".join(random.choices(string.ascii_letters + string.digits, k=16))
+        boundary = f"----LunarisDriveBoundary{rand_suffix}"
+        clean_mime = mime_type or "application/octet-stream"
+        
+        meta_json = json.dumps({
+            "name": filename,
+            "mimeType": clean_mime
+        }).encode("utf-8")
+
+        body = (
+            f"--{boundary}\r\n"
+            f"Content-Type: application/json; charset=UTF-8\r\n\r\n"
+        ).encode("utf-8") + meta_json + (
+            f"\r\n--{boundary}\r\n"
+            f"Content-Type: {clean_mime}\r\n\r\n"
+        ).encode("utf-8") + file_bytes + (
+            f"\r\n--{boundary}--\r\n"
+        ).encode("utf-8")
+
+        drive_url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
+        req = urllib.request.Request(
+            drive_url,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": f'multipart/related; boundary="{boundary}"',
+                "Content-Length": str(len(body)),
+                "Accept": "application/json"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            if resp.status in (200, 201):
+                data = json.loads(resp.read().decode("utf-8"))
+                file_id = data.get("id")
+                if file_id:
+                    try:
+                        perm_url = f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions?supportsAllDrives=true"
+                        perm_data = json.dumps({"role": "reader", "type": "anyone"}).encode("utf-8")
+                        perm_req = urllib.request.Request(
+                            perm_url,
+                            data=perm_data,
+                            headers={
+                                "Authorization": f"Bearer {access_token}",
+                                "Content-Type": "application/json"
+                            }
+                        )
+                        with urllib.request.urlopen(perm_req, timeout=6):
+                            pass
+                    except Exception as perm_err:
+                        print(f"Drive permissions note (non-critical): {perm_err}")
+                return file_id, None
+            return None, f"Drive HTTP {resp.status}"
+    except urllib.error.HTTPError as he:
+        err_body = he.read().decode("utf-8")
+        try:
+            err_msg = json.loads(err_body).get("error", {}).get("message", err_body)
+        except Exception:
+            err_msg = err_body
+        print(f"Google Drive HTTP Error {he.code}: {err_msg}")
+        return None, f"Google Drive API {he.code}: {err_msg}"
+    except Exception as e:
+        print(f"Could not upload file to Google Drive: {e}")
+        return None, str(e)
+
+
+@router.get("/download/{file_token}/{filename}")
+def download_classroom_file(file_token: str, filename: str):
+    """
+    Serves uploaded course files and study materials directly to Google Classroom students.
+    """
+    from fastapi.responses import Response
+    clean_token = "".join(c for c in file_token if c.isalnum() or c == "-")
+    file_path = os.path.join(CLASSROOM_FILES_DIR, f"{clean_token}.dat")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Requested file not found or expired.")
+
+    with open(file_path, "rb") as f:
+        file_bytes = f.read()
+
+    mime = "application/octet-stream"
+    lower_fn = filename.lower()
+    if lower_fn.endswith(".pdf"):
+        mime = "application/pdf"
+    elif lower_fn.endswith((".png", ".jpg", ".jpeg")):
+        mime = f"image/{lower_fn.split('.')[-1]}"
+    elif lower_fn.endswith(".docx"):
+        mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif lower_fn.endswith(".doc"):
+        mime = "application/msword"
+    elif lower_fn.endswith(".txt"):
+        mime = "text/plain"
+
+    return Response(
+        content=file_bytes,
+        media_type=mime,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'}
+    )
+
+
+@router.post("/upload-content")
+def upload_classroom_content(
+    req: UploadContentRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Universal Classroom uploader: Upload exams, announcements, custom documents, notes,
+    or assignments directly from the dashboard to Google Classroom stream or coursework.
+    """
+    if not current_user.google_access_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Google Classroom is not connected. Please authorize Google Classroom first."
+        )
+
+    materials = []
+    drive_file_id = None
+
+    # 1. If base64 file uploaded (e.g. syllabus, notes, paper)
+    if req.file_content_base64 and req.file_name:
+        file_data = req.file_content_base64
+        if "," in file_data:
+            file_data = file_data.split(",", 1)[1]
+        try:
+            raw_bytes = base64.b64decode(file_data)
+        except Exception as b64_err:
+            raise HTTPException(status_code=400, detail=f"Invalid base64 file data: {b64_err}")
+
+        drive_file_id, drive_err = upload_any_file_to_google_drive(
+            access_token=current_user.google_access_token,
+            file_bytes=raw_bytes,
+            filename=req.file_name,
+            mime_type=req.file_mime_type or "application/pdf"
+        )
+        if drive_file_id:
+            materials.append({
+                "driveFile": {
+                    "driveFile": {
+                        "id": drive_file_id
+                    },
+                    "shareMode": "VIEW"
+                }
+            })
+        else:
+            # If Google Drive API is not enabled on Google Cloud, save securely on Lunaris and attach as direct document link!
+            file_token = str(uuid.uuid4())
+            file_path = os.path.join(CLASSROOM_FILES_DIR, f"{file_token}.dat")
+            with open(file_path, "wb") as f_out:
+                f_out.write(raw_bytes)
+
+            api_base = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
+            direct_file_url = f"{api_base}/api/v1/integrations/classroom/download/{file_token}/{req.file_name}"
+            materials.append({
+                "link": {
+                    "url": direct_file_url,
+                    "title": req.file_name
+                }
+            })
+
+    # 2. If Exam selected, attach candidate exam link
+    if req.exam_id:
+        exam = db.query(Exam).filter(Exam.id == req.exam_id).first()
+        if exam:
+            if not exam.room_code:
+                exam.room_code = f"LUN{random.randint(100, 999)}"
+                db.commit()
+            backend_base = "http://localhost:5173"
+            exam_link = f"{backend_base}/candidate-login?room={exam.room_code}"
+            materials.append({
+                "link": {
+                    "url": exam_link,
+                    "title": f"Take Exam: {exam.title}"
+                }
+            })
+
+    # 3. If explicit link provided
+    if req.link_url and req.link_url.strip():
+        materials.append({
+            "link": {
+                "url": req.link_url.strip(),
+                "title": req.title
+            }
+        })
+
+    post_type = req.post_type.lower().strip()
+    item_id = None
+    alternate_link = None
+
+    try:
+        if post_type == "announcement":
+            ann_url = f"https://classroom.googleapis.com/v1/courses/{req.course_id}/announcements"
+            payload = {
+                "text": f"{req.title}\n\n{req.description or ''}".strip(),
+                "materials": materials,
+                "state": "PUBLISHED"
+            }
+            api_req = urllib.request.Request(
+                ann_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {current_user.google_access_token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
+            )
+            with urllib.request.urlopen(api_req, timeout=12) as resp:
+                if resp.status in (200, 201):
+                    res_json = json.loads(resp.read().decode("utf-8"))
+                    item_id = res_json.get("id")
+                    alternate_link = res_json.get("alternateLink")
+
+        elif post_type == "material":
+            mat_url = f"https://classroom.googleapis.com/v1/courses/{req.course_id}/courseWorkMaterials"
+            payload = {
+                "title": req.title,
+                "description": req.description or "",
+                "materials": materials,
+                "state": "PUBLISHED"
+            }
+            api_req = urllib.request.Request(
+                mat_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {current_user.google_access_token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
+            )
+            with urllib.request.urlopen(api_req, timeout=12) as resp:
+                if resp.status in (200, 201):
+                    res_json = json.loads(resp.read().decode("utf-8"))
+                    item_id = res_json.get("id")
+                    alternate_link = res_json.get("alternateLink")
+
+        else:
+            # Default: CourseWork Assignment
+            cw_url = f"https://classroom.googleapis.com/v1/courses/{req.course_id}/courseWork"
+            payload = {
+                "title": req.title,
+                "description": req.description or "",
+                "materials": materials,
+                "state": "PUBLISHED",
+                "maxPoints": req.max_points or 100.0,
+                "workType": "ASSIGNMENT"
+            }
+            api_req = urllib.request.Request(
+                cw_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {current_user.google_access_token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
+            )
+            with urllib.request.urlopen(api_req, timeout=12) as resp:
+                if resp.status in (200, 201):
+                    res_json = json.loads(resp.read().decode("utf-8"))
+                    item_id = res_json.get("id")
+                    alternate_link = res_json.get("alternateLink")
+
+    except urllib.error.HTTPError as he:
+        err_body = he.read().decode("utf-8")
+        if he.code == 401:
+            current_user.google_access_token = None
+            db.commit()
+        try:
+            err_msg = json.loads(err_body).get("error", {}).get("message", err_body)
+        except Exception:
+            err_msg = err_body
+        if he.code == 403 and "insufficient" in str(err_msg).lower():
+            err_msg = "Request had insufficient authentication scopes. Please click 'Re-authorize Google' in the Classroom Hub to grant Announcement and Course Material permissions."
+        raise HTTPException(status_code=he.code, detail=f"Google Classroom API: {err_msg}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to post to Google Classroom: {str(e)}")
+
+    if not alternate_link:
+        alternate_link = f"https://classroom.google.com/c/{req.course_id}"
+
+    return {
+        "status": "success",
+        "post_type": post_type,
+        "item_id": item_id,
+        "alternate_link": alternate_link,
+        "message": f"Successfully uploaded {post_type} '{req.title}' directly to Google Classroom!",
+        "has_drive_file": bool(drive_file_id)
+    }
+

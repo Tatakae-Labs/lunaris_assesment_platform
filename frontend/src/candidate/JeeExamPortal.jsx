@@ -360,7 +360,7 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
               Examination Successfully Finalized
             </span>
             <h1 style={{ fontSize: "28px", color: "#f8fafc", marginTop: "14px", fontFamily: "var(--font-display)" }}>
-              JEE Main Scorecard & Analysis
+              Assessment Scorecard & Analysis
             </h1>
             <p style={{ color: "#94a3b8", fontSize: "14px" }}>
               Immutable Server-Side Deterministic Grading
@@ -456,7 +456,7 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
       background: "#0a0f1d",
       overflow: "hidden"
     }}>
-      {/* Top Banner (JEE CBT Standard Header) */}
+      {/* Top Banner (Standard CBT Assessment Header) */}
       <header style={{
         height: "60px",
         background: "#0f172a",
@@ -486,7 +486,7 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
             LUNARIS CBT
           </div>
           <span style={{ fontSize: "14px", fontWeight: "600", color: "#e2e8f0" }}>
-            {attempt?.title || "JEE Main Mock Examination"}
+            {attempt?.title || "Computer-Based Examination"}
           </span>
         </div>
 
@@ -678,7 +678,7 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
                 )}
               </div>
 
-              {/* JEE CBT Action Controls Footer */}
+              {/* CBT Action Controls Footer */}
               <div style={{
                 display: "flex",
                 justifyContent: "space-between",

@@ -139,7 +139,7 @@ export default function PreflightModal({ onProceed, examTitle, durationMinutes, 
             Pre-Exam Verification
           </span>
           <h2 style={{ fontSize: "24px", marginTop: "12px", color: "#f8fafc", fontFamily: "var(--font-display)" }}>
-            {examTitle || "JEE Main Computer-Based Mock Exam"}
+            {examTitle || "Computer-Based Assessment"}
           </h2>
           <p style={{ color: "#94a3b8", fontSize: "14px", marginTop: "4px" }}>
             Duration: {durationMinutes || 180} Minutes | Physics, Chemistry & Mathematics
@@ -267,7 +267,7 @@ export default function PreflightModal({ onProceed, examTitle, durationMinutes, 
           color: "#94a3b8"
         }}>
           <p style={{ marginBottom: "8px" }}>
-            <strong>NTA JEE Exam Rules:</strong> Leaving fullscreen, switching browser tabs, or multiple faces detected will be logged in the proctoring audit trail. Answers are autosaved automatically every few seconds.
+            <strong>Assessment Integrity Rules:</strong> Leaving fullscreen, switching browser tabs, or multiple faces detected will be logged in the proctoring audit trail. Answers are autosaved automatically every few seconds.
           </p>
           <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", color: "#f8fafc", marginTop: "10px" }}>
             <input

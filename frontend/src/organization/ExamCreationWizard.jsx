@@ -144,7 +144,16 @@ export default function ExamCreationWizard({
     }
     const tokenClient = window.google.accounts.oauth2.initTokenClient({
       client_id: activeCid,
-      scope: "https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.profile.emails https://www.googleapis.com/auth/classroom.coursework.students https://www.googleapis.com/auth/drive.file",
+      scope: [
+        "https://www.googleapis.com/auth/classroom.courses.readonly",
+        "https://www.googleapis.com/auth/classroom.rosters.readonly",
+        "https://www.googleapis.com/auth/classroom.profile.emails",
+        "https://www.googleapis.com/auth/classroom.coursework.students",
+        "https://www.googleapis.com/auth/classroom.coursework.me",
+        "https://www.googleapis.com/auth/classroom.announcements",
+        "https://www.googleapis.com/auth/classroom.courseworkmaterials",
+        "https://www.googleapis.com/auth/drive.file"
+      ].join(" "),
       callback: async (tokenResp) => {
         if (tokenResp?.error) {
           toast.warning("Google Classroom authorization was cancelled: " + tokenResp.error);
@@ -165,7 +174,7 @@ export default function ExamCreationWizard({
               await loadClassroomStudentsForCourse(courses[0].id);
               setEnrollmentType("classroom");
             }
-            toast.success("✓ Google Classroom connected successfully! Found your course and students.");
+            toast.success(" Google Classroom connected successfully! Found your course and students.");
           } catch (err) {
             toast.error("Failed to connect Google Classroom: " + err.message);
           } finally {
@@ -384,7 +393,7 @@ export default function ExamCreationWizard({
               padding: "4px"
             }}
           >
-            ✕
+            
           </button>
         </div>
 
@@ -414,7 +423,7 @@ export default function ExamCreationWizard({
                   gap: "6px"
                 }}
               >
-                <span>{isCompleted ? "✓" : `${stepNum}.`}</span>
+                <span>{isCompleted ? "" : `${stepNum}.`}</span>
                 <span>{stepName}</span>
               </div>
             );
@@ -432,7 +441,7 @@ export default function ExamCreationWizard({
             fontSize: "13px",
             fontWeight: "600"
           }}>
-            ⚠️ {errorMsg}
+            Warning: {errorMsg}
           </div>
         )}
 
@@ -450,7 +459,7 @@ export default function ExamCreationWizard({
                   className="lunaris-input"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. JEE Main 2026 Grand Mock Test (Paper 1)"
+                  placeholder="e.g. Comprehensive Midterm Assessment 2026 (Paper 1)"
                   required
                 />
               </div>
@@ -464,7 +473,7 @@ export default function ExamCreationWizard({
                   rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Comprehensive entrance test covering standard NTA syllabus..."
+                  placeholder="Comprehensive evaluation covering standard institutional syllabus and learning objectives..."
                 />
               </div>
 
@@ -478,8 +487,8 @@ export default function ExamCreationWizard({
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                   >
-                    <option value="Engineering Entrance">Engineering Entrance (JEE / BITSAT)</option>
-                    <option value="Medical Entrance">Medical Entrance (NEET)</option>
+                    <option value="Higher Education">University & College Coursework</option>
+                    <option value="Professional Certification">Professional & Technical Certification</option>
                     <option value="Foundation & Olympiad">Foundation & Olympiad</option>
                     <option value="Campus Recruitment">Campus Recruitment</option>
                   </select>
@@ -536,7 +545,7 @@ export default function ExamCreationWizard({
                     cursor: "pointer"
                   }}
                 >
-                  <div style={{ fontSize: "24px", marginBottom: "8px" }}>📋</div>
+                  <div style={{ fontSize: "24px", marginBottom: "8px" }}></div>
                   <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Standard Assessment</h4>
                   <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
                     Self-paced test with instant scorecards, custom sections, and timer.
@@ -556,7 +565,7 @@ export default function ExamCreationWizard({
                     cursor: "pointer"
                   }}
                 >
-                  <div style={{ fontSize: "24px", marginBottom: "8px" }}>⚡</div>
+                  <div style={{ fontSize: "24px", marginBottom: "8px" }}></div>
                   <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Quick Quiz Arena</h4>
                   <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
                     Live classroom speed quiz with room codes and leaderboard scoring.
@@ -576,7 +585,7 @@ export default function ExamCreationWizard({
                     cursor: "pointer"
                   }}
                 >
-                  <div style={{ fontSize: "24px", marginBottom: "8px" }}>🛡️</div>
+                  <div style={{ fontSize: "24px", marginBottom: "8px" }}></div>
                   <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>AI Proctored Exam</h4>
                   <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
                     Secure CBT exam with MediaPipe face, audio, and browser lockdown telemetry.
@@ -596,7 +605,7 @@ export default function ExamCreationWizard({
                     cursor: "pointer"
                   }}
                 >
-                  <div style={{ fontSize: "24px", marginBottom: "8px" }}>✦</div>
+                  <div style={{ fontSize: "24px", marginBottom: "8px" }}></div>
                   <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Custom Exam Type</h4>
                   <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
                     Define any bespoke assessment format (Midterms, Certifications, Bar Mocks, Coding Screens).
@@ -639,7 +648,7 @@ export default function ExamCreationWizard({
                 }}>
                   <div>
                     <div style={{ fontSize: "13px", fontWeight: "800", color: "#9f1239" }}>
-                      🔒 Proctored CBT Mode Requires Institution Tier (₹1,999/mo)
+                       Proctored CBT Mode Requires Institution Tier (₹1,999/mo)
                     </div>
                     <div style={{ fontSize: "12px", color: "#be123c", marginTop: "2px" }}>
                       Your current plan does not include on-device webcam & tab-lockdown telemetry.
@@ -663,7 +672,7 @@ export default function ExamCreationWizard({
                       boxShadow: "0 2px 6px rgba(225, 29, 72, 0.3)"
                     }}
                   >
-                    ⚡ Pay ₹1,999 via UPI to Enable →
+                     Pay ₹1,999 via UPI to Enable →
                   </button>
                 </div>
               )}
@@ -881,7 +890,7 @@ export default function ExamCreationWizard({
                     gap: "6px"
                   }}
                 >
-                  🏫 Google Classroom (Import Students & Sync)
+                   Google Classroom (Import Students & Sync)
                 </button>
                 <button
                   type="button"
@@ -900,7 +909,7 @@ export default function ExamCreationWizard({
                     gap: "6px"
                   }}
                 >
-                  ⚡ Auto-Generate Batch UIDs & PINs
+                   Auto-Generate Batch UIDs & PINs
                 </button>
                 <button
                   type="button"
@@ -919,7 +928,7 @@ export default function ExamCreationWizard({
                     gap: "6px"
                   }}
                 >
-                  📄 CSV Candidate Import
+                   CSV Candidate Import
                 </button>
               </div>
 
@@ -945,7 +954,7 @@ export default function ExamCreationWizard({
                             color: "var(--text-secondary)"
                           }}
                         >
-                          🔄 Refresh Courses
+                          Refresh Courses
                         </button>
                       </div>
 
@@ -981,13 +990,13 @@ export default function ExamCreationWizard({
                             Classroom Student Roster ({classroomStudents.length} Students)
                           </span>
                           <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: "600" }}>
-                            ✓ Will be auto-enrolled with login UIDs & PINs
+                             Will be auto-enrolled with login UIDs & PINs
                           </span>
                         </div>
 
                         {classroomLoading ? (
                           <div style={{ padding: "16px", textAlign: "center", fontSize: "12px", color: "var(--text-muted)" }}>
-                            🔄 Loading real students from Google Classroom...
+                            Loading real students from Google Classroom...
                           </div>
                         ) : classroomStudents.length > 0 ? (
                           <div style={{ maxHeight: "170px", overflowY: "auto", border: "1px solid var(--border-subtle)", borderRadius: "6px", background: "#ffffff" }}>
@@ -1039,7 +1048,7 @@ export default function ExamCreationWizard({
                           />
                           <div>
                             <div style={{ fontSize: "13px", fontWeight: "700", color: "#166534" }}>
-                              🚀 Automatically publish Quiz & Candidate Credentials PDF to Google Classroom stream
+                               Automatically publish Quiz & Candidate Credentials PDF to Google Classroom stream
                             </div>
                             <div style={{ fontSize: "12px", color: "#15803d", marginTop: "2px" }}>
                               Creates an official assignment in Google Classroom with the candidate exam portal link and attaches the printable Candidate Credentials PDF roster (UIDs & PINs) in one single step!
@@ -1056,7 +1065,7 @@ export default function ExamCreationWizard({
                       border: "1px dashed #cbd5e1",
                       textAlign: "center"
                     }}>
-                      <div style={{ fontSize: "28px", marginBottom: "8px" }}>🏫</div>
+                      <div style={{ fontSize: "28px", marginBottom: "8px" }}></div>
                       <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "4px" }}>
                         Connect Google Classroom
                       </div>
@@ -1081,7 +1090,7 @@ export default function ExamCreationWizard({
                           gap: "6px"
                         }}
                       >
-                        {classroomLoading ? "Connecting..." : "🔗 Connect Google Classroom"}
+                        {classroomLoading ? "Connecting..." : " Connect Google Classroom"}
                       </button>
                     </div>
                   )}
@@ -1275,7 +1284,7 @@ export default function ExamCreationWizard({
                       gap: "6px"
                     }}
                   >
-                    ⚡ Open UPI Checkout & Upgrade Plan →
+                     Open UPI Checkout & Upgrade Plan →
                   </button>
                 </div>
               ) : (
@@ -1287,7 +1296,7 @@ export default function ExamCreationWizard({
                   fontWeight: "600",
                   fontSize: "13px"
                 }}>
-                  ✓ All plan entitlements verified. You have sufficient quota to publish this exam.
+                   All plan entitlements verified. You have sufficient quota to publish this exam.
                 </div>
               )}
             </div>
@@ -1321,7 +1330,7 @@ export default function ExamCreationWizard({
                     <>
                       <span>•</span>
                       <span style={{ color: classroomAutoPublish ? "#16a34a" : "var(--text-muted)", fontWeight: "700" }}>
-                        {classroomAutoPublish ? "🚀 Auto-Push Quiz & Credentials PDF to Classroom: ON" : "Classroom Stream Push: OFF"}
+                        {classroomAutoPublish ? " Auto-Push Quiz & Credentials PDF to Classroom: ON" : "Classroom Stream Push: OFF"}
                       </span>
                     </>
                   )}
@@ -1386,7 +1395,7 @@ export default function ExamCreationWizard({
                 disabled={loading || candidateExceeded || proctoringRestricted}
                 style={{ fontSize: "13px", padding: "8px 24px", background: "#16a34a" }}
               >
-                {loading ? "Publishing Exam..." : "Publish Immutable Exam Version ✓"}
+                {loading ? "Publishing Exam..." : "Publish Immutable Exam Version "}
               </button>
             )}
           </div>

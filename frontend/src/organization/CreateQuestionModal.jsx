@@ -268,7 +268,7 @@ export default function CreateQuestionModal({ organizationId, onClose, onCreated
             onClick={onClose}
             style={{ background: "transparent", color: "var(--text-muted)", fontSize: "20px", fontWeight: "bold" }}
           >
-            ✕
+            
           </button>
         </div>
 
@@ -372,7 +372,7 @@ export default function CreateQuestionModal({ organizationId, onClose, onCreated
                 <option value="single_mcq">Single-Correct MCQ (+4 / -1)</option>
                 <option value="multi_mcq">Multiple-Correct MCQ (+4 / -2)</option>
                 <option value="numerical">Numerical Value Question (NVQ)</option>
-                <option value="coding">💻 Coding Problem & Test Cases (Python, JS, C++, Java)</option>
+                <option value="coding"> Coding Problem & Test Cases (Python, JS, C++, Java)</option>
                 <option value="one_word">One-Word Answer / Definition ("One word for above")</option>
                 <option value="crossword">Crossword Puzzle Quiz</option>
                 <option value="match_following">Match the Following (Column A & B)</option>
@@ -418,10 +418,10 @@ export default function CreateQuestionModal({ organizationId, onClose, onCreated
                   fontSize: "13px"
                 }}
               >
-                <option value="easy">🟢 Easy / Foundational</option>
-                <option value="medium">🟡 Medium / Standard</option>
-                <option value="hard">🔴 Hard / Advanced</option>
-                <option value="olympiad">⚡ Expert / Olympiad</option>
+                <option value="easy"> Easy / Foundational</option>
+                <option value="medium"> Medium / Standard</option>
+                <option value="hard"> Hard / Advanced</option>
+                <option value="olympiad"> Expert / Olympiad</option>
               </select>
             </div>
           </div>
@@ -627,7 +627,7 @@ export default function CreateQuestionModal({ organizationId, onClose, onCreated
                       onClick={() => setMatchPairs(matchPairs.filter((_, i) => i !== idx))}
                       style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "14px" }}
                     >
-                      ✕
+                      
                     </button>
                   )}
                 </div>
@@ -701,7 +701,7 @@ export default function CreateQuestionModal({ organizationId, onClose, onCreated
                         onClick={() => setCrosswordClues(crosswordClues.filter((_, i) => i !== idx))}
                         style={{ marginLeft: "auto", background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "13px" }}
                       >
-                        ✕
+                        
                       </button>
                     )}
                   </div>
@@ -724,7 +724,7 @@ export default function CreateQuestionModal({ organizationId, onClose, onCreated
             <div style={{ display: "flex", flexDirection: "column", gap: "16px", background: "var(--bg-secondary)", padding: "18px", borderRadius: "8px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <label style={{ fontSize: "13px", fontWeight: "700", color: "var(--text-primary)" }}>
-                  💻 Multi-Language Starter Code Templates
+                   Multi-Language Starter Code Templates
                 </label>
                 <div style={{ display: "flex", gap: "6px" }}>
                   {["python", "javascript", "cpp", "java"].map((l) => (
@@ -843,7 +843,7 @@ export default function CreateQuestionModal({ organizationId, onClose, onCreated
                               onClick={() => setCodingTestCases(codingTestCases.filter((_, i) => i !== idx))}
                               style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "12px" }}
                             >
-                              ✕
+                              
                             </button>
                           )}
                         </div>

@@ -6,8 +6,9 @@ export const API_BASE_URL =
 
 export async function request(endpoint, options = {}) {
   const token = localStorage.getItem("lunaris_token");
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {})
   };
@@ -30,10 +31,10 @@ export const api = {
   // Auth
   getCaptcha: () => request("/auth/captcha"),
   sendVerificationOtp: (data) => request("/auth/send-verification-otp", { method: "POST", body: JSON.stringify(data) }),
-  login: (email, password, captcha_id = null, captcha_solution = null) =>
+  login: (email, password, captcha_id = null, captcha_solution = null, invite_code = null) =>
     request("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password, captcha_id, captcha_solution })
+      body: JSON.stringify({ email, password, captcha_id, captcha_solution, invite_code })
     }),
   register: (data) => request("/auth/register", { method: "POST", body: JSON.stringify(data) }),
   googleAuth: (data) => request("/auth/google", { method: "POST", body: JSON.stringify(data) }),
@@ -51,6 +52,21 @@ export const api = {
   joinOrganization: (invite_code) =>
     request("/organizations/join", { method: "POST", body: JSON.stringify({ invite_code }) }),
   getOrgUsage: (org_id) => request(`/organizations/${org_id}/usage`),
+  getOrgCandidates: (org_id, params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/organizations/${org_id}/candidates${qs ? `?${qs}` : ""}`);
+  },
+  updateOrgCapacity: (org_id, max_candidates) =>
+    request(`/organizations/${org_id}/capacity`, { method: "PUT", body: JSON.stringify({ max_candidates }) }),
+  addOrgCandidate: (org_id, candidateData) =>
+    request(`/organizations/${org_id}/candidates`, { method: "POST", body: JSON.stringify(candidateData) }),
+  deleteOrgCandidate: (org_id, enrollment_id) =>
+    request(`/organizations/${org_id}/candidates/${enrollment_id}`, { method: "DELETE" }),
+  bulkDeleteOrgCandidates: (org_id, candidate_ids) =>
+    request(`/organizations/${org_id}/candidates/bulk-delete`, {
+      method: "POST",
+      body: JSON.stringify({ candidate_ids })
+    }),
   removeOrgMember: (org_id, member_id) =>
     request(`/organizations/${org_id}/members/${member_id}`, { method: "DELETE" }),
 
@@ -77,6 +93,10 @@ export const api = {
   rejectAiDraft: (draft_id) => request(`/ai/drafts/${draft_id}/reject`, { method: "POST" }),
   deleteAiDraft: (draft_id) => request(`/ai/drafts/${draft_id}`, { method: "DELETE" }),
   clearAiDrafts: (org_id) => request(`/ai/drafts/bulk/clear?organization_id=${org_id}`, { method: "DELETE" }),
+  bulkApproveAiDrafts: (organization_id, draft_ids = []) =>
+    request("/ai/drafts/bulk-approve", { method: "POST", body: JSON.stringify({ organization_id, draft_ids }) }),
+  ingestQuestionFile: (formData) =>
+    request("/ai/ingest-file", { method: "POST", body: formData }),
 
   // Exams & Publishing
   createExam: (data) => request("/exams", { method: "POST", body: JSON.stringify(data) }),
@@ -116,6 +136,11 @@ export const api = {
     request(`/exams/${exam_id}/enrollments/${enrollment_id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteEnrollment: (exam_id, enrollment_id) =>
     request(`/exams/${exam_id}/enrollments/${enrollment_id}`, { method: "DELETE" }),
+  bulkDeleteEnrollments: (exam_id, enrollment_ids) =>
+    request(`/exams/${exam_id}/enrollments/bulk-delete`, {
+      method: "POST",
+      body: JSON.stringify({ enrollment_ids })
+    }),
   revokeEnrollment: (exam_id, enrollment_id) =>
     request(`/exams/${exam_id}/enrollments/${enrollment_id}/revoke`, { method: "POST" }),
 
@@ -183,6 +208,11 @@ export const api = {
       body: JSON.stringify({ session_id, question_id, selected_option_id, time_spent_seconds })
     }),
   getQuickQuizLeaderboard: (room_code) => request(`/quick-quiz/rooms/${room_code}/leaderboard`),
+  finishQuickQuiz: (room_code, session_id) =>
+    request(`/quick-quiz/rooms/${room_code}/finish`, {
+      method: "POST",
+      body: JSON.stringify({ session_id })
+    }),
 
   // Legacy Exam Attempt
   startAttempt: (invite_token) => request("/attempts", { method: "POST", body: JSON.stringify({ invite_token }) }),
@@ -208,6 +238,11 @@ export const api = {
 
   // Reports & Analytics
   getExamAnalytics: (exam_id) => request(`/reports/exams/${exam_id}/analytics`),
+  releaseExamResults: (exam_id, results_released) =>
+    request(`/reports/exams/${exam_id}/release-results`, {
+      method: 'POST',
+      body: JSON.stringify({ results_released })
+    }),
 
   // SaaS Monetization & Plans
   getPlans: () => request("/plans"),
@@ -297,8 +332,8 @@ export const api = {
   executeCode: (data) => request("/coding/execute", { method: "POST", body: JSON.stringify(data) }),
   evaluateCode: (data) => request("/coding/evaluate", { method: "POST", body: JSON.stringify(data) }),
 
-  // Seed JEE Demo
-  seedDemo: () => request("/seed/jee-demo", { method: "POST" }),
+  // Seed Institutional Demo Exam
+  seedDemo: () => request("/seed/demo-exam", { method: "POST" }),
 
   // Google Classroom Integration
   getClassroomStatus: (org_id) => request(`/integrations/classroom/status?organization_id=${org_id}`),
@@ -309,5 +344,12 @@ export const api = {
   importClassroomStudents: (course_id, exam_id, students = null) =>
     request(`/integrations/classroom/courses/${course_id}/import-students`, { method: "POST", body: JSON.stringify({ exam_id, students }) }),
   publishToClassroom: (data) => request("/integrations/classroom/publish", { method: "POST", body: JSON.stringify(data) }),
-  turnInToClassroom: (data) => request("/integrations/classroom/turn-in", { method: "POST", body: JSON.stringify(data) })
+  turnInToClassroom: (data) => request("/integrations/classroom/turn-in", { method: "POST", body: JSON.stringify(data) }),
+  uploadClassroomContent: (data) => request("/integrations/classroom/upload-content", { method: "POST", body: JSON.stringify(data) }),
+
+  // Public Website & Landing Page CMS Controlled by SuperAdmin
+  getPublicSiteSettings: () => request("/platform/public-settings"),
+  updatePublicSiteSettings: (data) =>
+    request("/platform/public-settings", { method: "PUT", body: JSON.stringify(data) }),
+  getPublicStats: () => request("/platform/public-stats")
 };

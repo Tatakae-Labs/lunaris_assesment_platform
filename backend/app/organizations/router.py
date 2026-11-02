@@ -1,7 +1,8 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from app.core.database import get_db
 from app.auth.router import get_current_user
 from app.models import User, Organization, OrganizationMember, OrganizationInvite, OrganizationSubject
@@ -188,27 +189,52 @@ def join_organization_with_code(
     if not org:
         raise HTTPException(status_code=404, detail="Invalid organization invite code. Please check and try again.")
 
+    # Check for pre-authorized invitation for this user
+    invite = db.query(OrganizationInvite).filter(
+        OrganizationInvite.organization_id == org.id,
+        OrganizationInvite.email == current_user.email.lower()
+    ).first()
+    assigned_role = invite.role if invite else "exam_author"
+
     # Check if already a member
     membership = db.query(OrganizationMember).filter(
         OrganizationMember.organization_id == org.id,
         OrganizationMember.user_id == current_user.id
     ).first()
+
     if not membership:
+        from app.plans.router import get_organization_entitlements
+        entitlements_info = get_organization_entitlements(db, org.id)
+        max_members = int(entitlements_info.get("entitlements", {}).get("team_members", 2))
+        current_members_count = db.query(OrganizationMember).filter(OrganizationMember.organization_id == org.id).count()
+        if current_members_count >= max_members:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Team member capacity reached for '{org.name}' (Maximum: {max_members}). Please ask the administrator to upgrade the plan in Plans & Billing."
+            )
         membership = OrganizationMember(
             organization_id=org.id,
             user_id=current_user.id,
-            role="exam_author"
+            role=assigned_role
         )
         db.add(membership)
-        db.commit()
+    elif invite:
+        membership.role = assigned_role
+
+    if invite:
+        invite.status = "accepted"
+
+    db.commit()
 
     return {
-        "message": f"Successfully joined {org.name} as {membership.role}!",
-        "organization_id": org.id,
-        "organization_slug": org.slug,
-        "organization_name": org.name,
+        "id": org.id,
+        "name": org.name,
+        "slug": org.slug,
         "plan_id": org.plan_id or "free",
-        "role": membership.role
+        "role": membership.role,
+        "services": org.get_services(),
+        "properties": org.get_properties(),
+        "message": f"Successfully joined {org.name} as {membership.role}!"
     }
 
 @router.post("/{org_id}/members")
@@ -360,7 +386,8 @@ def get_organization_usage(
     exams_count = db.query(Exam).filter(Exam.organization_id == org.id).count()
     questions_count = db.query(Question).filter(Question.organization_id == org.id).count()
     attempts_count = db.query(ExamAttempt).filter(ExamAttempt.organization_id == org.id).count()
-    candidates_count = db.query(ExamEnrollment).filter(ExamEnrollment.organization_id == org.id).count()
+    from sqlalchemy import func
+    candidates_count = db.query(func.count(func.distinct(ExamEnrollment.candidate_uid))).filter(ExamEnrollment.organization_id == org.id).scalar() or 0
     proctoring_used = db.query(ProctorSession).join(
         ExamAttempt, ProctorSession.attempt_id == ExamAttempt.id
     ).filter(
@@ -419,6 +446,16 @@ def get_organization_usage(
     }
     limits = plan_limits.get(org.plan_id or "free", plan_limits["free"])
 
+    # Check custom candidate capacity from properties_json
+    properties = {}
+    if org.properties_json:
+        try:
+            properties = json.loads(org.properties_json)
+        except Exception:
+            properties = {}
+    
+    max_candidates = properties.get("custom_max_candidates") or properties.get("candidate_capacity") or limits.get("max_candidates", 30)
+
     return {
         "organization_id": org.id,
         "organization_name": org.name,
@@ -426,7 +463,7 @@ def get_organization_usage(
         "plan_id": org.plan_id or "free",
         "plan_name": limits.get("name", "Free Starter"),
         "candidates_count": candidates_count,
-        "max_candidates": limits.get("max_candidates", 30),
+        "max_candidates": int(max_candidates),
         "exams_count": exams_count,
         "max_exams": limits.get("max_exams", 3),
         "members_count": members_count,
@@ -722,5 +759,348 @@ def seed_subject_preset_pack(
     return {
         "message": f"Imported {added} subjects from the '{pack_key.title()}' curriculum pack.",
         "added_count": added
+    }
+
+
+
+@router.put("/{org_id}/capacity")
+def update_candidate_capacity(
+    org_id: str,
+    payload: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Set and edit the organization's maximum candidate capacity. Strictly restricted to Super Admins."""
+    from app.models import ExamEnrollment
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # Strictly check if current user is superadmin
+    if not current_user.is_superadmin:
+        raise HTTPException(
+            status_code=403,
+            detail="Plan terms, subscription tiers, and candidate capacity quotas can strictly be modified only by platform super administrators."
+        )
+
+    new_capacity = payload.get("max_candidates") or payload.get("candidate_capacity")
+    if not new_capacity or int(new_capacity) < 1:
+        raise HTTPException(status_code=400, detail="Capacity must be at least 1")
+
+    properties = {}
+    if org.properties_json:
+        try:
+            properties = json.loads(org.properties_json)
+        except Exception:
+            properties = {}
+
+    properties["custom_max_candidates"] = int(new_capacity)
+    org.properties_json = json.dumps(properties)
+    db.commit()
+
+    candidates_count = db.query(ExamEnrollment).filter(ExamEnrollment.organization_id == org.id).count()
+
+    return {
+        "organization_id": org.id,
+        "max_candidates": int(new_capacity),
+        "candidates_count": candidates_count,
+        "message": f"Candidate capacity updated to {new_capacity}"
+    }
+
+@router.get("/{org_id}/candidates")
+def list_organization_candidates(
+    org_id: str,
+    search: Optional[str] = None,
+    exam_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all enrolled candidates, students, and members across the organization without duplicates."""
+    from app.models import ExamEnrollment, Exam
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    query = db.query(
+        ExamEnrollment,
+        Exam.title.label("exam_title")
+    ).outerjoin(
+        Exam, ExamEnrollment.exam_id == Exam.id
+    ).filter(
+        ExamEnrollment.organization_id == org.id
+    )
+
+    if exam_id:
+        query = query.filter(ExamEnrollment.exam_id == exam_id)
+
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            (ExamEnrollment.candidate_name.ilike(search_pattern)) |
+            (ExamEnrollment.candidate_email.ilike(search_pattern)) |
+            (ExamEnrollment.candidate_uid.ilike(search_pattern))
+        )
+
+    results = query.order_by(ExamEnrollment.created_at.desc()).all()
+
+    # Deduplicate candidates across enrollments: group by normalized email or candidate_uid
+    grouped = {}
+    for enrollment, exam_title in results:
+        dedup_key = ""
+        if enrollment.candidate_email and enrollment.candidate_email.strip():
+            dedup_key = enrollment.candidate_email.strip().lower()
+        elif enrollment.candidate_uid and enrollment.candidate_uid.strip():
+            dedup_key = enrollment.candidate_uid.strip().upper()
+        else:
+            dedup_key = enrollment.id
+
+        e_title = exam_title or "General Assessment"
+        if dedup_key not in grouped:
+            grouped[dedup_key] = {
+                "id": enrollment.id,
+                "candidate_uid": enrollment.candidate_uid,
+                "candidate_name": enrollment.candidate_name or f"Candidate {enrollment.candidate_uid}",
+                "candidate_email": enrollment.candidate_email or "",
+                "access_pin_plain": enrollment.access_pin_plain,
+                "exam_id": enrollment.exam_id,
+                "exam_title": e_title,
+                "exam_titles": [e_title],
+                "enrollment_ids": [enrollment.id],
+                "status": enrollment.status or "active",
+                "max_attempts": enrollment.max_attempts,
+                "valid_from": enrollment.valid_from.isoformat() if enrollment.valid_from else None,
+                "valid_until": enrollment.valid_until.isoformat() if enrollment.valid_until else None,
+                "created_at": enrollment.created_at.isoformat() if enrollment.created_at else None
+            }
+        else:
+            # Aggregate examinations and IDs
+            cand = grouped[dedup_key]
+            if e_title not in cand["exam_titles"]:
+                cand["exam_titles"].append(e_title)
+            if enrollment.id not in cand["enrollment_ids"]:
+                cand["enrollment_ids"].append(enrollment.id)
+            # Update display exam_title with multi-exam badge
+            total_exams = len(cand["exam_titles"])
+            cand["exam_title"] = f"{cand['exam_titles'][0]} (+{total_exams - 1} more)"
+
+    candidates = list(grouped.values())
+
+    return {
+        "organization_id": org.id,
+        "total": len(candidates),
+        "candidates": candidates
+    }
+
+@router.post("/{org_id}/candidates")
+def add_organization_candidate(
+    org_id: str,
+    payload: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Manually enroll an individual student / candidate into the organization."""
+    import random
+    from datetime import datetime, timezone, timedelta
+    from app.models import ExamEnrollment, Exam, ExamVersion
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    caller_membership = db.query(OrganizationMember).filter(
+        OrganizationMember.organization_id == org.id,
+        OrganizationMember.user_id == current_user.id
+    ).first()
+    if not caller_membership and not current_user.is_superadmin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Pick exam or first active exam
+    target_exam_id = payload.get("exam_id")
+    target_exam = None
+    if target_exam_id:
+        target_exam = db.query(Exam).filter(Exam.id == target_exam_id, Exam.organization_id == org.id).first()
+    if not target_exam:
+        target_exam = db.query(Exam).filter(Exam.organization_id == org.id).first()
+
+    exam_version_id = None
+    if target_exam:
+        latest_ver = db.query(ExamVersion).filter(ExamVersion.exam_id == target_exam.id).order_by(ExamVersion.version_number.desc()).first()
+        if latest_ver:
+            exam_version_id = latest_ver.id
+
+    candidate_name = payload.get("candidate_name") or "New Student"
+    candidate_email = payload.get("candidate_email") or ""
+    candidate_uid = payload.get("candidate_uid") or f"LUN-{random.randint(100000, 999999)}"
+    access_pin = payload.get("access_pin") or str(random.randint(1000, 9999))
+
+    now = datetime.now(timezone.utc)
+    enrollment = ExamEnrollment(
+        organization_id=org.id,
+        exam_id=target_exam.id if target_exam else None,
+        exam_version_id=exam_version_id,
+        candidate_uid=candidate_uid,
+        access_pin_plain=access_pin,
+        candidate_name=candidate_name,
+        candidate_email=candidate_email,
+        max_attempts=int(payload.get("max_attempts") or 3),
+        valid_from=now,
+        valid_until=now + timedelta(days=365),
+        status="active"
+    )
+    db.add(enrollment)
+    db.commit()
+    db.refresh(enrollment)
+
+    return {
+        "status": "success",
+        "message": f"Candidate {candidate_name} ({candidate_uid}) enrolled successfully",
+        "candidate": {
+            "id": enrollment.id,
+            "candidate_uid": enrollment.candidate_uid,
+            "candidate_name": enrollment.candidate_name,
+            "candidate_email": enrollment.candidate_email,
+            "access_pin_plain": enrollment.access_pin_plain,
+            "exam_id": enrollment.exam_id,
+            "exam_title": target_exam.title if target_exam else "General Roster",
+            "status": enrollment.status
+        }
+    }
+
+
+def cascade_delete_enrollments(db: Session, enrollment_ids: List[str]):
+    """Cleanly cascade child attempts, sessions, answers, and proctoring assets before deleting enrollments."""
+    if not enrollment_ids:
+        return
+    from app.models import (
+        CandidateSession, ExamAttempt, AttemptAnswer, ProctorSession,
+        ProctorEvent, EvidenceAsset, ResultRevision
+    )
+    # 1. Delete CandidateSessions
+    db.query(CandidateSession).filter(CandidateSession.enrollment_id.in_(enrollment_ids)).delete(synchronize_session=False)
+
+    # 2. Find and delete ExamAttempts and their child records
+    attempts = db.query(ExamAttempt).filter(ExamAttempt.enrollment_id.in_(enrollment_ids)).all()
+    att_ids = [a.id for a in attempts]
+    if att_ids:
+        db.query(AttemptAnswer).filter(AttemptAnswer.attempt_id.in_(att_ids)).delete(synchronize_session=False)
+        db.query(ProctorSession).filter(ProctorSession.attempt_id.in_(att_ids)).delete(synchronize_session=False)
+        db.query(ResultRevision).filter(ResultRevision.attempt_id.in_(att_ids)).delete(synchronize_session=False)
+
+        events = db.query(ProctorEvent).filter(ProctorEvent.attempt_id.in_(att_ids)).all()
+        ev_ids = [ev.id for ev in events]
+        if ev_ids:
+            db.query(EvidenceAsset).filter(EvidenceAsset.event_id.in_(ev_ids)).delete(synchronize_session=False)
+            db.query(ProctorEvent).filter(ProctorEvent.id.in_(ev_ids)).delete(synchronize_session=False)
+
+        db.query(ExamAttempt).filter(ExamAttempt.id.in_(att_ids)).delete(synchronize_session=False)
+
+
+@router.delete("/{org_id}/candidates/{enrollment_id}")
+def delete_organization_candidate(
+    org_id: str,
+    enrollment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Revoke or delete an enrolled candidate seat, freeing capacity."""
+    from app.models import ExamEnrollment
+    from sqlalchemy import func
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    enrollment = db.query(ExamEnrollment).filter(
+        (ExamEnrollment.id == enrollment_id) | (ExamEnrollment.candidate_uid == enrollment_id),
+        ExamEnrollment.organization_id == org.id
+    ).first()
+    if not enrollment:
+        raise HTTPException(status_code=404, detail="Candidate enrollment not found")
+
+    cand_uid = enrollment.candidate_uid
+    cand_email = enrollment.candidate_email
+
+    delete_q = db.query(ExamEnrollment).filter(ExamEnrollment.organization_id == org.id)
+    if cand_email and cand_email.strip():
+        delete_q = delete_q.filter((ExamEnrollment.candidate_uid == cand_uid) | (ExamEnrollment.candidate_email == cand_email))
+    else:
+        delete_q = delete_q.filter(ExamEnrollment.candidate_uid == cand_uid)
+
+    matching_enrollments = delete_q.all()
+    matching_ids = [e.id for e in matching_enrollments]
+    cascade_delete_enrollments(db, matching_ids)
+
+    deleted_count = delete_q.delete(synchronize_session=False)
+    db.commit()
+
+    candidates_count = db.query(func.count(func.distinct(ExamEnrollment.candidate_uid))).filter(ExamEnrollment.organization_id == org.id).scalar() or 0
+    return {
+        "status": "success",
+        "message": f"Candidate seat {cand_uid} removed successfully",
+        "candidate_uid": cand_uid,
+        "deleted_count": deleted_count,
+        "candidates_count": candidates_count
+    }
+
+class BulkDeleteCandidatesRequest(BaseModel):
+    candidate_ids: List[str]
+
+
+@router.post("/{org_id}/candidates/bulk-delete")
+def bulk_delete_organization_candidates(
+    org_id: str,
+    req: BulkDeleteCandidatesRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Revoke or delete multiple candidate seats in bulk, freeing candidate capacity."""
+    from app.models import ExamEnrollment
+    from sqlalchemy import func, or_
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    if not req.candidate_ids:
+        candidates_count = db.query(func.count(func.distinct(ExamEnrollment.candidate_uid))).filter(ExamEnrollment.organization_id == org.id).scalar() or 0
+        return {"status": "success", "deleted_count": 0, "candidates_count": candidates_count, "message": "No candidates specified"}
+
+    # Find enrollments matching IDs or candidate_uids
+    enrollments = db.query(ExamEnrollment).filter(
+        (ExamEnrollment.id.in_(req.candidate_ids)) | (ExamEnrollment.candidate_uid.in_(req.candidate_ids)),
+        ExamEnrollment.organization_id == org.id
+    ).all()
+
+    if not enrollments:
+        candidates_count = db.query(func.count(func.distinct(ExamEnrollment.candidate_uid))).filter(ExamEnrollment.organization_id == org.id).scalar() or 0
+        return {"status": "success", "deleted_count": 0, "candidates_count": candidates_count, "message": "No matching candidates found"}
+
+    uids = list(set(e.candidate_uid for e in enrollments if e.candidate_uid))
+    emails = list(set(e.candidate_email for e in enrollments if e.candidate_email and e.candidate_email.strip()))
+
+    filters = []
+    if uids:
+        filters.append(ExamEnrollment.candidate_uid.in_(uids))
+    if emails:
+        filters.append(ExamEnrollment.candidate_email.in_(emails))
+    if req.candidate_ids:
+        filters.append(ExamEnrollment.id.in_(req.candidate_ids))
+
+    matching_enrollments = db.query(ExamEnrollment).filter(
+        ExamEnrollment.organization_id == org.id,
+        or_(*filters)
+    ).all()
+    matching_ids = [e.id for e in matching_enrollments]
+    cascade_delete_enrollments(db, matching_ids)
+
+    deleted_count = db.query(ExamEnrollment).filter(
+        ExamEnrollment.id.in_(matching_ids)
+    ).delete(synchronize_session=False)
+
+    db.commit()
+
+    candidates_count = db.query(func.count(func.distinct(ExamEnrollment.candidate_uid))).filter(ExamEnrollment.organization_id == org.id).scalar() or 0
+    return {
+        "status": "success",
+        "message": f"Successfully revoked {len(uids) or deleted_count} candidate seat(s)",
+        "deleted_count": deleted_count,
+        "candidates_count": candidates_count
     }
 

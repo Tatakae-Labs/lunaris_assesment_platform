@@ -59,6 +59,7 @@ class LoginRequest(BaseModel):
     password: str
     captcha_id: Optional[str] = None
     captcha_solution: Optional[str] = None
+    invite_code: Optional[str] = None
 
 
 class GoogleAuthRequest(BaseModel):
@@ -296,13 +297,17 @@ def register(req: RegisterRequest, request: Request, db: Session = Depends(get_d
 
         if target_user:
             if target_user.password_hash and target_user.password_hash != "INVITED_PLACEHOLDER":
-                raise HTTPException(
-                    status_code=400,
-                    detail="This account is already registered. Please sign in to your existing account."
-                )
-            target_user.password_hash = get_password_hash(req.password)
-            target_user.full_name = req.full_name
-            user = target_user
+                if verify_password(req.password, target_user.password_hash):
+                    user = target_user
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="This email is already registered. Please enter your existing account password to join this organization, or sign in."
+                    )
+            else:
+                target_user.password_hash = get_password_hash(req.password)
+                target_user.full_name = req.full_name
+                user = target_user
         else:
             user = User(
                 email=req.email.lower(),
@@ -445,17 +450,80 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     if user.status != "active":
         raise HTTPException(status_code=403, detail="Account is not active")
 
-    membership = (
-        db.query(OrganizationMember, Organization)
-        .join(Organization, OrganizationMember.organization_id == Organization.id)
-        .filter(OrganizationMember.user_id == user.id)
-        .first()
-    )
+    # 1. Process explicit invite code supplied during login
+    target_joined_org = None
+    if getattr(req, "invite_code", None) and req.invite_code.strip():
+        clean_code = req.invite_code.strip().lower().replace("org-", "")
+        target_joined_org = db.query(Organization).filter(
+            (Organization.slug == clean_code) |
+            (Organization.id == clean_code) |
+            (Organization.slug == req.invite_code.strip().lower())
+        ).first()
+        if target_joined_org:
+            invite = db.query(OrganizationInvite).filter(
+                OrganizationInvite.organization_id == target_joined_org.id,
+                OrganizationInvite.email == user.email.lower()
+            ).first()
+            assigned_role = invite.role if invite else "exam_author"
+            m = db.query(OrganizationMember).filter(
+                OrganizationMember.organization_id == target_joined_org.id,
+                OrganizationMember.user_id == user.id
+            ).first()
+            if not m:
+                m = OrganizationMember(
+                    organization_id=target_joined_org.id,
+                    user_id=user.id,
+                    role=assigned_role
+                )
+                db.add(m)
+            elif invite:
+                m.role = assigned_role
+            if invite:
+                invite.status = "accepted"
 
-    org_id = membership[1].id if membership else None
-    org_slug = membership[1].slug if membership else None
-    org_name = membership[1].name if membership else None
-    plan_id = membership[1].plan_id if membership else "free"
+    # 2. Automatically accept & link any pending OrganizationInvites for this email
+    pending_invites = db.query(OrganizationInvite).filter(
+        OrganizationInvite.email == user.email.lower(),
+        OrganizationInvite.status == "pending"
+    ).all()
+    for pinv in pending_invites:
+        m = db.query(OrganizationMember).filter(
+            OrganizationMember.organization_id == pinv.organization_id,
+            OrganizationMember.user_id == user.id
+        ).first()
+        if not m:
+            m = OrganizationMember(
+                organization_id=pinv.organization_id,
+                user_id=user.id,
+                role=pinv.role
+            )
+            db.add(m)
+        pinv.status = "accepted"
+        if not target_joined_org:
+            inv_org = db.query(Organization).filter(Organization.id == pinv.organization_id).first()
+            if inv_org:
+                target_joined_org = inv_org
+
+    if target_joined_org or pending_invites:
+        db.commit()
+
+    if target_joined_org:
+        org_id = target_joined_org.id
+        org_slug = target_joined_org.slug
+        org_name = target_joined_org.name
+        plan_id = target_joined_org.plan_id or "free"
+    else:
+        membership = (
+            db.query(OrganizationMember, Organization)
+            .join(Organization, OrganizationMember.organization_id == Organization.id)
+            .filter(OrganizationMember.user_id == user.id)
+            .first()
+        )
+
+        org_id = membership[1].id if membership else None
+        org_slug = membership[1].slug if membership else None
+        org_name = membership[1].name if membership else None
+        plan_id = membership[1].plan_id if membership else "free"
 
     ip = request.client.host if request.client else None
     ua = request.headers.get("User-Agent")
@@ -636,7 +704,63 @@ def google_auth(req: GoogleAuthRequest, request: Request, db: Session = Depends(
         if req.access_token:
             user.google_access_token = req.access_token
 
-    # 4. Resolve organization membership
+    # 4. Process invite code or pending invites for Google login
+    target_google_org = None
+    if getattr(req, "invite_code", None) and req.invite_code.strip():
+        clean_code = req.invite_code.strip().lower().replace("org-", "")
+        target_google_org = db.query(Organization).filter(
+            (Organization.slug == clean_code) |
+            (Organization.id == clean_code) |
+            (Organization.slug == req.invite_code.strip().lower())
+        ).first()
+        if target_google_org:
+            invite = db.query(OrganizationInvite).filter(
+                OrganizationInvite.organization_id == target_google_org.id,
+                OrganizationInvite.email == user.email.lower()
+            ).first()
+            assigned_role = invite.role if invite else (req.role or "exam_author")
+            m = db.query(OrganizationMember).filter(
+                OrganizationMember.organization_id == target_google_org.id,
+                OrganizationMember.user_id == user.id
+            ).first()
+            if not m:
+                m = OrganizationMember(
+                    organization_id=target_google_org.id,
+                    user_id=user.id,
+                    role=assigned_role
+                )
+                db.add(m)
+            elif invite:
+                m.role = assigned_role
+            if invite:
+                invite.status = "accepted"
+
+    pending_invites = db.query(OrganizationInvite).filter(
+        OrganizationInvite.email == user.email.lower(),
+        OrganizationInvite.status == "pending"
+    ).all()
+    for pinv in pending_invites:
+        m = db.query(OrganizationMember).filter(
+            OrganizationMember.organization_id == pinv.organization_id,
+            OrganizationMember.user_id == user.id
+        ).first()
+        if not m:
+            m = OrganizationMember(
+                organization_id=pinv.organization_id,
+                user_id=user.id,
+                role=pinv.role
+            )
+            db.add(m)
+        pinv.status = "accepted"
+        if not target_google_org:
+            inv_org = db.query(Organization).filter(Organization.id == pinv.organization_id).first()
+            if inv_org:
+                target_google_org = inv_org
+
+    if target_google_org or pending_invites:
+        db.commit()
+
+    # Resolve organization membership
     membership = (
         db.query(OrganizationMember, Organization)
         .join(Organization, OrganizationMember.organization_id == Organization.id)

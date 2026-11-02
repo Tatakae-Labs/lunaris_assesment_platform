@@ -4,7 +4,7 @@ import math
 
 class JeeGradingEngine:
     """
-    Deterministic scoring engine for JEE Main & Advanced style examinations.
+    Deterministic scoring engine for standard academic, technical, and institutional examinations.
     Operates strictly on immutable version snapshots and stable question/option IDs.
     """
 
@@ -18,7 +18,7 @@ class JeeGradingEngine:
         Grades an attempt against the official snapshot.
         snapshot_questions: List of questions with correct keys from published version.
         submitted_answers: Map of question_id -> { selected_options: [...], numerical_value: "...", state: "..." }
-        marking_rules: Global or section fallback rules (default JEE Main: +4, -1, 0)
+        marking_rules: Global or section fallback rules (default standard marking: +4, -1, 0)
         """
         rules = marking_rules or {
             "mcq_correct": 4.0,

@@ -52,7 +52,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
     setSendingTestReminder(true);
     try {
       const res = await api.testRenewalReminder(organizationId);
-      alert(`✓ ${res.message || "Test renewal reminder sent to your email!"}`);
+      alert(` ${res.message || "Test renewal reminder sent to your email!"}`);
     } catch (err) {
       alert("Failed to send test reminder: " + err.message);
     } finally {
@@ -93,7 +93,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
       try {
         const res = await api.subscribePlan(organizationId, plan.code || plan.id);
         setSelectedPlanCode(plan.code || plan.id);
-        setAlertMsg(`✓ Success: Activated ${res.plan.name} plan for this organization!`);
+        setAlertMsg(` Success: Activated ${res.plan.name} plan for this organization!`);
         if (onPlanChanged) onPlanChanged();
       } catch (err) {
         alert("Subscription update failed: " + err.message);
@@ -143,7 +143,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
         notes: `Subscription upgrade to ${checkoutPlan.name}`
       });
 
-      setAlertMsg(`✓ UPI Payment with UTR ${cleanUtr} submitted successfully! Platform Administrator will verify the transaction.`);
+      setAlertMsg(` UPI Payment with UTR ${cleanUtr} submitted successfully! Platform Administrator will verify the transaction.`);
       setCheckoutPlan(null);
       loadMyPayments();
       if (onPlanChanged) onPlanChanged();
@@ -176,7 +176,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
           <div>
             <h2 style={{ fontSize: "20px", fontWeight: "800", color: "var(--text-primary)", fontFamily: "var(--font-display)" }}>
-              💳 Commercial Plans & Resource Entitlements
+              Commercial Plans & Resource Entitlements
             </h2>
             <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
               Freemium self-service subscription model with server-enforced quotas. Instant UPI Gateway activation for fast onboarding.
@@ -232,7 +232,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                 justifyContent: "center",
                 fontSize: "24px"
               }}>
-                {subStatus.is_past_due ? "⚠️" : subStatus.is_expiring_soon ? "⏱️" : "📅"}
+                {subStatus.is_past_due ? "" : subStatus.is_expiring_soon ? "" : "📅"}
               </div>
 
               <div>
@@ -292,7 +292,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                   style={{ fontSize: "12px", height: "36px", padding: "0 12px" }}
                   title="Sends an automated monthly renewal reminder email to your registered email address"
                 >
-                  {sendingTestReminder ? "Sending..." : "📧 Test Renewal Reminder Email"}
+                  {sendingTestReminder ? "Sending..." : "Test Renewal Reminder Email"}
                 </button>
               )}
 
@@ -340,7 +340,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
               color: "var(--text-muted)"
             }}>
               <span>
-                🔔 <strong>Automated Alerts:</strong> Email reminders are automatically sent at <strong>7 days</strong>, <strong>3 days</strong>, and <strong>1 day</strong> prior to renewal date, plus on renewal day with a 3-day grace period.
+                <strong>Automated Alerts:</strong> Email reminders are automatically sent at <strong>7 days</strong>, <strong>3 days</strong>, and <strong>1 day</strong> prior to renewal date, plus on renewal day with a 3-day grace period.
               </span>
               <span>
                 Payment Gateway: <strong>NPCI UPI QR & VPA Instant Validation</strong>
@@ -410,23 +410,23 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                   </div>
                   <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "10px", fontSize: "13px", padding: 0 }}>
                     <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
-                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}></span>
                       <span>Candidates Enrolled: <strong>{p.entitlements?.max_candidates ?? "Unlimited"}</strong></span>
                     </li>
                     <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
-                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}></span>
                       <span>Simultaneous Exams: <strong>{p.entitlements?.max_exams ?? "Unlimited"}</strong></span>
                     </li>
                     <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
-                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}></span>
                       <span>AI Question Studio: <strong>{p.entitlements?.ai_questions ?? "0"} credits</strong></span>
                     </li>
                     <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
-                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}></span>
                       <span>Proctored CBT Lockdown: <strong>{p.entitlements?.proctoring_enabled ? "Included" : "Disabled"}</strong></span>
                     </li>
                     <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
-                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}></span>
                       <span>Direct UPI Payment Gateway Instant Checkout</span>
                     </li>
                   </ul>
@@ -445,7 +445,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                     color: "var(--accent-emerald)",
                     textAlign: "center"
                   }}>
-                    ✓ Active Tier
+                     Active Tier
                   </div>
                   {p.price_inr > 0 && (
                     <button
@@ -560,7 +560,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                       <td style={{ padding: "10px 12px" }}>
                         {isApproved && (
                           <span style={{ padding: "4px 10px", background: "#dcfce7", color: "#166534", borderRadius: "12px", fontSize: "11px", fontWeight: "800" }}>
-                            ✓ Verified & Active
+                             Verified & Active
                           </span>
                         )}
                         {isRejected && (
@@ -667,7 +667,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                 fontSize: "24px",
                 marginBottom: "10px"
               }}>
-                💳
+                
               </div>
               <h3 style={{ fontSize: "20px", fontWeight: "800" }}>Instant UPI Checkout</h3>
               <p style={{ fontSize: "13px", color: "var(--text-secondary, #64748b)", marginTop: "4px" }}>
@@ -774,7 +774,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                         cursor: "pointer"
                       }}
                     >
-                      {copiedUpi ? "✓ Copied" : "📋 Copy"}
+                      {copiedUpi ? " Copied" : "📋 Copy"}
                     </button>
                   </div>
                   <div style={{ marginTop: "6px" }}>
@@ -790,7 +790,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                         textDecoration: "underline"
                       }}
                     >
-                      {copiedLink ? "✓ Payment Link Copied!" : "Copy raw UPI payment link (upi://pay?...)"}
+                      {copiedLink ? " Payment Link Copied!" : "Copy raw UPI payment link (upi://pay?...)"}
                     </button>
                   </div>
                 </div>
@@ -865,7 +865,7 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                       boxShadow: "0 4px 12px rgba(22, 163, 74, 0.3)"
                     }}
                   >
-                    {submittingUpi ? "Submitting Verification..." : "✓ Submit Payment for Verification"}
+                    {submittingUpi ? "Submitting Verification..." : " Submit Payment for Verification"}
                   </button>
                 </form>
               </div>

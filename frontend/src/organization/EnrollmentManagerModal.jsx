@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../shared/api";
 import { toast } from "../shared/toast";
+import { TrashIcon, XIcon } from "../shared/Icons";
 
 export default function EnrollmentManagerModal({
   exam,
@@ -14,6 +15,11 @@ export default function EnrollmentManagerModal({
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
   const [isClassroomSyncing, setIsClassroomSyncing] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [candidateToDelete, setCandidateToDelete] = useState(null);
+  const [deletingSingle, setDeletingSingle] = useState(false);
 
   // Single Candidate Add Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -125,8 +131,8 @@ export default function EnrollmentManagerModal({
       }
       const courseId = exam?.classroom_course_id || courses[0].id;
       const res = await api.importClassroomStudents(courseId, exam.id);
-      setStatusMsg(`✓ ${res.message}`);
-      toast.success(`✓ ${res.message}\n• Downloaded Candidate Credentials PDF (Login IDs & Passwords)`);
+      setStatusMsg(` ${res.message}`);
+      toast.success(` ${res.message}\n• Downloaded Candidate Credentials PDF (Login IDs & Passwords)`);
       await loadEnrollments();
 
       // Download updated credentials PDF automatically
@@ -223,16 +229,61 @@ export default function EnrollmentManagerModal({
     }
   }
 
-  async function handleDeleteCandidate(enrollmentId, name, uid) {
-    if (!window.confirm(`Are you sure you want to permanently delete candidate "${name}" (${uid})?\n\nThis will permanently delete all associated test attempts, answers, and proctoring logs. This action cannot be undone.`)) {
-      return;
-    }
+  function handleToggleSelectOne(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function handleToggleSelectAll() {
+    if (enrollments.length === 0) return;
+    const allSelected = enrollments.every((e) => selectedIds.has(e.id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        enrollments.forEach((e) => next.delete(e.id));
+      } else {
+        enrollments.forEach((e) => next.add(e.id));
+      }
+      return next;
+    });
+  }
+
+  function handleDeleteCandidate(enrollmentId, name, uid) {
+    setCandidateToDelete({ id: enrollmentId, name, uid });
+  }
+
+  async function handleConfirmSingleDelete() {
+    if (!candidateToDelete) return;
+    setDeletingSingle(true);
     try {
-      await api.deleteEnrollment(exam.id, enrollmentId);
-      setStatusMsg(`Permanently deleted candidate ${name} (${uid}).`);
+      await api.deleteEnrollment(exam.id, candidateToDelete.id);
+      toast.success(`Removed candidate ${candidateToDelete.name} (${candidateToDelete.uid}).`);
+      setCandidateToDelete(null);
       loadEnrollments();
     } catch (err) {
-      alert("Failed to delete candidate: " + err.message);
+      toast.error("Failed to delete candidate: " + err.message);
+    } finally {
+      setDeletingSingle(false);
+    }
+  }
+
+  async function handleConfirmBulkDelete() {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      const res = await api.bulkDeleteEnrollments(exam.id, Array.from(selectedIds));
+      toast.success(res.message || `Successfully removed ${selectedIds.size} student enrollment(s)!`);
+      setSelectedIds(new Set());
+      setShowBulkDeleteModal(false);
+      loadEnrollments();
+    } catch (err) {
+      toast.error("Failed to remove enrollments: " + err.message);
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -247,12 +298,12 @@ export default function EnrollmentManagerModal({
     const text = `Dear ${e.candidate_name},
 
 You have been invited to take the examination:
-📖 "${exam.title}"
+ "${exam.title}"
 
 Please access the examination portal using your secure credentials below:
-🔗 Direct Exam Link: ${directUrl}
-🆔 Enrollment UID: ${e.candidate_uid}
-🔑 Access PIN: ${e.access_pin || 'None'}
+ Direct Exam Link: ${directUrl}
+ Enrollment UID: ${e.candidate_uid}
+ Access PIN: ${e.access_pin || 'None'}
 
 Important Instructions:
 1. Complete device and camera verification before beginning.
@@ -324,7 +375,7 @@ Important Instructions:
             onClick={onClose}
             style={{ background: "none", fontSize: "18px", color: "var(--text-muted)", cursor: "pointer" }}
           >
-            ✕
+            
           </button>
         </div>
 
@@ -385,7 +436,7 @@ Important Instructions:
               }}
               style={{ fontSize: "12px", padding: "8px 14px" }}
             >
-              📋 Copy Direct Link
+               Copy Direct Link
             </button>
           </div>
         </div>
@@ -441,7 +492,7 @@ Important Instructions:
                 gap: "5px"
               }}
             >
-              {isClassroomSyncing ? "Syncing..." : "🏫 + Sync Google Classroom"}
+              {isClassroomSyncing ? "Syncing..." : " + Sync Google Classroom"}
             </button>
             <button
               type="button"
@@ -457,7 +508,7 @@ Important Instructions:
                 cursor: "pointer"
               }}
             >
-              👤 + Add Single Student
+               + Add Single Student
             </button>
             <button
               type="button"
@@ -466,7 +517,7 @@ Important Instructions:
               disabled={enrollments.length === 0}
               style={{ padding: "7px 14px", fontSize: "13px" }}
             >
-              📥 Export CSV
+               Export CSV
             </button>
             <button
               type="button"
@@ -482,7 +533,7 @@ Important Instructions:
                 borderColor: "#bfdbfe"
               }}
             >
-              📄 Download Credentials PDF
+               Download Credentials PDF
             </button>
             <button
               type="button"
@@ -505,15 +556,72 @@ Important Instructions:
             fontSize: "13px",
             fontWeight: "600"
           }}>
-            ✓ {statusMsg}
+             {statusMsg}
           </div>
         )}
 
         {/* Enrollment Table */}
         <div style={{ flex: 1, padding: "16px 28px", overflowY: "auto" }}>
+          {selectedIds.size > 0 && (
+            <div style={{
+              padding: "10px 16px",
+              marginBottom: "12px",
+              background: "#eff6ff",
+              borderRadius: "8px",
+              border: "1px solid #bfdbfe",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "10px"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "12px", fontWeight: "700", color: "#1e40af" }}>
+                  {selectedIds.size} student{selectedIds.size > 1 ? "s" : ""} selected
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(new Set())}
+                  style={{ background: "none", border: "none", color: "#3b82f6", fontSize: "12px", fontWeight: "600", cursor: "pointer", textDecoration: "underline" }}
+                >
+                  Clear selection
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteModal(true)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "6px 14px",
+                  background: "#dc2626",
+                  color: "#ffffff",
+                  borderRadius: "6px",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  border: "none",
+                  cursor: "pointer",
+                  boxShadow: "0 1px 3px rgba(220, 38, 38, 0.25)"
+                }}
+              >
+                <TrashIcon size={12} color="#ffffff" />
+                <span>Remove Selected ({selectedIds.size})</span>
+              </button>
+            </div>
+          )}
           <table className="dash-table">
             <thead>
               <tr>
+                <th style={{ width: "36px", textAlign: "center" }}>
+                  <input
+                    type="checkbox"
+                    checked={enrollments.length > 0 && enrollments.every(e => selectedIds.has(e.id))}
+                    onChange={handleToggleSelectAll}
+                    style={{ width: "15px", height: "15px", cursor: "pointer", accentColor: "var(--accent-blue)" }}
+                    title="Select All Candidates"
+                  />
+                </th>
                 <th>Candidate Name</th>
                 <th>Enrollment UID</th>
                 <th>Access PIN</th>
@@ -523,8 +631,18 @@ Important Instructions:
               </tr>
             </thead>
             <tbody>
-              {enrollments.map((e) => (
-                <tr key={e.id}>
+              {enrollments.map((e) => {
+                const isSelected = selectedIds.has(e.id);
+                return (
+                <tr key={e.id} style={{ background: isSelected ? "#f0f7ff" : "transparent" }}>
+                  <td style={{ width: "36px", textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => handleToggleSelectOne(e.id)}
+                      style={{ width: "15px", height: "15px", cursor: "pointer", accentColor: "var(--accent-blue)" }}
+                    />
+                  </td>
                   <td>
                     <strong>{e.candidate_name}</strong>
                     {e.candidate_email && (
@@ -587,7 +705,7 @@ Important Instructions:
                           color: "var(--text-primary)"
                         }}
                       >
-                        🔗 Copy Link
+                         Copy Link
                       </button>
 
                       <button
@@ -603,7 +721,7 @@ Important Instructions:
                           color: "var(--text-primary)"
                         }}
                       >
-                        ✉️ Copy Message
+                        Copy Message
                       </button>
 
                       {onTestAsCandidate && (
@@ -622,7 +740,7 @@ Important Instructions:
                             fontWeight: "700"
                           }}
                         >
-                          🚀 Test Exam
+                           Test Exam
                         </button>
                       )}
 
@@ -659,7 +777,7 @@ Important Instructions:
                         }}
                         title="Edit Student Information"
                       >
-                        ✏️ Edit
+                        Edit
                       </button>
 
                       <button
@@ -676,12 +794,13 @@ Important Instructions:
                         }}
                         title="Permanently Delete Student Record"
                       >
-                        🗑️ Delete
+                         Delete
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+              );
+              })}
               {enrollments.length === 0 && !loading && (
                 <tr>
                   <td colSpan="6" style={{ textAlign: "center", padding: "36px", color: "var(--text-muted)" }}>
@@ -710,7 +829,7 @@ Important Instructions:
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "12px" }}>
                 <div>
                   <h3 style={{ fontSize: "18px", fontWeight: "800", color: "var(--text-primary)" }}>
-                    👤 Enroll Single Student / Candidate
+                     Enroll Single Student / Candidate
                   </h3>
                   <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                     Add an individual candidate with custom or automated UID & PIN
@@ -721,7 +840,7 @@ Important Instructions:
                   onClick={() => setShowAddModal(false)}
                   style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "var(--text-muted)" }}
                 >
-                  ✕
+                  
                 </button>
               </div>
 
@@ -818,6 +937,102 @@ Important Instructions:
           </div>
         )}
 
+        {/* Single Candidate Delete Confirmation Modal */}
+        {candidateToDelete && (
+          <div style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10001,
+            background: "rgba(15, 23, 42, 0.55)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px"
+          }}>
+            <div style={{
+              background: "#ffffff",
+              borderRadius: "14px",
+              maxWidth: "440px",
+              width: "100%",
+              padding: "24px",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)"
+            }}>
+              <h3 style={{ fontSize: "16px", fontWeight: "800", color: "#0f172a", margin: "0 0 8px 0" }}>
+                Remove Candidate Enrollment?
+              </h3>
+              <p style={{ fontSize: "13px", color: "#64748b", margin: "0 0 16px 0", lineHeight: "1.5" }}>
+                Are you sure you want to remove <strong>{candidateToDelete.name}</strong> ({candidateToDelete.uid})? All associated attempts and exam credentials will be revoked.
+              </p>
+              <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => setCandidateToDelete(null)}
+                  style={{ padding: "8px 14px", borderRadius: "6px", background: "#f1f5f9", border: "1px solid #e2e8f0", fontSize: "13px", cursor: "pointer" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={deletingSingle}
+                  onClick={handleConfirmSingleDelete}
+                  style={{ padding: "8px 16px", borderRadius: "6px", background: "#dc2626", color: "#ffffff", border: "none", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
+                >
+                  {deletingSingle ? "Removing..." : "Remove Candidate"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Bulk Delete Confirmation Modal */}
+        {showBulkDeleteModal && (
+          <div style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10001,
+            background: "rgba(15, 23, 42, 0.55)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px"
+          }}>
+            <div style={{
+              background: "#ffffff",
+              borderRadius: "14px",
+              maxWidth: "440px",
+              width: "100%",
+              padding: "24px",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)"
+            }}>
+              <h3 style={{ fontSize: "16px", fontWeight: "800", color: "#0f172a", margin: "0 0 8px 0" }}>
+                Remove {selectedIds.size} Candidate Enrollments?
+              </h3>
+              <p style={{ fontSize: "13px", color: "#64748b", margin: "0 0 16px 0", lineHeight: "1.5" }}>
+                Are you sure you want to remove the <strong>{selectedIds.size} selected candidate(s)</strong> from this examination? Their access credentials and attempt sessions will be permanently revoked.
+              </p>
+              <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDeleteModal(false)}
+                  style={{ padding: "8px 14px", borderRadius: "6px", background: "#f1f5f9", border: "1px solid #e2e8f0", fontSize: "13px", cursor: "pointer" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={bulkDeleting}
+                  onClick={handleConfirmBulkDelete}
+                  style={{ padding: "8px 16px", borderRadius: "6px", background: "#dc2626", color: "#ffffff", border: "none", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}
+                >
+                  {bulkDeleting ? "Removing..." : `Yes, Remove (${selectedIds.size})`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Edit Candidate Modal */}
         {editingCandidate && (
           <div style={{
@@ -835,7 +1050,7 @@ Important Instructions:
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "12px" }}>
                 <div>
                   <h3 style={{ fontSize: "18px", fontWeight: "800", color: "var(--text-primary)" }}>
-                    ✏️ Edit Candidate ({editingCandidate.candidate_uid})
+                    Edit Candidate ({editingCandidate.candidate_uid})
                   </h3>
                   <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                     Update candidate details, security PIN, or enrollment status
@@ -846,7 +1061,7 @@ Important Instructions:
                   onClick={() => setEditingCandidate(null)}
                   style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "var(--text-muted)" }}
                 >
-                  ✕
+                  
                 </button>
               </div>
 

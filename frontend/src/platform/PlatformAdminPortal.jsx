@@ -1,61 +1,70 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../shared/api";
+import {
+  BuildingIcon, BarChartIcon, TargetIcon, CreditCardIcon, ZapIcon, FileTextIcon,
+  UsersIcon, GlobeIcon, ShieldIcon, BotIcon, VideoIcon, CheckIcon, XIcon,
+  ChevronLeftIcon, ChevronRightIcon, SettingsIcon, RocketIcon, EditIcon,
+  TrashIcon, RefreshIcon, LogOutIcon, LockIcon, UnlockIcon, AlertTriangleIcon,
+  UploadIcon, DownloadIcon, SearchIcon, LinkIcon, CopyIcon, BellIcon,
+  MegaphoneIcon, MailIcon, PhoneIcon, PlusIcon, CrownIcon, SparklesIcon,
+  FolderIcon, CodeIcon, ClockIcon, TrophyIcon, UserIcon
+} from "../shared/Icons";
 
 const SERVICE_DEFINITIONS = [
   {
     key: "ai_studio",
     title: "AI Question Studio & Synthesizer",
-    desc: "Gemini / Groq LLM pipeline for automated JEE, MCQ, and numerical question synthesis.",
-    icon: "🤖",
+    desc: "Gemini / Groq LLM pipeline for automated curriculum item, MCQ, and numerical question synthesis.",
+    icon: BotIcon,
     category: "Authoring"
   },
   {
     key: "live_proctoring",
     title: "MediaPipe Candidate AI Proctoring",
     desc: "Real-time webcam gaze tracking, multiple face detection, and ambient integrity alerts.",
-    icon: "📹",
+    icon: VideoIcon,
     category: "Integrity"
   },
   {
     key: "proctor_console",
     title: "Live Proctor Monitoring Console",
     desc: "Multi-stream surveillance feed for faculty and human invigilators with direct warning dispatch.",
-    icon: "🛡️",
+    icon: ShieldIcon,
     category: "Operations"
   },
   {
     key: "quick_quiz",
     title: "Quick Quiz Multiplayer Arena",
     desc: "Real-time competitive classroom arena with countdown timers and speed-scoring leaderboards.",
-    icon: "⚡",
+    icon: ZapIcon,
     category: "Engagement"
   },
   {
     key: "bulk_enrollment",
     title: "Candidate Enrollment Manager",
     desc: "Batch candidate roll number / PIN generation, CSV roster uploads, and instant access tokens.",
-    icon: "👥",
+    icon: UsersIcon,
     category: "Access"
   },
   {
     key: "pdf_import",
     title: "PDF Exam & Question Bank Import",
     desc: "Direct parsing of academic examination papers and automatic item bank synchronization.",
-    icon: "📄",
+    icon: FileTextIcon,
     category: "Authoring"
   },
   {
     key: "detailed_analytics",
     title: "Advanced Exam Analytics & Reports",
     desc: "Item discrimination index, score percentile curves, and candidate audit logs.",
-    icon: "📊",
+    icon: BarChartIcon,
     category: "Reporting"
   },
   {
     key: "advanced_scoring",
     title: "Advanced Scoring & Numerical Engine",
     desc: "Custom negative marking schemes, sectional cutoff thresholds, and float tolerance checks.",
-    icon: "🎯",
+    icon: TargetIcon,
     category: "Grading"
   }
 ];
@@ -210,6 +219,17 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
   });
 
   const [savingPayments, setSavingPayments] = useState(false);
+  const [publicSiteSettings, setPublicSiteSettings] = useState({
+    announcement_active: false,
+    announcement_text: "",
+    announcement_link: "",
+    site_headline: "All-in-one assessment engine with on-device anti-cheat",
+    site_subtitle: "Conduct secure computer-based assessments, buzzer quick quizzes, and auto-graded evaluations with real-time video invigilation.",
+    contact_email: "support@lunaris.com",
+    support_phone: "+91 98765 43210",
+    platform_status: "Operational"
+  });
+  const [savingPublicSite, setSavingPublicSite] = useState(false);
 
   useEffect(() => {
     loadViewData();
@@ -241,11 +261,32 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
         await loadAuditLogs(auditPage, auditPageSize, auditSearch, auditActionFilter);
       } else if (activeView === "admin_team") {
         await loadAdminTeam();
+      } else if (activeView === "public_site") {
+        const s = await api.getPublicSiteSettings().catch(() => null);
+        if (s) setPublicSiteSettings(s);
+        const p = await api.getPlatformPlans().catch(() => []);
+        setPlans(p);
       }
     } catch (err) {
       console.warn("View data load error:", err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSavePublicSiteSettings(e) {
+    if (e) e.preventDefault();
+    setSavingPublicSite(true);
+    setActionNotice("");
+    try {
+      const res = await api.updatePublicSiteSettings(publicSiteSettings);
+      if (res) setPublicSiteSettings(res.settings || res);
+      setActionNotice("Public website settings saved and published successfully.");
+      setTimeout(() => setActionNotice(""), 4000);
+    } catch (err) {
+      alert("Failed to save public site settings: " + (err.message || "Unknown error"));
+    } finally {
+      setSavingPublicSite(false);
     }
   }
 
@@ -361,7 +402,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
   }
 
   async function handleDeleteOrg(org) {
-    if (!window.confirm(`⚠️ DESTRUCTIVE ACTION: Completely delete "${org.name}", its users, exams, and all subscriptions? This cannot be undone.`)) return;
+    if (!window.confirm(`WARNING - DESTRUCTIVE ACTION: Completely delete "${org.name}", its users, exams, and all subscriptions? This cannot be undone.`)) return;
     try {
       await api.deletePlatformOrg(org.id);
       setActionNotice(`Organization "${org.name}" and all associated data permanently deleted.`);
@@ -373,7 +414,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
 
   // Remove / Revoke Subscription from Organization
   async function handleRemoveSubscription(org) {
-    if (!window.confirm(`⚠️ Revoke and remove subscription for "${org.name}"? This will reset the institution to the Free Starter tier and revoke their paid quotas.`)) return;
+    if (!window.confirm(`WARNING: Revoke and remove subscription for "${org.name}"? This will reset the institution to the Free Starter tier and revoke their paid quotas.`)) return;
     try {
       await api.removePlatformOrgSubscription(org.id);
       setActionNotice(`Subscription removed for "${org.name}". Plan reset to Free tier.`);
@@ -415,7 +456,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
   }
 
   async function handleDeleteUser(userId, memberName) {
-    if (!window.confirm(`⚠️ DESTRUCTIVE ACTION: Permanently delete user account "${memberName || userId}" from the entire platform? All associated test attempts and sessions will be removed.`)) return;
+    if (!window.confirm(`WARNING - DESTRUCTIVE ACTION: Permanently delete user account "${memberName || userId}" from the entire platform? All associated test attempts and sessions will be removed.`)) return;
     setActionLoadingUserId(userId);
     try {
       await api.deletePlatformUser(userId);
@@ -643,10 +684,10 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
 
   // Purge Mock Data
   async function handlePurgeMockData() {
-    if (!window.confirm("⚠️ ATTENTION: This will purge all mock test records, demo institutions, fake attempts, and candidate test sessions. Only the Platform Super Admin account will remain. Continue?")) return;
+    if (!window.confirm("ATTENTION: This will purge all mock test records, demo institutions, fake attempts, and candidate test sessions. Only the Platform Super Admin account will remain. Continue?")) return;
     try {
       const res = await api.purgeMockData();
-      alert("✓ " + res.message);
+      alert(res.message);
       setActionNotice("All mock data has been purged successfully.");
       loadViewData();
     } catch (err) {
@@ -696,10 +737,14 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
   });
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#f8fafc", color: "#0f172a", fontFamily: "system-ui, -apple-system, sans-serif" }}>
+    <div style={{ display: "flex", height: "100vh", maxHeight: "100vh", width: "100vw", overflow: "hidden", background: "#f8fafc", color: "#0f172a", fontFamily: "system-ui, -apple-system, sans-serif" }}>
       {/* ── HIGH-END SIDEBAR (PURE WHITE THEME) ───────────────────────── */}
       <aside style={{
         width: "260px",
+        height: "100vh",
+        maxHeight: "100vh",
+        overflowY: "auto",
+        overflowX: "hidden",
         background: "#ffffff",
         color: "#0f172a",
         borderRight: "1px solid #e2e8f0",
@@ -735,13 +780,14 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
           </div>
 
           {[
-            { id: "organizations", label: "Organizations & Services", icon: "🏢" },
-            { id: "analytics", label: "Executive Analytics", icon: "📊" },
-            { id: "exam_stats", label: "Exam Statistics & CBT", icon: "🎯" },
-            { id: "plans", label: "Plans & Feature Quotas", icon: "💳" },
-            { id: "payments", label: "UPI & Payment Gateway", icon: "⚡" },
-            { id: "audit_logs", label: "System Audit Trail", icon: "📜" },
-            { id: "admin_team", label: "Admin Team & RBAC", icon: "👥" },
+            { id: "organizations", label: "Organizations & Services", icon: BuildingIcon },
+            { id: "analytics", label: "Executive Analytics", icon: BarChartIcon },
+            { id: "exam_stats", label: "Exam Statistics & CBT", icon: TargetIcon },
+            { id: "plans", label: "Plans & Feature Quotas", icon: CreditCardIcon },
+            { id: "payments", label: "UPI & Payment Gateway", icon: ZapIcon },
+            { id: "audit_logs", label: "System Audit Trail", icon: FileTextIcon },
+            { id: "admin_team", label: "Admin Team & RBAC", icon: UsersIcon },
+            { id: "public_site", label: "Public Website CMS", icon: GlobeIcon },
           ].map(item => {
             const active = activeView === item.id;
             const pendingPaymentsCount = paymentsList.filter(p => p.status === "pending" || (!p.verified && p.status !== "rejected")).length;
@@ -766,7 +812,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                   transition: "all 0.15s ease"
                 }}
               >
-                <span style={{ fontSize: "16px" }}>{item.icon}</span>
+                {item.icon && <item.icon size={16} />}
                 <span>{item.label}</span>
                 {item.id === "payments" && pendingPaymentsCount > 0 && (
                   <span style={{
@@ -812,7 +858,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
             }}
             title="Sign out of administration portal"
           >
-            <span>🚪</span> Sign Out / Logout
+            <LogOutIcon size={14} /> Sign Out
           </button>
           <button
             type="button"
@@ -835,17 +881,17 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
       </aside>
 
       {/* ── MAIN CONTENT CONTAINER ────────────────────────────────────────── */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflowY: "auto" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh", maxHeight: "100vh", overflow: "hidden" }}>
         {/* Top Header */}
         <header style={{
           height: "64px",
+          flexShrink: 0,
           background: "#ffffff",
           borderBottom: "1px solid #e2e8f0",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           padding: "0 32px",
-          position: "sticky",
           top: 0,
           zIndex: 40
         }}>
@@ -858,6 +904,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
               {activeView === "payments" && "UPI Payment Gateway, UTR Verification & GST Settings"}
               {activeView === "audit_logs" && "Platform Administrative Audit Trail"}
               {activeView === "admin_team" && "Administration Team & Role-Based Access Control (RBAC)"}
+              {activeView === "public_site" && "Public Website CMS, Announcement Banner & Live Settings"}
             </div>
             <div style={{ fontSize: "11px", color: "#64748b", display: "flex", alignItems: "center", gap: "8px" }}>
               <span>User: <strong>{currentUser?.email || "superadmin@lunaris.com"}</strong></span>
@@ -871,7 +918,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                 color: isMainSuperAdmin ? "#92400e" : "#1d4ed8",
                 border: isMainSuperAdmin ? "1px solid #fde68a" : "1px solid #bfdbfe"
               }}>
-                {isMainSuperAdmin ? "👑 Main Super Admin (Sole Owner)" : `🛡️ ${currentAdminRole.replace("_", " ").toUpperCase()}`}
+                {isMainSuperAdmin ? "Main Super Admin (Sole Owner)" : `${currentAdminRole.replace("_", " ").toUpperCase()}`}
               </span>
             </div>
           </div>
@@ -883,7 +930,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
               onClick={loadViewData}
               style={{ fontSize: "12px", padding: "6px 12px", display: "flex", alignItems: "center", gap: "6px" }}
             >
-              <span>🔄</span> Refresh View
+              <RefreshIcon size={13} /> Refresh
             </button>
             <button
               type="button"
@@ -903,7 +950,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
               }}
               title="Sign out of administration portal"
             >
-              <span>🚪</span> Logout
+              <LogOutIcon size={14} /> Logout
             </button>
           </div>
         </header>
@@ -923,8 +970,8 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
             justifyContent: "space-between",
             alignItems: "center"
           }}>
-            <span>✓ {actionNotice}</span>
-            <button type="button" onClick={() => setActionNotice("")} style={{ background: "none", border: "none", color: "#065f46", cursor: "pointer", fontWeight: "800" }}>✕</button>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}><CheckIcon size={14} color="#16a34a" /> {actionNotice}</span>
+            <button type="button" onClick={() => setActionNotice("")} style={{ background: "none", border: "none", color: "#065f46", cursor: "pointer", fontWeight: "800" }}><XIcon size={18} /></button>
           </div>
         )}
 
@@ -1052,7 +1099,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                               gap: "6px"
                             }}
                           >
-                            <span>⚙️ {activeCount}/{totalServices} Active</span>
+                            <span> {activeCount}/{totalServices} Active</span>
                             <span style={{ fontSize: "10px", textDecoration: "underline" }}>Configure</span>
                           </button>
                         </td>
@@ -1081,7 +1128,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                               style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "700", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", cursor: "pointer" }}
                               title="View & manage institution members"
                             >
-                              👥 Members
+                              Members
                             </button>
                             <button
                               type="button"
@@ -1103,7 +1150,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                               style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "700", background: "#f5f3ff", color: "#6d28d9", border: "1px solid #ddd6fe", cursor: "pointer" }}
                               title="Re-synchronize quotas and services strictly to active plan entitlements"
                             >
-                              🔄 Sync Plan
+                              Sync Plan
                             </button>
                             {org.plan_id && org.plan_id !== "free" && (
                               <button
@@ -1128,7 +1175,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                               style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "700", background: "#fee2e2", color: "#dc2626", border: "1px solid #fca5a5", cursor: "pointer" }}
                               title="Delete institution and all child data"
                             >
-                              🗑️ Delete
+                              Delete
                             </button>
                           </div>
                         </td>
@@ -1138,7 +1185,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                   {filteredOrgs.length === 0 && !loading && (
                     <tr>
                       <td colSpan="7" style={{ textAlign: "center", padding: "48px", color: "#64748b" }}>
-                        <div style={{ fontSize: "32px", marginBottom: "8px" }}>🏢</div>
+                        <div style={{ fontSize: "32px", marginBottom: "8px" }}></div>
                         <strong style={{ fontSize: "16px", color: "#0f172a", display: "block" }}>No Organizations Provisioned</strong>
                         <p style={{ fontSize: "13px", marginTop: "4px" }}>
                           Create your first tenant organization to begin hosting proctored exams and CBT assessments.
@@ -1149,6 +1196,363 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* ────────────────────────────────────────────────────────── */}
+        {/* VIEW: PUBLIC WEBSITE CMS & SETTINGS                        */}
+        {/* ────────────────────────────────────────────────────────── */}
+        {activeView === "public_site" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+            {/* Informational Banner */}
+            <div style={{
+              background: "#eff6ff",
+              border: "1px solid #bfdbfe",
+              borderRadius: "10px",
+              padding: "16px 20px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "16px"
+            }}>
+              <div>
+                <div style={{ fontWeight: "700", color: "#1e40af", fontSize: "14px", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <GlobeIcon size={16} color="#1d4ed8" /> SuperAdmin to Public Site Live Synchronization
+                </div>
+                <div style={{ fontSize: "12px", color: "#3b82f6", marginTop: "4px" }}>
+                  Changes configured here update the public landing page in real time. Plans and pricing edited in the <strong>Plans & Feature Quotas</strong> tab also reflect immediately on the public pricing table and registration portal.
+                </div>
+              </div>
+              <a
+                href="/"
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "8px 16px",
+                  borderRadius: "6px",
+                  background: "#2563eb",
+                  color: "#ffffff",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  textDecoration: "none",
+                  whiteSpace: "nowrap",
+                  boxShadow: "0 1px 3px rgba(37,99,235,0.2)"
+                }}
+              >
+                View Live Site ↗
+              </a>
+            </div>
+
+            {/* CMS Form Card */}
+            <form onSubmit={handleSavePublicSiteSettings} style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+              {/* 1. Announcement Banner */}
+              <div style={{
+                background: "#ffffff",
+                borderRadius: "12px",
+                border: "1px solid #e2e8f0",
+                padding: "24px",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                  <div>
+                    <h3 style={{ fontSize: "15px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+                      Announcement Banner
+                    </h3>
+                    <p style={{ fontSize: "12px", color: "#64748b", margin: "3px 0 0 0" }}>
+                      Displays a dismissible notification bar pinned to the top of the entire public website.
+                    </p>
+                  </div>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", cursor: "pointer", userSelect: "none" }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(publicSiteSettings.announcement_active)}
+                      onChange={e => setPublicSiteSettings(prev => ({ ...prev, announcement_active: e.target.checked }))}
+                      style={{ width: "18px", height: "18px", accentColor: "#2563eb", cursor: "pointer" }}
+                    />
+                    <span style={{ fontSize: "13px", fontWeight: "700", color: publicSiteSettings.announcement_active ? "#16a34a" : "#64748b" }}>
+                      {publicSiteSettings.announcement_active ? "Banner Active" : "Banner Hidden"}
+                    </span>
+                  </label>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "16px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                      Announcement Text
+                    </label>
+                    <input
+                      type="text"
+                      value={publicSiteSettings.announcement_text || ""}
+                      onChange={e => setPublicSiteSettings(prev => ({ ...prev, announcement_text: e.target.value }))}
+                      placeholder="e.g. Lunaris v2.4 released with AI Question Studio & Specialized CBT Assessment Engine!"
+                      style={{
+                        width: "100%",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "13px",
+                        color: "#0f172a",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                      Action Link (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={publicSiteSettings.announcement_link || ""}
+                      onChange={e => setPublicSiteSettings(prev => ({ ...prev, announcement_link: e.target.value }))}
+                      placeholder="e.g. /#pricing or https://..."
+                      style={{
+                        width: "100%",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "13px",
+                        color: "#0f172a",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Banner Live Preview */}
+                {publicSiteSettings.announcement_active && (
+                  <div style={{ marginTop: "16px" }}>
+                    <div style={{ fontSize: "10px", fontWeight: "700", color: "#94a3b8", textTransform: "uppercase", marginBottom: "6px" }}>
+                      Live Preview (How visitors will see it)
+                    </div>
+                    <div style={{
+                      background: "#2563eb",
+                      color: "#ffffff",
+                      padding: "8px 16px",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px"
+                    }}>
+                      <span>{publicSiteSettings.announcement_text || "Announcement text will appear here"}</span>
+                      {publicSiteSettings.announcement_link && (
+                        <span style={{ textDecoration: "underline", opacity: 0.9 }}>Learn more →</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Landing Page Copy */}
+              <div style={{
+                background: "#ffffff",
+                borderRadius: "12px",
+                border: "1px solid #e2e8f0",
+                padding: "24px",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
+              }}>
+                <h3 style={{ fontSize: "15px", fontWeight: "800", color: "#0f172a", margin: "0 0 4px 0" }}>
+                  Hero Headline & Platform Description
+                </h3>
+                <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 16px 0" }}>
+                  Controls the primary headline and value proposition displayed in the hero section on the homepage.
+                </p>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                      Main Headline
+                    </label>
+                    <input
+                      type="text"
+                      value={publicSiteSettings.site_headline || ""}
+                      onChange={e => setPublicSiteSettings(prev => ({ ...prev, site_headline: e.target.value }))}
+                      placeholder="All-in-one assessment engine with on-device anti-cheat"
+                      style={{
+                        width: "100%",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "14px",
+                        fontWeight: "600",
+                        color: "#0f172a",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                      Subtitle & Value Proposition
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={publicSiteSettings.site_subtitle || ""}
+                      onChange={e => setPublicSiteSettings(prev => ({ ...prev, site_subtitle: e.target.value }))}
+                      placeholder="Conduct secure computer-based assessments, buzzer quick quizzes, and auto-graded evaluations with real-time video invigilation."
+                      style={{
+                        width: "100%",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "13px",
+                        color: "#0f172a",
+                        lineHeight: "1.5",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Support & Contact Details */}
+              <div style={{
+                background: "#ffffff",
+                borderRadius: "12px",
+                border: "1px solid #e2e8f0",
+                padding: "24px",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
+              }}>
+                <h3 style={{ fontSize: "15px", fontWeight: "800", color: "#0f172a", margin: "0 0 4px 0" }}>
+                  Public Support & System Status
+                </h3>
+                <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 16px 0" }}>
+                  Contact coordinates and operational status displayed in the public footer and support links.
+                </p>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                      Support Email
+                    </label>
+                    <input
+                      type="email"
+                      value={publicSiteSettings.contact_email || ""}
+                      onChange={e => setPublicSiteSettings(prev => ({ ...prev, contact_email: e.target.value }))}
+                      placeholder="support@lunaris.com"
+                      style={{
+                        width: "100%",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "13px",
+                        color: "#0f172a",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                      Support Hotline / Phone
+                    </label>
+                    <input
+                      type="text"
+                      value={publicSiteSettings.support_phone || ""}
+                      onChange={e => setPublicSiteSettings(prev => ({ ...prev, support_phone: e.target.value }))}
+                      placeholder="+91 98765 43210"
+                      style={{
+                        width: "100%",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "13px",
+                        color: "#0f172a",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#475569", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                      Platform Status Label
+                    </label>
+                    <input
+                      type="text"
+                      value={publicSiteSettings.platform_status || ""}
+                      onChange={e => setPublicSiteSettings(prev => ({ ...prev, platform_status: e.target.value }))}
+                      placeholder="Operational"
+                      style={{
+                        width: "100%",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "13px",
+                        color: "#0f172a",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Plans & Pricing Sync Summary */}
+              <div style={{
+                background: "#f8fafc",
+                borderRadius: "12px",
+                border: "1px dashed #cbd5e1",
+                padding: "20px 24px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "16px"
+              }}>
+                <div>
+                  <div style={{ fontSize: "14px", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "8px" }}>
+                    <CreditCardIcon size={16} color="#2563eb" /> Dynamic Plans & Pricing ({plans.length} active plans configured)
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b", marginTop: "3px" }}>
+                    Plans edited in the SuperAdmin portal automatically propagate to public pricing cards, feature comparisons, and registration selectors without code rebuilds.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveView("plans")}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    fontSize: "12px",
+                    fontWeight: "700",
+                    color: "#334155",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  Edit Plans & Pricing →
+                </button>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "8px" }}>
+                <button
+                  type="submit"
+                  disabled={savingPublicSite}
+                  style={{
+                    padding: "12px 28px",
+                    borderRadius: "8px",
+                    background: "#2563eb",
+                    color: "#ffffff",
+                    border: "none",
+                    fontSize: "13px",
+                    fontWeight: "700",
+                    cursor: savingPublicSite ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    boxShadow: "0 2px 4px rgba(37,99,235,0.25)"
+                  }}
+                >
+                  {savingPublicSite ? "Publishing Changes..." : "Save & Publish to Public Site"}
+                </button>
+              </div>
+            </form>
           </div>
         )}
 
@@ -1193,7 +1597,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                   {analytics?.candidates_and_attempts?.total_attempts ?? 0}
                 </div>
                 <div style={{ fontSize: "11px", color: "#10b981", fontWeight: "600", marginTop: "4px" }}>
-                  ✓ Completion: {analytics?.candidates_and_attempts?.completion_rate ?? 100}%
+                  Completion: {analytics?.candidates_and_attempts?.completion_rate ?? 100}%
                 </div>
               </div>
 
@@ -1247,20 +1651,20 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
         )}
 
         {/* ─────────────────────────────────────────────────────────────────── */}
-        {/* VIEW 3: EXAM STATISTICS & NTA CBT                                   */}
+        {/* VIEW 3: EXAM STATISTICS & CBT ASSESSMENTS                                   */}
         {/* ─────────────────────────────────────────────────────────────────── */}
         {activeView === "exam_stats" && (
           <div style={{ padding: "28px 32px" }}>
             <div style={{ marginBottom: "24px" }}>
               <h2 style={{ fontSize: "22px", fontWeight: "800", color: "#0f172a" }}>CBT Examination Statistics & Telemetry</h2>
               <p style={{ fontSize: "13px", color: "#64748b" }}>
-                Deep breakdown of NTA Computer-Based Tests, Quick Quiz arenas, and question banks authored across institutions.
+                Deep breakdown of Computer-Based Assessments, Quick Quiz arenas, and question banks authored across institutions.
               </p>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "28px" }}>
               <div style={{ background: "#ffffff", padding: "20px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
-                <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b" }}>NTA PROCTORED CBT</span>
+                <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b" }}>PROCTORED CBT ASSESSMENTS</span>
                 <div style={{ fontSize: "30px", fontWeight: "900", color: "#2563eb", marginTop: "4px" }}>
                   {analytics?.exams_and_questions?.nta_cbt_exams ?? 0}
                 </div>
@@ -1386,8 +1790,8 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                     }}
                   >
                     {p.entitlements?.proctoring_enabled === "true"
-                      ? "🛡️ Proctoring: Active (Click to Deactivate)"
-                      : "🛡️ Proctoring: Disabled (Click to Activate)"}
+                      ? "Proctoring: Active (Click to Deactivate)"
+                      : "Proctoring: Disabled (Click to Activate)"}
                   </button>
 
                   <div style={{ display: "flex", gap: "8px" }}>
@@ -1406,7 +1810,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                         cursor: "pointer"
                       }}
                     >
-                      ✏️ Edit Plan & Quotas
+                      Edit Plan & Quotas
                     </button>
                     <button
                       type="button"
@@ -1422,7 +1826,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                         cursor: "pointer"
                       }}
                     >
-                      ✕
+                      <XIcon size={16} />
                     </button>
                   </div>
                 </div>
@@ -1464,7 +1868,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                     gap: "6px"
                   }}
                 >
-                  <span>👥 Actual Paying Customers</span>
+                  <span> Actual Paying Customers</span>
                   {actualCustomers.length > 0 && (
                     <span style={{
                       background: "#2563eb",
@@ -1497,7 +1901,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                     gap: "6px"
                   }}
                 >
-                  <span>📋 UPI Verification Queue</span>
+                  <span> UPI Verification Queue</span>
                   {paymentsList.filter(p => p.status === "pending" || (!p.verified && p.status !== "rejected")).length > 0 && (
                     <span style={{
                       background: "#f59e0b",
@@ -1527,7 +1931,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                     boxShadow: paymentSubTab === "settings" ? "0 1px 3px rgba(0,0,0,0.1)" : "none"
                   }}
                 >
-                  ⚙️ Gateway & UPI Settings
+                  Gateway & UPI Settings
                 </button>
 
                 <button
@@ -1535,7 +1939,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                   onClick={async () => {
                     try {
                       const res = await api.sweepRenewals();
-                      alert(`✓ Monthly Renewal Sweep Complete:\n• ${res.checked_subscriptions} subscriptions checked\n• ${res.reminders_sent} reminder emails dispatched\n• ${res.downgraded_to_free} expired accounts downgraded to free.`);
+                      alert(`Monthly Renewal Sweep Complete:\n• ${res.checked_subscriptions} subscriptions checked\n• ${res.reminders_sent} reminder emails dispatched\n• ${res.downgraded_to_free} expired accounts downgraded to free.`);
                     } catch (e) {
                       alert("Sweep failed: " + e.message);
                     }
@@ -1555,7 +1959,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                   }}
                   title="Scans all active subscriptions, dispatches reminder emails to orgs renewing in 7/3/1 days, and applies grace period rules."
                 >
-                  🔔 Sweep & Dispatch Renewal Reminders
+                  Sweep & Dispatch Renewal Reminders
                 </button>
               </div>
             </div>
@@ -1613,7 +2017,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
 
                   {actualCustomers.length === 0 ? (
                     <div style={{ padding: "48px 20px", textAlign: "center", color: "#64748b" }}>
-                      <div style={{ fontSize: "32px", marginBottom: "8px" }}>💳</div>
+                      <div style={{ fontSize: "32px", marginBottom: "8px" }}></div>
                       <strong style={{ fontSize: "15px", color: "#0f172a", display: "block" }}>No Approved Paying Customers Yet</strong>
                       <p style={{ fontSize: "12px", marginTop: "4px" }}>
                         When tenant organizations pay via UPI and you approve their 12-digit UTR in the Verification Queue, they will appear here as genuine paying customers.
@@ -1659,7 +2063,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                               </td>
                               <td style={{ padding: "14px 18px" }}>
                                 <span style={{ padding: "3px 8px", background: "#f0fdf4", color: "#166534", borderRadius: "10px", fontSize: "11px", fontWeight: "800" }}>
-                                  ✓ {cust.approved_payments_count} approved
+                                  {cust.approved_payments_count} approved
                                 </span>
                               </td>
                               <td style={{ padding: "14px 18px", fontSize: "12px", color: "#64748b" }}>
@@ -1686,7 +2090,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                                   }}
                                   style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "700", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", cursor: "pointer" }}
                                 >
-                                  👥 Members
+                                  Members
                                 </button>
                               </td>
                             </tr>
@@ -1791,7 +2195,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                                         title="Copy UTR"
                                         style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "12px" }}
                                       >
-                                        📋
+                                        
                                       </button>
                                     </div>
                                   </td>
@@ -1802,17 +2206,17 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                                   <td style={{ padding: "12px 16px" }}>
                                     {isApproved && (
                                       <span style={{ padding: "4px 10px", background: "#dcfce7", color: "#166534", borderRadius: "12px", fontSize: "11px", fontWeight: "800" }}>
-                                        ✓ Verified & Active
+                                        Verified & Active
                                       </span>
                                     )}
                                     {isRejected && (
                                       <span style={{ padding: "4px 10px", background: "#fee2e2", color: "#991b1b", borderRadius: "12px", fontSize: "11px", fontWeight: "800" }}>
-                                        ✕ Rejected
+                                        Rejected
                                       </span>
                                     )}
                                     {isPending && (
                                       <span style={{ padding: "4px 10px", background: "#fef3c7", color: "#92400e", borderRadius: "12px", fontSize: "11px", fontWeight: "800" }}>
-                                        ⏳ Pending Review
+                                        Pending Review
                                       </span>
                                     )}
                                   </td>
@@ -1835,7 +2239,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                                             boxShadow: "0 2px 6px rgba(22, 163, 74, 0.25)"
                                           }}
                                         >
-                                          {processingPaymentId === p.id ? "Processing..." : "✓ Verify & Activate Plan"}
+                                          {processingPaymentId === p.id ? "Processing..." : "Verify & Activate Plan"}
                                         </button>
                                         <button
                                           type="button"
@@ -1852,7 +2256,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                                             cursor: "pointer"
                                           }}
                                         >
-                                          ✕ Reject
+                                          Reject
                                         </button>
                                       </div>
                                     ) : (
@@ -1880,7 +2284,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", borderBottom: "1px solid #f1f5f9", paddingBottom: "10px" }}>
                     <div>
                       <h3 style={{ fontSize: "16px", fontWeight: "800", color: "#0f172a" }}>
-                        ⚡ 1. Direct NPCI UPI Payment Gateway (Dynamic Deep Link & QR Code)
+                        Direct NPCI UPI Payment Gateway (Dynamic Deep Link & QR Code)
                       </h3>
                       <p style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
                         Allows tenant organizations to pay instantly using GPay, PhonePe, Paytm, or BHIM using your platform UPI ID.
@@ -1996,7 +2400,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                                 cursor: "pointer"
                               }}
                             >
-                              📋 Copy UPI Link
+                              Copy UPI Link
                             </button>
                             <a
                               href={sampleUri}
@@ -2012,7 +2416,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                                 textDecoration: "none"
                               }}
                             >
-                              ⚡ Test Open Link
+                              Test Open Link
                             </a>
                           </div>
                         </div>
@@ -2306,7 +2710,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                       style={{ padding: "8px 14px", background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
                       title="Permanently clear all audit events from SQLite and MongoDB database"
                     >
-                      🗑️ Clear Logs
+                      Clear Logs
                     </button>
                     <button
                       type="button"
@@ -2314,7 +2718,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                       style={{ padding: "8px 14px", background: "#fff1f2", color: "#9f1239", border: "1px solid #fecdd3", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
                       title="Purge all test organizations, attempts, and records from DB"
                     >
-                      💥 Wipe DB Data
+                      Wipe DB Data
                     </button>
                   </div>
                 )}
@@ -2535,7 +2939,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "14px", marginBottom: "24px" }}>
               <div style={{ background: "#ffffff", padding: "16px", borderRadius: "10px", border: "1px solid #fde68a", borderLeft: "4px solid #f59e0b" }}>
                 <div style={{ fontSize: "12px", fontWeight: "800", color: "#92400e", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>👑</span> Main SuperAdmin
+                  <span></span> Main SuperAdmin
                 </div>
                 <div style={{ fontSize: "11px", color: "#78350f", marginTop: "4px", lineHeight: "1.4" }}>
                   <strong>Sole Owner (Only 1 Account)</strong>. Holds ultimate authority over admin staff, RBAC delegation, and institution deletion.
@@ -2544,7 +2948,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
 
               <div style={{ background: "#ffffff", padding: "16px", borderRadius: "10px", border: "1px solid #bfdbfe", borderLeft: "4px solid #2563eb" }}>
                 <div style={{ fontSize: "12px", fontWeight: "800", color: "#1e40af", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>🛡️</span> Platform Admin
+                  <span></span> Platform Admin
                 </div>
                 <div style={{ fontSize: "11px", color: "#1e3a8a", marginTop: "4px", lineHeight: "1.4" }}>
                   <strong>Operational Control</strong>. Can provision institutions, adjust feature services, modify quotas, and verify UPI payments.
@@ -2553,7 +2957,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
 
               <div style={{ background: "#ffffff", padding: "16px", borderRadius: "10px", border: "1px solid #a7f3d0", borderLeft: "4px solid #10b981" }}>
                 <div style={{ fontSize: "12px", fontWeight: "800", color: "#065f46", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>📜</span> Platform Auditor
+                  <span></span> Platform Auditor
                 </div>
                 <div style={{ fontSize: "11px", color: "#064e3b", marginTop: "4px", lineHeight: "1.4" }}>
                   <strong>Compliance &amp; Inspection</strong>. Read-only oversight for Executive Analytics, CBT Telemetry, and the System Audit Trail.
@@ -2562,7 +2966,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
 
               <div style={{ background: "#ffffff", padding: "16px", borderRadius: "10px", border: "1px solid #c7d2fe", borderLeft: "4px solid #6366f1" }}>
                 <div style={{ fontSize: "12px", fontWeight: "800", color: "#3730a3", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>🎧</span> Platform Support
+                  <span></span> Platform Support
                 </div>
                 <div style={{ fontSize: "11px", color: "#312e81", marginTop: "4px", lineHeight: "1.4" }}>
                   <strong>Faculty &amp; Exam Help</strong>. Inspects institution member rosters, examines candidate session anomalies, and resolves PIN issues.
@@ -2621,7 +3025,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                             color: isOwner ? "#92400e" : (admin.admin_role === "platform_auditor" ? "#065f46" : (admin.admin_role === "platform_support" ? "#3730a3" : "#1d4ed8")),
                             border: isOwner ? "1px solid #fde68a" : "1px solid #cbd5e1"
                           }}>
-                            {isOwner ? "👑 Primary Super Admin" : (admin.admin_role ? admin.admin_role.replace("_", " ").toUpperCase() : "PLATFORM ADMIN")}
+                            {isOwner ? "Primary Super Admin" : (admin.admin_role ? admin.admin_role.replace("_", " ").toUpperCase() : "PLATFORM ADMIN")}
                           </span>
                         </td>
                         <td style={{ padding: "14px 18px" }}>
@@ -2728,7 +3132,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                 type="button"
                 onClick={() => setSelectedServicesOrg(null)}
                 style={{ background: "none", border: "none", color: "#64748b", fontSize: "20px", cursor: "pointer" }}
-              >✕</button>
+              ><XIcon size={18} /></button>
             </div>
 
             <div style={{ padding: "24px" }}>
@@ -2763,7 +3167,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <span style={{ fontSize: "13px", fontWeight: "700", color: isEnabled ? "#0f172a" : "#64748b" }}>
-                            {s.icon} {s.title}
+                            {s.icon && <s.icon size={14} style={{ display: "inline-block", marginRight: "6px", verticalAlign: "middle" }} />}{s.title}
                           </span>
                           <span style={{
                             fontSize: "10px",
@@ -2880,7 +3284,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
               <h3 style={{ fontSize: "16px", fontWeight: "800", margin: 0 }}>
                 Edit Plan &amp; Entitlement Quotas: {editingPlan.name}
               </h3>
-              <button type="button" onClick={() => setEditingPlan(null)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer" }}>✕</button>
+              <button type="button" onClick={() => setEditingPlan(null)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer" }}><XIcon size={18} /></button>
             </div>
 
             <form onSubmit={handleSavePlan} style={{ padding: "22px" }}>
@@ -3025,7 +3429,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
           <div style={{ background: "#ffffff", borderRadius: "12px", width: "100%", maxWidth: "560px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
             <div style={{ padding: "18px 22px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h3 style={{ fontSize: "16px", fontWeight: "800", margin: 0 }}>Provision New Subscription Tier</h3>
-              <button type="button" onClick={() => setShowCreatePlanModal(false)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer" }}>✕</button>
+              <button type="button" onClick={() => setShowCreatePlanModal(false)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer" }}><XIcon size={18} /></button>
             </div>
 
             <form onSubmit={handleCreatePlanSubmit} style={{ padding: "22px" }}>
@@ -3116,7 +3520,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
           <div style={{ background: "#ffffff", borderRadius: "14px", width: "100%", maxWidth: "580px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
             <div style={{ padding: "18px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#ffffff", color: "#0f172a" }}>
               <h3 style={{ fontSize: "16px", fontWeight: "800", margin: 0, color: "#0f172a" }}>Provision Tenant Organization</h3>
-              <button type="button" onClick={() => setShowCreateOrgModal(false)} style={{ background: "none", border: "none", color: "#64748b", fontSize: "18px", cursor: "pointer" }}>✕</button>
+              <button type="button" onClick={() => setShowCreateOrgModal(false)} style={{ background: "none", border: "none", color: "#64748b", fontSize: "18px", cursor: "pointer" }}><XIcon size={18} /></button>
             </div>
 
             <form onSubmit={handleCreateOrgSubmit} style={{ padding: "24px" }}>
@@ -3217,7 +3621,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
           <div style={{ background: "#ffffff", borderRadius: "12px", width: "100%", maxWidth: "520px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
             <div style={{ padding: "18px 22px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h3 style={{ fontSize: "16px", fontWeight: "800", margin: 0 }}>Adjust Plan &amp; Quotas: {selectedSubOrg.name}</h3>
-              <button type="button" onClick={() => setSelectedSubOrg(null)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer" }}>✕</button>
+              <button type="button" onClick={() => setSelectedSubOrg(null)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer" }}><XIcon size={18} /></button>
             </div>
 
             <form onSubmit={handleSaveSubscription} style={{ padding: "22px" }}>
@@ -3287,7 +3691,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                       cursor: "pointer"
                     }}
                   >
-                    🗑️ Revoke Subscription
+                    Revoke Subscription
                   </button>
                 ) : <div />}
                 <div style={{ display: "flex", gap: "10px" }}>
@@ -3336,7 +3740,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
             }}>
               <div>
                 <h3 style={{ fontSize: "17px", fontWeight: "800", margin: 0, color: "#0f172a" }}>
-                  👥 Institution Members &amp; User Accounts
+                  Institution Members & User Accounts
                 </h3>
                 <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
                   Institution: <strong style={{ color: "#0f172a" }}>{selectedMembersOrg.name}</strong> ({selectedMembersOrg.slug})
@@ -3346,7 +3750,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                 type="button"
                 onClick={() => setSelectedMembersOrg(null)}
                 style={{ background: "none", border: "none", color: "#64748b", fontSize: "20px", cursor: "pointer" }}
-              >✕</button>
+              ><XIcon size={18} /></button>
             </div>
 
             <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1 }}>
@@ -3436,7 +3840,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                                 }}
                                 title="Permanently delete user account from platform"
                               >
-                                {actionLoadingUserId === member.user_id ? "..." : "🗑️ Delete User"}
+                                {actionLoadingUserId === member.user_id ? "..." : "Delete User"}
                               </button>
                             </div>
                           </td>
@@ -3475,7 +3879,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                 <h3 style={{ fontSize: "16px", fontWeight: "800", margin: 0, color: "#0f172a" }}>Provision Administrative Staff</h3>
                 <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>Assign delegated role-based governance privileges</div>
               </div>
-              <button type="button" onClick={() => setShowCreateAdminModal(false)} style={{ background: "none", border: "none", color: "#64748b", fontSize: "18px", cursor: "pointer" }}>✕</button>
+              <button type="button" onClick={() => setShowCreateAdminModal(false)} style={{ background: "none", border: "none", color: "#64748b", fontSize: "18px", cursor: "pointer" }}><XIcon size={18} /></button>
             </div>
 
             <form onSubmit={handleCreateAdminSubmit} style={{ padding: "24px" }}>
@@ -3526,9 +3930,9 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                   onChange={(e) => setNewAdminForm({ ...newAdminForm, admin_role: e.target.value })}
                   style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", background: "#ffffff" }}
                 >
-                  <option value="platform_admin">🛡️ Platform Administrator (Institutions, Plans & Quotas, UPI Payments)</option>
-                  <option value="platform_auditor">📜 Platform Auditor (Read-only Analytics, CBT Items & Audit Trail)</option>
-                  <option value="platform_support">🎧 Platform Support Specialist (Institution Rosters, Member Assistance)</option>
+                  <option value="platform_admin">Platform Administrator (Institutions, Plans & Quotas, UPI Payments)</option>
+                  <option value="platform_auditor">Platform Auditor (Read-only Analytics, CBT Items & Audit Trail)</option>
+                  <option value="platform_support">Platform Support Specialist (Institution Rosters, Member Assistance)</option>
                 </select>
               </div>
 
@@ -3564,7 +3968,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                 <h3 style={{ fontSize: "16px", fontWeight: "800", margin: 0, color: "#0f172a" }}>Edit Staff Role &amp; Permissions</h3>
                 <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>Staff: <strong>{editingAdminUser.email}</strong></div>
               </div>
-              <button type="button" onClick={() => setEditingAdminUser(null)} style={{ background: "none", border: "none", color: "#64748b", fontSize: "18px", cursor: "pointer" }}>✕</button>
+              <button type="button" onClick={() => setEditingAdminUser(null)} style={{ background: "none", border: "none", color: "#64748b", fontSize: "18px", cursor: "pointer" }}><XIcon size={18} /></button>
             </div>
 
             <form onSubmit={handleUpdateAdminRole} style={{ padding: "24px" }}>
@@ -3575,9 +3979,9 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                   onChange={(e) => setAdminRoleForm({ ...adminRoleForm, admin_role: e.target.value })}
                   style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", background: "#ffffff" }}
                 >
-                  <option value="platform_admin">🛡️ Platform Administrator</option>
-                  <option value="platform_auditor">📜 Platform Auditor</option>
-                  <option value="platform_support">🎧 Platform Support Specialist</option>
+                  <option value="platform_admin">Platform Administrator</option>
+                  <option value="platform_auditor">Platform Auditor</option>
+                  <option value="platform_support">Platform Support Specialist</option>
                 </select>
               </div>
 

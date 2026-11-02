@@ -47,8 +47,8 @@ except Exception as _sync_exc:
     print(f"MongoDB startup bulk sync warning: {_sync_exc}")
 
 app = FastAPI(
-    title="Lunaris JEE Assessment API",
-    description="Multi-Tenant JEE-Style Proctored Examination Platform API",
+    title="Lunaris Specialized Assessment Platform API",
+    description="Multi-Tenant Specialized Computer-Based Assessment & Proctored Examination Platform API",
     version="1.0.0"
 )
 
@@ -61,8 +61,6 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
-        "https://backendsolpay.rugveddev.tech",
-        "http://backendsolpay.rugveddev.tech",
     ],
     allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*(rugveddev\.tech|localhost|127\.0\.0\.1)(:[0-9]+)?$",
     allow_credentials=True,
@@ -148,31 +146,31 @@ def health(db: Session = Depends(get_db)):
     except Exception:
         return {"status": "degraded", "database": "disconnected"}
 
-@app.post("/api/v1/seed/jee-demo")
-def seed_demo_jee_exam(
+@app.post("/api/v1/seed/demo-exam")
+def seed_demo_assessment_exam(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Seeds a ready-to-take JEE Main mock exam. Requires superadmin + ENABLE_DEMO_SEED=True."""
+    """Seeds a ready-to-take institutional assessment exam. Requires superadmin + ENABLE_DEMO_SEED=True."""
     if not settings.ENABLE_DEMO_SEED:
         raise HTTPException(status_code=403, detail="Demo seed is disabled in this environment")
     if not current_user.is_superadmin and not current_user.email.startswith("superadmin"):
         raise HTTPException(status_code=403, detail="Superadmin access required")
     # Check if demo org already exists
-    org = db.query(Organization).filter(Organization.slug == "allen-kota-mock").first()
+    org = db.query(Organization).filter(Organization.slug == "polaris-tech-mock").first()
     if not org:
-        org = Organization(name="Allen Kota JEE Division", slug="allen-kota-mock")
+        org = Organization(name="Polaris Institute of Technology", slug="polaris-tech-mock")
         db.add(org)
         db.flush()
 
     # Create Demo Admin/Author
-    admin_user = db.query(User).filter(User.email == "faculty@allen.ac.in").first()
+    admin_user = db.query(User).filter(User.email == "faculty@polaris.edu").first()
     if not admin_user:
         admin_user = User(
-            email="faculty@allen.ac.in",
+            email="faculty@polaris.edu",
             password_hash=get_password_hash("Password123!"),
-            full_name="Prof. Sharma (JEE Dean)"
+            full_name="Prof. Sharma (Dean of Academics)"
         )
         db.add(admin_user)
         db.flush()
@@ -195,7 +193,7 @@ def seed_demo_jee_exam(
         db.add(cand_member)
 
     # Check if Exam already exists
-    exam = db.query(Exam).filter(Exam.organization_id == org.id, Exam.title == "JEE Main 2026 Grand Mock Test (Paper 1)").first()
+    exam = db.query(Exam).filter(Exam.organization_id == org.id, Exam.title == "Comprehensive Midterm Assessment (Paper 1)").first()
     if not exam:
         # Seed Questions (Physics, Chemistry, Mathematics)
         q_data = [
@@ -297,8 +295,8 @@ def seed_demo_jee_exam(
 
         exam = Exam(
             organization_id=org.id,
-            title="JEE Main 2026 Grand Mock Test (Paper 1)",
-            description="Official NTA standard format: Physics, Chemistry & Mathematics. 180 Minutes.",
+            title="Comprehensive Midterm Assessment (Paper 1)",
+            description="Specialized institutional assessment format: Physics, Chemistry & Mathematics. 180 Minutes.",
             duration_minutes=180,
             status="published",
             created_by=admin_user.id
@@ -339,13 +337,13 @@ def seed_demo_jee_exam(
     from datetime import datetime, timezone, timedelta
     from app.models import ExamEnrollment
     now = datetime.now(timezone.utc)
-    assignment = db.query(ExamAssignment).filter(ExamAssignment.invite_token == "jee-mock-demo-token-2026").first()
+    assignment = db.query(ExamAssignment).filter(ExamAssignment.invite_token == "demo-assessment-token-2026").first()
     if not assignment:
         assignment = ExamAssignment(
             organization_id=org.id,
             exam_version_id=version.id,
             candidate_id=candidate.id,
-            invite_token="jee-mock-demo-token-2026",
+            invite_token="demo-assessment-token-2026",
             opens_at=now - timedelta(hours=1),
             closes_at=now + timedelta(days=30)
         )
@@ -375,15 +373,15 @@ def seed_demo_jee_exam(
     db.commit()
 
     return {
-        "message": "Demo JEE Exam created successfully with UID enrollment!",
+        "message": "Demo Institutional Exam created successfully with UID enrollment!",
         "organization_id": org.id,
         "organization_slug": org.slug,
-        "admin_credentials": {"email": "faculty@allen.ac.in", "password": "Password123!"},
+        "admin_credentials": {"email": "faculty@polaris.edu", "password": "Password123!"},
         "superadmin_credentials": {"email": "superadmin@lunaris.com", "password": "SuperAdmin123!"},
         "candidate_credentials": {"email": "candidate@lunaris.org", "password": "Candidate123!"},
         "candidate_uid": "LUN-AIR-2026",
         "candidate_pin": "2026",
-        "candidate_invite_token": "jee-mock-demo-token-2026",
+        "candidate_invite_token": "demo-assessment-token-2026",
         "exam_id": exam.id,
         "exam_title": exam.title,
         "total_questions": len(saved_questions)

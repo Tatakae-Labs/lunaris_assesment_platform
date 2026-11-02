@@ -22,7 +22,7 @@ def generate_credentials_roster_pdf(
     org_name: str,
     duration_minutes: int,
     enrollments: List[Dict[str, Any]],
-    portal_url: str = "https://backendsolpay.rugveddev.tech/candidate/entry"
+    portal_url: str = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/") + "/candidate-login"
 ) -> bytes:
     """
     Generates a professional examination credentials sheet and student roster PDF.

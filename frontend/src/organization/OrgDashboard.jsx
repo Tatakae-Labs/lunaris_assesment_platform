@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../shared/api";
+import {
+  BuildingIcon, BarChartIcon, TargetIcon, CreditCardIcon, ZapIcon, FileTextIcon,
+  UsersIcon, GlobeIcon, ShieldIcon, BotIcon, VideoIcon, CheckIcon, XIcon,
+  ChevronLeftIcon, ChevronRightIcon, SettingsIcon, RocketIcon, EditIcon,
+  TrashIcon, RefreshIcon, LogOutIcon, LockIcon, UnlockIcon, AlertTriangleIcon,
+  UploadIcon, DownloadIcon, SearchIcon, LinkIcon, CopyIcon, BellIcon,
+  MegaphoneIcon, MailIcon, PhoneIcon, PlusIcon, CrownIcon, SparklesIcon,
+  FolderIcon, CodeIcon, ClockIcon, TrophyIcon, UserIcon, GraduationCapIcon,
+  BookIcon, MenuIcon
+} from "../shared/Icons";
 import CreateQuestionModal from "./CreateQuestionModal";
 import ExamAnalyticsModal from "./ExamAnalyticsModal";
 import AiQuestionStudio from "./AiQuestionStudio";
@@ -8,6 +18,7 @@ import PlansBillingView from "./PlansBillingView";
 import ExamCreationWizard from "./ExamCreationWizard";
 import EnrollmentManagerModal from "./EnrollmentManagerModal";
 import LiveProctorDashboard from "../proctor-console/LiveProctorDashboard";
+import CandidateCapacityModal from "./CandidateCapacityModal";
 import { toast } from "../shared/toast";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -70,6 +81,11 @@ export default function OrgDashboard({
   const [newAcademyName, setNewAcademyName] = useState("");
   const [creatingAcademy, setCreatingAcademy] = useState(false);
 
+  // Join Existing Academy Workspace
+  const [showJoinOrgModal, setShowJoinOrgModal] = useState(false);
+  const [joinInviteCode, setJoinInviteCode] = useState("");
+  const [joiningOrg, setJoiningOrg] = useState(false);
+
   // Rename Academy Workspace
   const [showRenameOrgModal, setShowRenameOrgModal] = useState(false);
   const [editOrgName, setEditOrgName] = useState("");
@@ -101,7 +117,7 @@ export default function OrgDashboard({
         }
       }
       setShowRenameOrgModal(false);
-      toast.success(`✓ Academy successfully renamed to "${cleanName}"!`, { title: "Academy Renamed" });
+      toast.success(`Academy successfully renamed to "${cleanName}"!`, { title: "Academy Renamed" });
       await loadAllData();
     } catch (err) {
       toast.error("Failed to rename academy: " + err.message);
@@ -128,7 +144,7 @@ export default function OrgDashboard({
   async function handleCreateAcademy(e) {
     if (e) e.preventDefault();
     if (!newAcademyName.trim()) {
-      alert("Please enter a name for your academy.");
+      toast.warning("Please enter a name for your academy.");
       return;
     }
     setCreatingAcademy(true);
@@ -139,13 +155,52 @@ export default function OrgDashboard({
       handleSwitchOrg(res);
       setShowCreateAcademyModal(false);
       setNewAcademyName("");
-      alert(`🎉 Academy "${res.name}" created successfully!\nYou are now managing this academy.`);
+      toast.success(`Academy "${res.name}" created successfully! You are now managing this academy.`);
     } catch (err) {
-      alert("Failed to create academy: " + err.message);
+      toast.error("Failed to create academy: " + err.message);
     } finally {
       setCreatingAcademy(false);
     }
   }
+
+  async function handleJoinAcademy(e) {
+    if (e) e.preventDefault();
+    const cleanCode = joinInviteCode.trim().toUpperCase();
+    if (!cleanCode) {
+      toast.warning("Please enter an academy invite code (e.g. ORG-CODE).");
+      return;
+    }
+    setJoiningOrg(true);
+    try {
+      const res = await api.joinOrganization(cleanCode);
+      const updatedList = await api.getMyOrganizations().catch(() => []);
+      setMyOrgs(updatedList || []);
+      handleSwitchOrg(res);
+      setShowJoinOrgModal(false);
+      setJoinInviteCode("");
+      toast.success(`Successfully joined "${res.name || res.organization_name}"!`, { title: "Academy Joined" });
+      await loadAllData();
+    } catch (err) {
+      toast.error("Failed to join academy: " + err.message);
+    } finally {
+      setJoiningOrg(false);
+    }
+  }
+
+  // Detect ?join=ORG-CODE in dashboard URL query
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const joinParam = params.get("join");
+      if (joinParam && joinParam.trim()) {
+        const clean = joinParam.trim().toUpperCase();
+        setJoinInviteCode(clean);
+        setShowJoinOrgModal(true);
+      }
+    } catch (e) {
+      console.warn("URL join check notice:", e);
+    }
+  }, []);
 
   // Data states
   const [orgServices, setOrgServices] = useState({
@@ -161,6 +216,7 @@ export default function OrgDashboard({
   const [orgProperties, setOrgProperties] = useState({});
   const [myOrgs, setMyOrgs] = useState([]);
   const [orgUsage, setOrgUsage] = useState(null);
+  const [showCapacityModal, setShowCapacityModal] = useState(false);
   const [exams, setExams] = useState([]);
   const [questions, setQuestions] = useState([]);
   const [selectedSubject, setSelectedSubject] = useState("");
@@ -172,8 +228,22 @@ export default function OrgDashboard({
   const [isSeedingPack, setIsSeedingPack] = useState(false);
   const [inviteCode, setInviteCode] = useState(activeOrgId ? `ORG-${activeOrgId.toUpperCase().replace(/[^A-Z0-9]/g, "-")}` : "");
 
+  // Sidebar Collapsible & Responsive State
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   // Google Classroom Integration State
   const [showClassroomModal, setShowClassroomModal] = useState(false);
+  const [classroomActiveTab, setClassroomActiveTab] = useState("upload_anything"); // "upload_anything", "publish_exam", "roster_sync"
+  const [classroomUploadType, setClassroomUploadType] = useState("assignment"); // "assignment", "announcement", "material"
+  const [classroomUploadTitle, setClassroomUploadTitle] = useState("");
+  const [classroomUploadDesc, setClassroomUploadDesc] = useState("");
+  const [classroomUploadLink, setClassroomUploadLink] = useState("");
+  const [classroomUploadExamId, setClassroomUploadExamId] = useState("");
+  const [classroomUploadFileBase64, setClassroomUploadFileBase64] = useState("");
+  const [classroomUploadFileName, setClassroomUploadFileName] = useState("");
+  const [classroomUploadFileMime, setClassroomUploadFileMime] = useState("application/pdf");
+  const [classroomUploadPoints, setClassroomUploadPoints] = useState(100);
   const [classroomCourses, setClassroomCourses] = useState([]);
   const [selectedClassroomCourse, setSelectedClassroomCourse] = useState("");
   const [selectedClassroomExam, setSelectedClassroomExam] = useState("");
@@ -209,6 +279,16 @@ export default function OrgDashboard({
     }
     return [];
   });
+
+  // Exam deletion state
+  const [examToDelete, setExamToDelete] = useState(null);
+  const [deletingExam, setDeletingExam] = useState(false);
+
+  // Pagination states for Examinations and Question Bank
+  const [examPage, setExamPage] = useState(1);
+  const examPageSize = 10;
+  const [qPage, setQPage] = useState(1);
+  const qPageSize = 10;
 
   // Create Exam Wizard state
   const [showCreateExamModal, setShowCreateExamModal] = useState(false);
@@ -378,17 +458,92 @@ export default function OrgDashboard({
     }
   }
 
-  async function openClassroomModal(examId = null) {
+  async function openClassroomModal(examId = null, tab = "upload_anything") {
     setShowClassroomModal(true);
+    setClassroomActiveTab(tab);
     setClassroomSyncResult(null);
     setClassroomEnrolledResult(null);
     if (examId) {
       setSelectedClassroomExam(examId);
+      setClassroomUploadExamId(examId);
+      const targetExam = exams.find(e => e.id === examId);
+      if (targetExam) {
+        setClassroomUploadTitle(targetExam.title);
+        setClassroomUploadDesc(`Assessment Paper: ${targetExam.title}\nDuration: ${targetExam.duration_minutes} Minutes\nRoom Code: ${targetExam.room_code || 'ACTIVE'}`);
+      }
     } else if (exams.length > 0 && !selectedClassroomExam) {
       setSelectedClassroomExam(exams[0].id);
+      setClassroomUploadExamId(exams[0].id);
+      setClassroomUploadTitle(exams[0].title);
     }
 
     await refreshClassroomCourses();
+  }
+
+  function handleClassroomFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setClassroomUploadFileName(file.name);
+    setClassroomUploadFileMime(file.type || "application/octet-stream");
+    if (!classroomUploadTitle.trim()) {
+      setClassroomUploadTitle(file.name.replace(/\.[^/.]+$/, ""));
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setClassroomUploadFileBase64(ev.target.result);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleUploadDirectToClassroom(e) {
+    if (e) e.preventDefault();
+    if (!selectedClassroomCourse) {
+      alert("Please select a Google Classroom course.");
+      return;
+    }
+    if (!classroomUploadTitle.trim()) {
+      alert("Please enter a title for the content being uploaded to Google Classroom.");
+      return;
+    }
+    setClassroomLoading(true);
+    setClassroomSyncResult(null);
+    try {
+      const res = await api.uploadClassroomContent({
+        organization_id: activeOrgId,
+        course_id: selectedClassroomCourse,
+        post_type: classroomUploadType,
+        title: classroomUploadTitle.trim(),
+        description: classroomUploadDesc.trim(),
+        link_url: classroomUploadLink.trim() || undefined,
+        exam_id: classroomUploadExamId || undefined,
+        max_points: Number(classroomUploadPoints) || 100,
+        file_content_base64: classroomUploadFileBase64 || undefined,
+        file_name: classroomUploadFileName || undefined,
+        file_mime_type: classroomUploadFileMime || "application/pdf"
+      });
+      setClassroomSyncResult({
+        message: res.message || `Uploaded ${classroomUploadType} to Google Classroom!`,
+        alternate_link: res.alternate_link,
+        coursework_id: res.item_id || "LIVE"
+      });
+      alert(res.message || "Uploaded directly to Google Classroom!");
+    } catch (err) {
+      const errMsg = err.message || String(err);
+      if (errMsg.includes("insufficient authentication scopes") || errMsg.includes("403")) {
+        alert("Google Classroom requires permission for Announcements & Course Materials.\n\nPlease click 'Re-authorize Google' at the top of the Classroom Hub and ensure all permission boxes are checked on Google's consent screen.");
+        handleConnectGoogleClassroom();
+      } else if (errMsg.includes("invalid authentication credentials") || errMsg.includes("401") || errMsg.includes("re-connect") || errMsg.includes("Expected OAuth 2")) {
+        setClassroomConnected(false);
+        alert("Your Google Classroom login has expired.\n\nPlease click 'Connect Google Classroom' to sign in again.");
+        handleConnectGoogleClassroom();
+      } else if (errMsg.includes("drive.googleapis.com") || errMsg.includes("Google Drive API")) {
+        alert("Notice: To enable native Google Drive file previews, please click 'Enable' on the Google Drive API in Google Cloud Console:\nhttps://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=539216233370");
+      } else {
+        alert("Failed to upload to Google Classroom: " + errMsg);
+      }
+    } finally {
+      setClassroomLoading(false);
+    }
   }
 
   function handleConnectGoogleClassroom() {
@@ -399,7 +554,16 @@ export default function OrgDashboard({
     }
     const tokenClient = window.google.accounts.oauth2.initTokenClient({
       client_id: activeCid,
-      scope: "https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.profile.emails https://www.googleapis.com/auth/classroom.coursework.students https://www.googleapis.com/auth/drive.file",
+      scope: [
+        "https://www.googleapis.com/auth/classroom.courses.readonly",
+        "https://www.googleapis.com/auth/classroom.rosters.readonly",
+        "https://www.googleapis.com/auth/classroom.profile.emails",
+        "https://www.googleapis.com/auth/classroom.coursework.students",
+        "https://www.googleapis.com/auth/classroom.coursework.me",
+        "https://www.googleapis.com/auth/classroom.announcements",
+        "https://www.googleapis.com/auth/classroom.courseworkmaterials",
+        "https://www.googleapis.com/auth/drive.file"
+      ].join(" "),
       callback: async (tokenResp) => {
         if (tokenResp?.error) {
           alert("Google Classroom authorization was cancelled: " + tokenResp.error);
@@ -414,7 +578,7 @@ export default function OrgDashboard({
             });
             setClassroomConnected(true);
             await refreshClassroomCourses();
-            alert("✓ Google Classroom connected successfully! Loaded your available courses.");
+            alert("Google Classroom connected successfully! Loaded your available courses.");
           } catch (err) {
             alert("Failed to connect Google Classroom: " + err.message);
           } finally {
@@ -444,6 +608,16 @@ export default function OrgDashboard({
       }
     } catch (e) {
       console.warn("Classroom courses refresh error:", e);
+      const errMsg = e.message || String(e);
+      if (
+        errMsg.includes("401") ||
+        errMsg.includes("invalid authentication credentials") ||
+        errMsg.includes("re-connect") ||
+        errMsg.includes("Expected OAuth 2")
+      ) {
+        setClassroomConnected(false);
+        setClassroomCourses([]);
+      }
     } finally {
       setClassroomLoading(false);
     }
@@ -497,12 +671,12 @@ export default function OrgDashboard({
       }
 
       toast.success(
-        `🎉 Published to Google Classroom with Candidate Credentials PDF!\n\n` +
+        `Published to Google Classroom with Candidate Credentials PDF!\n\n` +
         `• Official CourseWork assignment posted to Classroom stream\n` +
         `• Candidate Credentials PDF Sheet attached directly in Classroom materials\n` +
         `• All student login UIDs & access PINs posted in instructions\n` +
         `• Credentials PDF also downloaded to your computer\n` +
-        `• Students can log in at: https://backendsolpay.rugveddev.tech/candidate/entry`,
+        `• Students can log in at: ${window.location.origin}/candidate-login`,
         { title: "Google Classroom Published", duration: 7000 }
       );
     } catch (err) {
@@ -533,9 +707,9 @@ export default function OrgDashboard({
       }
 
       toast.success(
-        `✓ ${res.message}\n\n` +
+        `${res.message}\n\n` +
         `• Downloaded Candidate Credentials PDF (Login IDs & Passwords)\n` +
-        `• Candidates can log in at https://backendsolpay.rugveddev.tech/candidate/entry using their UID & PIN.`,
+        `• Candidates can log in at ${window.location.origin}/candidate-login using their UID & PIN.`,
         { title: "Students Enrolled", duration: 6000 }
       );
     } catch (err) {
@@ -563,7 +737,7 @@ export default function OrgDashboard({
       smtp_status: "250 2.0.0 OK: Delivered via Nodemailer SMTP Transport",
       timestamp: new Date().toLocaleTimeString(),
       preview_subject: `You've been invited to join ${orgUsage?.organization_name || orgName} on Lunaris`,
-      preview_body: `Dear Colleague,\n\nYou have been invited to join the ${orgUsage?.organization_name || orgName} assessment workspace on Lunaris as ${inviteRole.replace(/_/g, " ").toUpperCase()}.\n\n🔑 Organization Invite Code: ${inviteCode}\n🌐 Direct Join Link: ${window.location.origin}/?join=${inviteCode}\n\nPlease visit the platform and use the invite code to link your account.`
+      preview_body: `Dear Colleague,\n\nYou have been invited to join the ${orgUsage?.organization_name || orgName} assessment workspace on Lunaris as ${inviteRole.replace(/_/g, " ").toUpperCase()}.\n\n Organization Invite Code: ${inviteCode}\n Direct Join Link: ${window.location.origin}/?join=${inviteCode}\n\nPlease visit the platform and use the invite code to link your account.`
     };
     setInviteModalSent(simulatedDispatch);
     setMembers((prev) => [
@@ -577,6 +751,22 @@ export default function OrgDashboard({
         permissions: inviteRole === "exam_author" ? "Paper Authoring & AI Studio" : inviteRole === "proctor" ? "Live Proctoring & Review" : "Full Platform Administration"
       }
     ]);
+  }
+
+  async function confirmDeleteExam() {
+    if (!examToDelete) return;
+    setDeletingExam(true);
+    try {
+      await api.deleteExam(examToDelete.id);
+      setExams((prev) => prev.filter((e) => e.id !== examToDelete.id));
+      toast.success(`Exam "${examToDelete.title}" deleted successfully`);
+      setExamToDelete(null);
+      loadUsage();
+    } catch (err) {
+      toast.error("Failed to delete exam: " + err.message);
+    } finally {
+      setDeletingExam(false);
+    }
   }
 
   async function handlePublishExam(examId) {
@@ -595,16 +785,16 @@ export default function OrgDashboard({
       await loadAllData();
 
       const classroomMsg = res.classroom_synced
-        ? `\n\n🟢 Google Classroom Synced: Auto-enrolled students from "${res.classroom_course_name || 'Active Course'}"!`
+        ? `\n\nGoogle Classroom Synced: Auto-enrolled students from "${res.classroom_course_name || 'Active Course'}"!`
         : "";
 
       alert(
-        `🎉 Exam Published Successfully!\n\n` +
+        `Exam Published Successfully!\n\n` +
         `• Snapshot Version #${res.version_number} locked\n` +
         `• Total Questions: ${res.question_count}\n` +
         `• Enrolled Candidates: ${res.enrolled_count || 0}${classroomMsg}\n` +
         `• Downloaded Candidate Credentials PDF (Login IDs & Passwords)\n\n` +
-        `Candidates can now log in at:\nhttps://backendsolpay.rugveddev.tech/candidate/entry\nRoom Code: ${roomCode}`
+        `Candidates can now log in at:\n${window.location.origin}/candidate-login\nRoom Code: ${roomCode}`
       );
     } catch (err) {
       alert("Error publishing exam: " + err.message);
@@ -725,7 +915,7 @@ export default function OrgDashboard({
 
   async function handleClearQuestions() {
     const filterDesc = selectedSubject ? `all questions under subject "${selectedSubject}"` : "ALL questions in the entire Question Bank";
-    if (!window.confirm(`⚠️ DANGER: Are you sure you want to delete ${filterDesc}?\n\nThis action is permanent and cannot be undone.`)) {
+    if (!window.confirm(`WARNING: Are you sure you want to delete ${filterDesc}?\n\nThis action is permanent and cannot be undone.`)) {
       return;
     }
     try {
@@ -774,6 +964,9 @@ export default function OrgDashboard({
     const matchesStatus = examStatusFilter === "all" || ex.status === examStatusFilter;
     return matchesSearch && matchesMode && matchesStatus;
   });
+  const totalExamPages = Math.ceil(filteredExams.length / examPageSize) || 1;
+  const pagedExams = filteredExams.slice((examPage - 1) * examPageSize, examPage * examPageSize);
+
 
   const filteredQuestions = questions.filter((q) => {
     if (!questionSearchQuery.trim()) return true;
@@ -782,208 +975,171 @@ export default function OrgDashboard({
     const subjectMatch = q.subject && q.subject.toLowerCase().includes(qLower);
     return textMatch || subjectMatch;
   });
+  const totalQPages = Math.ceil(filteredQuestions.length / qPageSize) || 1;
+  const pagedQuestions = filteredQuestions.slice((qPage - 1) * qPageSize, qPage * qPageSize);
+
 
   const displayOrgName = orgUsage?.organization_name || orgName;
   const orgInitials = getInitials(displayOrgName);
 
   // ── render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ maxWidth: "1280px", margin: "0 auto", padding: "32px 24px" }}>
+    <div style={{ display: "flex", height: "100vh", maxHeight: "100vh", width: "100vw", overflow: "hidden", background: "#f8fafc", color: "var(--text-primary)", position: "relative" }}>
 
-      {/* ── TOP PLATFORM NAVIGATION BAR ─────────────────────────────────────── */}
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        marginBottom: "20px",
-        flexWrap: "wrap",
-        gap: "12px"
-      }}>
+      {/* ── MOBILE BACKDROP OVERLAY ────────────────────────────────────────── */}
+      {mobileMenuOpen && (
         <div
-          style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}
-          onClick={onExitToPublic}
-          title="Return to Lunaris Homepage"
-        >
-          <img
-            src="/logo.png"
-            alt="Lunaris"
-            style={{ width: "34px", height: "34px", objectFit: "contain", borderRadius: "50%", boxShadow: "0 2px 6px rgba(0,0,0,0.06)" }}
-          />
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontWeight: "800", fontSize: "18px", letterSpacing: "0.5px", color: "var(--text-primary)" }}>
-              LUNARIS
-            </span>
-            <span style={{
-              fontSize: "10px",
-              fontWeight: "700",
-              color: "var(--accent-blue)",
-              background: "var(--accent-blue-subtle)",
-              padding: "2px 8px",
-              borderRadius: "9999px",
-              letterSpacing: "0.5px"
-            }}>
-              WORKSPACE
-            </span>
-          </div>
-        </div>
+          onClick={() => setMobileMenuOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.45)",
+            backdropFilter: "blur(3px)",
+            zIndex: 90
+          }}
+        />
+      )}
 
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <button
-            type="button"
-            onClick={onExitToPublic}
-            className="btn-secondary"
-            style={{ padding: "6px 12px", fontSize: "12px" }}
-          >
-            ← Public Portal
-          </button>
-          {onOpenProctorConsole && (
-            <button
-              type="button"
-              onClick={onOpenProctorConsole}
-              className="btn-secondary"
-              style={{ padding: "6px 12px", fontSize: "12px", color: "var(--accent-blue)" }}
-            >
-              🛡️ Live Proctoring
-            </button>
-          )}
-          {onLogout && (
-            <button
-              type="button"
-              onClick={onLogout}
-              className="btn-secondary"
-              style={{ padding: "6px 12px", fontSize: "12px" }}
-            >
-              Sign Out
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── HEADER CARD ─────────────────────────────────────────────────── */}
-      <div
-        className="dash-card"
+      {/* ── COLLAPSIBLE & RESPONSIVE SIDEBAR ─────────────────────────────────── */}
+      <aside
         style={{
-          marginBottom: "28px",
-          overflow: "hidden",
-          background: "var(--gradient-header)",
-          borderLeft: "5px solid transparent",
-          borderImage: "var(--gradient-primary) 1",
-          position: "relative"
+          width: sidebarCollapsed ? "72px" : "255px",
+          minWidth: sidebarCollapsed ? "72px" : "255px",
+          background: "#ffffff",
+          borderRight: "1px solid var(--border-subtle)",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          position: "relative", flexShrink: 0, maxHeight: "100vh",
+          top: 0,
+          height: "100vh",
+          zIndex: 95,
+          transition: "width 0.22s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s ease",
+          overflowX: "hidden",
+          overflowY: "auto"
         }}
+        className={mobileMenuOpen ? "mobile-sidebar-open" : ""}
       >
-        {/* Subtle dot-grid background pattern */}
-        <div style={{
-          position: "absolute", inset: 0, pointerEvents: "none",
-          backgroundImage: "radial-gradient(circle, rgba(37,99,235,0.07) 1px, transparent 1px)",
-          backgroundSize: "28px 28px"
-        }} />
-
-        <div style={{ padding: "28px 28px 24px", position: "relative" }}>
-          {/* Top row: avatar + info + actions */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
-
-            {/* Left: Avatar + org info */}
-            <div style={{ display: "flex", alignItems: "center", gap: "18px" }}>
-              <div className="avatar-circle">{orgInitials || "LN"}</div>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                  <h1 style={{ fontSize: "22px", fontWeight: "800", color: "var(--text-primary)", fontFamily: "var(--font-display)", lineHeight: 1.2 }}>
-                    {displayOrgName}
-                  </h1>
-
-                  {/* Plan badge – gradient pill */}
-                  <span style={{
-                    background: "var(--gradient-primary)",
-                    color: "#ffffff",
-                    fontSize: "11px",
-                    fontWeight: "700",
-                    padding: "3px 11px",
-                    borderRadius: "9999px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.6px",
-                    boxShadow: "0 2px 6px rgba(37,99,235,0.22)"
-                  }}>
-                    {orgUsage?.plan_id || currentPlan}
-                  </span>
-
-                  {/* Quick Upgrade / UPI Payment CTA button */}
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("billing")}
-                    style={{
-                      background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                      color: "#ffffff",
-                      border: "none",
-                      fontSize: "11px",
-                      fontWeight: "800",
-                      padding: "4px 12px",
-                      borderRadius: "9999px",
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "5px",
-                      boxShadow: "0 2px 6px rgba(16,185,129,0.35)",
-                      transition: "transform 0.1s ease"
-                    }}
-                    title="Upgrade your subscription tier and pay instantly via UPI"
-                  >
-                    <span>⚡</span>
-                    <span>Upgrade Plan & Pay via UPI</span>
-                  </button>
-
-                  {/* MongoDB live badge with pulsing dot */}
-                  <span
-                    style={{
-                      background: "rgba(16, 185, 129, 0.1)",
-                      color: "#059669",
-                      border: "1px solid rgba(16,185,129,0.25)",
-                      fontSize: "12px",
-                      fontWeight: "700",
-                      padding: "3px 10px",
-                      borderRadius: "9999px",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px"
-                    }}
-                    title="MongoDB Real-time Change Data Capture Active (890+ docs synced across 21 collections)"
-                  >
-                    <span className="mongo-pulse" />
-                    🍃 MongoDB Live
-                  </span>
-                </div>
-
-                {/* Breadcrumb-style subtitle */}
-                <p style={{ color: "var(--text-muted)", fontSize: "13px", marginTop: "5px", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                  <img src="/logo.png" alt="Lunaris" style={{ width: "16px", height: "16px", objectFit: "contain", borderRadius: "50%" }} />
-                  <span style={{ color: "var(--accent-blue)", fontWeight: "600" }}>Lunaris</span>
-                  <span style={{ color: "var(--border-strong)" }}>›</span>
-                  <span style={{ fontWeight: "600", color: "var(--text-secondary)" }}>{displayOrgName}</span>
-                  <span style={{ color: "var(--border-strong)" }}>›</span>
-                  {currentUser ? (
-                    <span>
-                      <strong style={{ color: "var(--text-primary)" }}>{currentUser.full_name || currentUser.email}</strong>
-                      <span style={{ color: "var(--text-muted)" }}> · Admin Dashboard</span>
-                    </span>
-                  ) : (
-                    <span>Multi-tenant Assessment Workspace</span>
-                  )}
-                </p>
-              </div>
+        {/* Top Part of Sidebar */}
+        <div>
+          {/* Brand Lockup & Collapse Button */}
+          <div style={{
+            height: "64px",
+            padding: sidebarCollapsed ? "0 12px" : "0 18px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: sidebarCollapsed ? "center" : "space-between",
+            borderBottom: "1px solid var(--border-subtle)",
+            gap: "8px"
+          }}>
+            <div
+              style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", minWidth: 0 }}
+              onClick={onExitToPublic}
+              title="Return to Lunaris Homepage"
+            >
+              <img
+                src="/logo.png"
+                alt="Lunaris"
+                style={{ width: "32px", height: "32px", objectFit: "contain", borderRadius: "50%", flexShrink: 0 }}
+              />
+              {!sidebarCollapsed && (
+                <span style={{
+                  fontFamily: "var(--font-display)",
+                  fontWeight: "800",
+                  fontSize: "17px",
+                  letterSpacing: "0.5px",
+                  color: "#0f172a",
+                  whiteSpace: "nowrap"
+                }}>
+                  LUNARIS
+                </span>
+              )}
             </div>
 
-            {/* Right: action buttons & Academy Switcher */}
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-              {/* Academy Switcher & Creator */}
-              <div style={{
+            {/* Collapse / Expand Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              style={{
+                width: "28px",
+                height: "28px",
+                borderRadius: "6px",
+                border: "1px solid var(--border-subtle)",
+                background: "#f8fafc",
+                color: "var(--text-muted)",
                 display: "flex",
                 alignItems: "center",
-                gap: "4px",
+                justifyContent: "center",
+                cursor: "pointer",
+                fontSize: "12px",
+                flexShrink: 0
+              }}
+              title={sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              {sidebarCollapsed ? "▶" : "◀"}
+            </button>
+          </div>
+
+          {/* Academy Selector in Sidebar */}
+          <div style={{ padding: sidebarCollapsed ? "12px 8px" : "14px 16px", borderBottom: "1px solid var(--border-subtle)" }}>
+            {sidebarCollapsed ? (
+              <div
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  margin: "0 auto",
+                  borderRadius: "8px",
+                  background: "var(--accent-blue-subtle)",
+                  color: "var(--accent-blue)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "18px",
+                  cursor: "pointer"
+                }}
+                title={`Active Academy: ${displayOrgName}`}
+                onClick={handleOpenRenameModal}
+              >
+                
+              </div>
+            ) : (
+              <div style={{
                 background: "#f8fafc",
-                padding: "3px 6px 3px 10px",
+                border: "1px solid var(--border-subtle)",
                 borderRadius: "8px",
-                border: "1px solid var(--border-subtle)"
+                padding: "8px 10px"
               }}>
-                <span style={{ fontSize: "14px" }}>🏛️</span>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+                  <span style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-muted)" }}>
+                    Active Academy
+                  </span>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowJoinOrgModal(true)}
+                      style={{ background: "none", border: "none", color: "#059669", fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: "0 2px" }}
+                      title="Join Academy with Invite Code"
+                    >
+                      + Join
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateAcademyModal(true)}
+                      style={{ background: "none", border: "none", color: "var(--accent-blue)", fontSize: "11px", fontWeight: "700", cursor: "pointer", padding: "0 2px" }}
+                      title="Create New Academy"
+                    >
+                      + New
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenRenameModal}
+                      style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: "11px", fontWeight: "600", cursor: "pointer", padding: "0 2px" }}
+                      title="Rename Academy"
+                    >
+                      Rename
+                    </button>
+                  </div>
+                </div>
                 <select
                   value={activeOrgId}
                   onChange={(e) => {
@@ -991,18 +1147,15 @@ export default function OrgDashboard({
                     if (sel) handleSwitchOrg(sel);
                   }}
                   style={{
-                    padding: "4px 6px",
-                    borderRadius: "6px",
+                    width: "100%",
                     border: "none",
-                    fontSize: "12px",
-                    fontWeight: "700",
                     background: "transparent",
-                    color: "var(--text-primary)",
+                    fontSize: "13px",
+                    fontWeight: "700",
+                    color: "#0f172a",
                     cursor: "pointer",
-                    outline: "none",
-                    maxWidth: "180px"
+                    outline: "none"
                   }}
-                  title="Switch Active Academy"
                 >
                   {myOrgs.map(o => (
                     <option key={o.id} value={o.id}>
@@ -1013,1092 +1166,1532 @@ export default function OrgDashboard({
                     <option value={activeOrgId}>{orgName}</option>
                   )}
                 </select>
-
-                <button
-                  type="button"
-                  onClick={() => setShowCreateAcademyModal(true)}
-                  style={{
-                    padding: "4px 8px",
-                    background: "var(--accent-blue)",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: "5px",
-                    fontSize: "11px",
-                    fontWeight: "700",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "2px"
-                  }}
-                  title="Create New Academy"
-                >
-                  + New
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleOpenRenameModal}
-                  style={{
-                    padding: "4px 8px",
-                    background: "#ffffff",
-                    color: "var(--text-secondary)",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: "5px",
-                    fontSize: "11px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "2px"
-                  }}
-                  title="Rename Active Academy"
-                >
-                  ✏️ Rename
-                </button>
               </div>
-
-              {currentUser?.is_superadmin && (
-                <button
-                  type="button"
-                  onClick={() => navigate("/admin")}
-                  style={{
-                    padding: "8px 14px",
-                    background: "#0f172a",
-                    color: "#ffffff",
-                    border: "1px solid #1e293b",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    fontWeight: "700",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px"
-                  }}
-                >
-                  🛡️ Platform SuperAdmin
-                </button>
-              )}
-              {onExitToPublic && (
-                <button
-                  type="button"
-                  onClick={onExitToPublic}
-                  className="btn-secondary"
-                  style={{ padding: "8px 14px", fontSize: "13px" }}
-                >
-                  🌐 Public Site
-                </button>
-              )}
-              {onOpenProctorConsole && orgServices.proctor_console !== false && (
-                <button
-                  type="button"
-                  onClick={onOpenProctorConsole}
-                  style={{
-                    padding: "8px 14px",
-                    background: "var(--accent-blue-subtle)",
-                    color: "var(--accent-blue)",
-                    border: "1px solid rgba(37, 99, 235, 0.22)",
-                    borderRadius: "8px",
-                    fontSize: "13px",
-                    fontWeight: "700",
-                    cursor: "pointer"
-                  }}
-                >
-                  🛡️ Proctor Console
-                </button>
-              )}
-              {onLogout && (
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  className="btn-secondary"
-                  style={{ padding: "8px 14px", fontSize: "13px" }}
-                >
-                  Sign Out
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => openClassroomModal()}
-                style={{
-                  padding: "8px 14px",
-                  fontSize: "13px",
-                  fontWeight: "700",
-                  borderRadius: "8px",
-                  border: "1px solid #16a34a",
-                  background: "#f0fdf4",
-                  color: "#16a34a",
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px"
-                }}
-              >
-                🎓 Google Classroom
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowInviteModal(true)}
-                className="btn-secondary"
-                style={{ padding: "8px 14px", fontSize: "13px" }}
-              >
-                + Invite Member
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowCreateExamModal(true)}
-                className="btn-primary"
-                style={{ padding: "9px 18px", fontSize: "13px" }}
-              >
-                ✦ Create New Exam
-              </button>
-            </div>
+            )}
           </div>
 
-          {/* ── Live Academy Capacity & Plan Quotas Banner ─────────────── */}
-          <div style={{
-            marginTop: "16px",
-            padding: "16px 20px",
-            background: "#ffffff",
-            border: "1px solid var(--border-subtle)",
-            borderRadius: "12px",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.04)"
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", marginBottom: "14px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <div style={{
-                  width: "36px",
-                  height: "36px",
-                  borderRadius: "8px",
-                  background: "var(--accent-blue-subtle)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "18px"
-                }}>
-                  🏛️
-                </div>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                    <strong style={{ fontSize: "15px", color: "var(--text-primary)" }}>{orgName}</strong>
-                    <button
-                      type="button"
-                      onClick={handleOpenRenameModal}
-                      title="Rename Academy Workspace"
-                      style={{
-                        padding: "2px 8px",
-                        fontSize: "11px",
-                        fontWeight: "600",
-                        background: "#ffffff",
-                        border: "1px solid var(--border-subtle)",
-                        borderRadius: "5px",
-                        cursor: "pointer",
-                        color: "var(--text-secondary)",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "3px"
-                      }}
-                    >
-                      ✏️ Rename
-                    </button>
-                    <span style={{
-                      fontSize: "11px",
-                      fontWeight: "800",
-                      textTransform: "uppercase",
-                      padding: "2px 8px",
-                      borderRadius: "6px",
-                      background: (orgUsage?.plan_id === "institution" ? "#eff6ff" : orgUsage?.plan_id === "creator_pro" ? "#f5f3ff" : "#f1f5f9"),
-                      color: (orgUsage?.plan_id === "institution" ? "#1d4ed8" : orgUsage?.plan_id === "creator_pro" ? "#6d28d9" : "#475569"),
-                      border: `1px solid ${orgUsage?.plan_id === "institution" ? "#bfdbfe" : orgUsage?.plan_id === "creator_pro" ? "#ddd6fe" : "#cbd5e1"}`
-                    }}>
-                      {orgUsage?.plan_name || "Free Starter Tier"}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
-                    Workspace: <code>{activeOrgId.slice(0, 8)}...</code> · Isolated classroom stream, roster & exams
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateAcademyModal(true)}
-                  className="btn-secondary"
-                  style={{ padding: "6px 12px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "4px" }}
-                >
-                  ➕ Create Another Academy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("billing")}
-                  className="btn-primary"
-                  style={{ padding: "6px 14px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "4px" }}
-                >
-                  ⚡ Upgrade Plan & Seats
-                </button>
-              </div>
-            </div>
-
-            {/* 4 Quota Meters Grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
-              {/* Candidate Seats */}
-              <div style={{ padding: "10px 14px", background: "#f8fafc", borderRadius: "8px", border: "1px solid var(--border-subtle)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "6px" }}>
-                  <span>🎓 Candidate Seats</span>
-                  <span>{orgUsage?.candidates_count || 0} / {orgUsage?.max_candidates || 30}</span>
-                </div>
-                <div style={{ width: "100%", height: "6px", background: "#e2e8f0", borderRadius: "3px", overflow: "hidden" }}>
-                  <div style={{
-                    width: `${Math.min(100, (((orgUsage?.candidates_count || 0) / (orgUsage?.max_candidates || 30)) * 100))}%`,
-                    height: "100%",
-                    background: ((orgUsage?.candidates_count || 0) >= (orgUsage?.max_candidates || 30)) ? "#ef4444" : "#2563eb",
-                    borderRadius: "3px",
-                    transition: "width 0.3s"
-                  }} />
-                </div>
-              </div>
-
-              {/* Exams Limit */}
-              <div style={{ padding: "10px 14px", background: "#f8fafc", borderRadius: "8px", border: "1px solid var(--border-subtle)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "6px" }}>
-                  <span>📝 Exams Limit</span>
-                  <span>{orgUsage?.exams_count || exams.length || 0} / {orgUsage?.max_exams || 3}</span>
-                </div>
-                <div style={{ width: "100%", height: "6px", background: "#e2e8f0", borderRadius: "3px", overflow: "hidden" }}>
-                  <div style={{
-                    width: `${Math.min(100, (((orgUsage?.exams_count || exams.length || 0) / (orgUsage?.max_exams || 3)) * 100))}%`,
-                    height: "100%",
-                    background: ((orgUsage?.exams_count || exams.length || 0) >= (orgUsage?.max_exams || 3)) ? "#ef4444" : "#16a34a",
-                    borderRadius: "3px",
-                    transition: "width 0.3s"
-                  }} />
-                </div>
-              </div>
-
-              {/* Team Faculty Limit */}
-              <div style={{ padding: "10px 14px", background: "#f8fafc", borderRadius: "8px", border: "1px solid var(--border-subtle)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "6px" }}>
-                  <span>👥 Faculty & Staff</span>
-                  <span>{orgUsage?.members_count || members.length || 1} / {orgUsage?.max_members || 2}</span>
-                </div>
-                <div style={{ width: "100%", height: "6px", background: "#e2e8f0", borderRadius: "3px", overflow: "hidden" }}>
-                  <div style={{
-                    width: `${Math.min(100, (((orgUsage?.members_count || members.length || 1) / (orgUsage?.max_members || 2)) * 100))}%`,
-                    height: "100%",
-                    background: ((orgUsage?.members_count || members.length || 1) >= (orgUsage?.max_members || 2)) ? "#ef4444" : "#8b5cf6",
-                    borderRadius: "3px",
-                    transition: "width 0.3s"
-                  }} />
-                </div>
-              </div>
-
-              {/* AI Proctoring Attempts */}
-              <div style={{ padding: "10px 14px", background: "#f8fafc", borderRadius: "8px", border: "1px solid var(--border-subtle)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "6px" }}>
-                  <span>🛡️ AI Proctoring</span>
-                  <span>{orgUsage?.proctoring_used || 0} / {orgUsage?.max_proctoring_attempts || 5}</span>
-                </div>
-                <div style={{ width: "100%", height: "6px", background: "#e2e8f0", borderRadius: "3px", overflow: "hidden" }}>
-                  <div style={{
-                    width: `${Math.min(100, (((orgUsage?.proctoring_used || 0) / (orgUsage?.max_proctoring_attempts || 5)) * 100))}%`,
-                    height: "100%",
-                    background: ((orgUsage?.proctoring_used || 0) >= (orgUsage?.max_proctoring_attempts || 5)) ? "#ef4444" : "#0d9488",
-                    borderRadius: "3px",
-                    transition: "width 0.3s"
-                  }} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ── KPI Metrics Row ──────────────────────────────────────────── */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "14px", marginTop: "28px" }}>
-
-            {/* Exams */}
-            <div className="kpi-card kpi-blue">
-              <div className="stat-icon si-blue">📅</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Registered Exams</div>
-                <div style={{ fontSize: "28px", fontWeight: "800", color: "var(--text-primary)", lineHeight: 1.1, marginTop: "2px" }}>
-                  {orgUsage?.exams_count ?? exams.length}
-                </div>
-                <div style={{ fontSize: "11px", color: "var(--accent-emerald)", fontWeight: "600", marginTop: "3px", display: "flex", alignItems: "center", gap: "3px" }}>
-                  <span>↑</span><span>Active</span>
-                </div>
-              </div>
-              {/* Decorative sparkline dots */}
-              <div style={{ display: "flex", alignItems: "flex-end", gap: "3px", opacity: 0.25 }}>
-                {[60, 40, 80, 55, 90, 70, 100].map((h, i) => (
-                  <div key={i} style={{ width: "4px", height: `${h * 0.28}px`, background: "var(--accent-blue)", borderRadius: "2px" }} />
-                ))}
-              </div>
-            </div>
-
-            {/* Questions */}
-            <div className="kpi-card kpi-purple">
-              <div className="stat-icon si-purple">📚</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Question Bank</div>
-                <div style={{ fontSize: "28px", fontWeight: "800", color: "var(--accent-purple)", lineHeight: 1.1, marginTop: "2px" }}>
-                  {orgUsage?.questions_count ?? questions.length}
-                </div>
-                <div style={{ fontSize: "11px", color: "var(--accent-emerald)", fontWeight: "600", marginTop: "3px", display: "flex", alignItems: "center", gap: "3px" }}>
-                  <span>↑</span><span>Items authored</span>
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: "3px", opacity: 0.25 }}>
-                {[50, 70, 45, 90, 60, 80, 95].map((h, i) => (
-                  <div key={i} style={{ width: "4px", height: `${h * 0.28}px`, background: "var(--accent-purple)", borderRadius: "2px" }} />
-                ))}
-              </div>
-            </div>
-
-            {/* Candidates */}
-            <div className="kpi-card kpi-emerald">
-              <div className="stat-icon si-emerald">👥</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Candidate Seats</div>
-                <div style={{ fontSize: "28px", fontWeight: "800", color: "var(--accent-emerald)", lineHeight: 1.1, marginTop: "2px" }}>
-                  {orgUsage?.members_count ?? 12}
-                  <span style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: "500" }}>
-                    /{orgUsage?.limits?.max_candidates ?? 500}
-                  </span>
-                </div>
-                <div style={{ fontSize: "11px", color: "var(--accent-emerald)", fontWeight: "600", marginTop: "3px", display: "flex", alignItems: "center", gap: "3px" }}>
-                  <span>↑</span><span>Enrolled</span>
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: "3px", opacity: 0.25 }}>
-                {[40, 65, 50, 75, 55, 85, 70].map((h, i) => (
-                  <div key={i} style={{ width: "4px", height: `${h * 0.28}px`, background: "var(--accent-emerald)", borderRadius: "2px" }} />
-                ))}
-              </div>
-            </div>
-
-            {/* Attempts */}
-            <div className="kpi-card kpi-cyan">
-              <div className="stat-icon si-cyan">⚡</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>Total Attempts</div>
-                <div style={{ fontSize: "28px", fontWeight: "800", color: "var(--accent-cyan)", lineHeight: 1.1, marginTop: "2px" }}>
-                  {orgUsage?.attempts_count ?? 3}
-                </div>
-                <div style={{ fontSize: "11px", color: "var(--accent-emerald)", fontWeight: "600", marginTop: "3px", display: "flex", alignItems: "center", gap: "3px" }}>
-                  <span>↑</span><span>Test sessions</span>
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: "3px", opacity: 0.25 }}>
-                {[30, 55, 40, 70, 50, 65, 80].map((h, i) => (
-                  <div key={i} style={{ width: "4px", height: `${h * 0.28}px`, background: "var(--accent-cyan)", borderRadius: "2px" }} />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── NAVIGATION TABS ──────────────────────────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px", gap: "12px", flexWrap: "wrap" }}>
-        <div className="tab-pill-group" style={{ overflowX: "auto", flexShrink: 0 }}>
-          {[
-            { key: "exams", label: "Scheduled Exams", icon: "📅" },
-            { key: "questions", label: "Question Banks", icon: "📚" },
-            {
-              key: "ai_studio",
-              label: orgServices.ai_studio === false ? "AI Studio (Disabled)" : "AI Question Studio",
-              icon: "🤖",
-              isDisabled: orgServices.ai_studio === false
-            },
-            {
-              key: "live_proctor",
-              label: orgServices.proctor_console === false ? "Live Proctor (Disabled)" : "Live Proctor",
-              icon: "🛡️",
-              isDisabled: orgServices.proctor_console === false
-            },
-            { key: "members", label: "Members", icon: "👥" },
-            { key: "billing", label: "Plans & UPI Payments", icon: "💳" },
-          ].map((tab) => (
+          {/* Quick Action Buttons in Sidebar */}
+          <div style={{ padding: sidebarCollapsed ? "12px 8px" : "14px 16px", display: "flex", flexDirection: "column", gap: "8px" }}>
             <button
-              key={tab.key}
               type="button"
-              className={`tab-pill${activeTab === tab.key ? " active" : ""}`}
-              onClick={() => setActiveTab(tab.key)}
-              style={tab.isDisabled ? { opacity: 0.7 } : {}}
+              onClick={() => setShowCreateExamModal(true)}
+              style={{
+                width: "100%",
+                padding: sidebarCollapsed ? "10px 0" : "9px 14px",
+                background: "var(--accent-blue)",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "8px",
+                fontSize: "13px",
+                fontWeight: "700",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "6px",
+                boxShadow: "0 1px 3px rgba(37,99,235,0.25)"
+              }}
+              title="Create New Assessment Paper"
             >
-              <span>{tab.icon}</span>
-              {tab.label}
-              {tab.isDisabled && <span style={{ fontSize: "10px", marginLeft: "4px" }}>🔒</span>}
+              <span>+</span>
+              {!sidebarCollapsed && <span>New Exam</span>}
             </button>
-          ))}
+
+            {/* Direct Google Classroom Hub Launcher */}
+            <button
+              type="button"
+              onClick={() => openClassroomModal(null, "upload_anything")}
+              style={{
+                width: "100%",
+                padding: sidebarCollapsed ? "10px 0" : "8px 12px",
+                background: "#f0fdf4",
+                color: "#16a34a",
+                border: "1px solid #bbf7d0",
+                borderRadius: "8px",
+                fontSize: "12px",
+                fontWeight: "700",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "6px"
+              }}
+              title="Upload anything directly to Google Classroom"
+            >
+              <GraduationCapIcon size={16} />
+              {!sidebarCollapsed && <span>Classroom Hub</span>}
+            </button>
+          </div>
+
+          {/* Navigation Items */}
+          <nav style={{ padding: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
+            {[
+              { key: "exams", label: "Examinations", icon: FileTextIcon, count: exams.length },
+              { key: "questions", label: "Question Bank", icon: BookIcon, count: questions.length },
+              {
+                key: "ai_studio",
+                label: "AI Question Studio",
+                icon: BotIcon,
+                isDisabled: orgServices.ai_studio === false
+              },
+              {
+                key: "live_proctor",
+                label: "Live Proctoring",
+                icon: ShieldIcon,
+                isDisabled: orgServices.proctor_console === false
+              },
+              { key: "members", label: "Faculty & Members", icon: UsersIcon, count: members.length },
+              { key: "billing", label: "Plans & Billing", icon: CreditCardIcon }
+            ].map((tab) => {
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    if (tab.key === "live_proctor") {
+                      if (onOpenProctorConsole) {
+                        onOpenProctorConsole();
+                      } else {
+                        window.open("/proctor", "_blank");
+                      }
+                      setMobileMenuOpen(false);
+                      return;
+                    }
+                    setActiveTab(tab.key);
+                    setMobileMenuOpen(false);
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: sidebarCollapsed ? "12px 0" : "10px 12px",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                    fontWeight: isActive ? "700" : "500",
+                    color: isActive ? "var(--accent-blue)" : "var(--text-secondary)",
+                    background: isActive ? "var(--accent-blue-subtle)" : "transparent",
+                    border: isActive ? "1px solid rgba(37,99,235,0.18)" : "1px solid transparent",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: sidebarCollapsed ? "center" : "space-between",
+                    gap: "8px",
+                    opacity: tab.isDisabled ? 0.6 : 1,
+                    transition: "all 0.14s ease"
+                  }}
+                  title={tab.label}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <tab.icon size={16} />
+                    {!sidebarCollapsed && <span>{tab.label}</span>}
+                  </div>
+
+                  {!sidebarCollapsed && (
+                    <div>
+                      {typeof tab.count === "number" && (
+                        <span style={{
+                          fontSize: "11px",
+                          fontWeight: "700",
+                          padding: "2px 7px",
+                          borderRadius: "9999px",
+                          background: isActive ? "#ffffff" : "#f1f5f9",
+                          color: isActive ? "var(--accent-blue)" : "var(--text-muted)",
+                          border: `1px solid ${isActive ? "rgba(37,99,235,0.2)" : "var(--border-subtle)"}`
+                        }}>
+                          {tab.count}
+                        </span>
+                      )}
+                      {tab.isDisabled && <LockIcon size={12} color="var(--text-muted)" />}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
         </div>
 
-        {/* CTA button lives outside the pill group */}
-        <button
-          type="button"
-          onClick={() => setShowCreateExamModal(true)}
-          style={{
-            padding: "9px 18px",
-            background: "var(--gradient-primary)",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: "9px",
-            fontSize: "13px",
-            fontWeight: "700",
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "7px",
-            boxShadow: "0 2px 8px rgba(37,99,235,0.22)",
-            whiteSpace: "nowrap",
-            flexShrink: 0
-          }}
-        >
-          ➕ Create Exam
-        </button>
-      </div>
-
-      {/* ── TAB 1: EXAMS ─────────────────────────────────────────────────── */}
-      {activeTab === "exams" && (
-        <div className="dash-card" style={{ overflow: "hidden" }}>
-          {/* Card header with top-gradient bar */}
-          <div style={{
-            background: "linear-gradient(90deg, var(--accent-blue-subtle) 0%, var(--accent-purple-subtle) 100%)",
-            borderBottom: "1px solid var(--border-subtle)",
-            padding: "18px 22px"
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-              <div>
-                <h3 style={{ fontSize: "16px", fontWeight: "700", color: "var(--text-primary)" }}>
-                  Scheduled &amp; Published Examinations
-                </h3>
-                <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>
-                  Supports NTA Computer-Based Testing, Quick Quiz Arena, and Standard Practice.
-                </p>
-              </div>
-              <span style={{
+        {/* Bottom Profile & External Links */}
+        <div style={{
+          padding: sidebarCollapsed ? "12px 8px" : "14px 16px",
+          borderTop: "1px solid var(--border-subtle)",
+          display: "flex",
+          flexDirection: "column",
+          gap: "10px"
+        }}>
+          {currentUser?.is_superadmin && (
+            <button
+              type="button"
+              onClick={() => navigate("/admin")}
+              style={{
+                width: "100%",
+                padding: "7px 10px",
+                background: "#0f172a",
+                color: "#ffffff",
+                borderRadius: "6px",
                 fontSize: "12px",
-                color: "var(--text-secondary)",
-                fontWeight: "700",
-                background: "#ffffff",
-                border: "1px solid var(--border-subtle)",
-                padding: "4px 12px",
-                borderRadius: "9999px"
+                fontWeight: "600",
+                border: "none",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: sidebarCollapsed ? "center" : "flex-start",
+                gap: "8px"
+              }}
+              title="Platform SuperAdmin"
+            >
+              <ShieldIcon size={14} />
+              {!sidebarCollapsed && <span>SuperAdmin</span>}
+            </button>
+          )}
+
+          {/* User Identity Chip */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: sidebarCollapsed ? "center" : "space-between",
+            gap: "8px",
+            marginTop: "4px"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+              <div style={{
+                width: "32px",
+                height: "32px",
+                borderRadius: "8px",
+                background: "var(--accent-blue-subtle)",
+                color: "var(--accent-blue)",
+                fontSize: "12px",
+                fontWeight: "800",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0
               }}>
-                {filteredExams.length} / {exams.length} papers
+                {orgInitials || "LN"}
+              </div>
+              {!sidebarCollapsed && (
+                <div style={{ minWidth: 0, overflow: "hidden" }}>
+                  <div style={{ fontSize: "12px", fontWeight: "700", color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {currentUser?.full_name || currentUser?.email || "Educator"}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {displayOrgName}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {onLogout && !sidebarCollapsed && (
+              <button
+                type="button"
+                onClick={onLogout}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: "11px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  padding: "2px 6px"
+                }}
+                title="Sign Out"
+              >
+                Sign Out
+              </button>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* ── MAIN CONTENT AREA ────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, minWidth: 0, height: "100vh", maxHeight: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+        {/* Top Header Bar */}
+        <header style={{
+          flexShrink: 0,
+          zIndex: 40,
+          background: "#ffffff",
+          borderBottom: "1px solid var(--border-subtle)",
+          height: "64px",
+          padding: "0 clamp(16px, 2vw, 28px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "16px"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            {/* Mobile Hamburger Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="mobile-menu-btn"
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "8px",
+                border: "1px solid var(--border-subtle)",
+                background: "#ffffff",
+                display: "none",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "18px",
+                cursor: "pointer"
+              }}
+              title="Toggle Navigation Menu"
+            >
+              
+            </button>
+
+            <div>
+              <h2 style={{ fontSize: "17px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
+                {activeTab === "exams" && "Examinations and Assessments"}
+                {activeTab === "questions" && "Curriculum Question Bank"}
+                {activeTab === "ai_studio" && "AI Question Studio"}
+                {activeTab === "live_proctor" && "Live Invigilation Console"}
+                {activeTab === "members" && "Faculty and Workspace Team"}
+                {activeTab === "billing" && "Subscription and UPI Billing"}
+              </h2>
+              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                {displayOrgName} · {orgUsage?.plan_name || "Free Starter Tier"}
               </span>
             </div>
           </div>
 
-          {/* Filters */}
-          <div style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "12px",
-            alignItems: "center",
-            justifyContent: "space-between",
-            background: "var(--bg-subtle)",
-            padding: "12px 22px",
-            borderBottom: "1px solid var(--border-subtle)"
-          }}>
-            {/* Search */}
-            <div style={{ position: "relative", minWidth: "260px", flex: "1 1 260px" }}>
-              <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", fontSize: "14px" }}>🔍</span>
-              <input
-                type="text"
-                placeholder="Search by title, room code, or ID…"
-                value={examSearchQuery}
-                onChange={(e) => setExamSearchQuery(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "8px 34px 8px 34px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--border-subtle)",
-                  background: "#ffffff",
-                  fontSize: "13px",
-                  color: "var(--text-primary)"
-                }}
-              />
-              {examSearchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setExamSearchQuery("")}
-                  style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "13px" }}
-                >✕</button>
-              )}
-            </div>
+          {/* Header Action Buttons */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <button
+              type="button"
+              onClick={() => openClassroomModal(null, "upload_anything")}
+              style={{
+                padding: "7px 12px",
+                fontSize: "12px",
+                fontWeight: "600",
+                borderRadius: "6px",
+                border: "1px solid #bbf7d0",
+                background: "#f0fdf4",
+                color: "#16a34a",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px"
+              }}
+              title="Upload anything directly to Google Classroom"
+            >
+              <GraduationCapIcon size={16} />
+              <span className="hide-on-mobile">Google Classroom</span>
+            </button>
 
-            {/* Mode Filter Pills */}
-            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.4px" }}>Mode:</span>
-              {[
-                { id: "all", label: `All (${exams.length})` },
-                { id: "proctored_cbt", label: `🛡️ Proctored (${exams.filter(e => e.mode === "proctored_cbt").length})` },
-                { id: "standard_quiz", label: `📝 Standard (${exams.filter(e => e.mode === "standard_quiz").length})` },
-                { id: "quick_quiz", label: `⚡ Quick Quiz (${exams.filter(e => e.mode === "quick_quiz").length})` },
-                { id: "custom", label: `✦ Custom Formats (${exams.filter(e => !["proctored_cbt", "quick_quiz", "standard_quiz"].includes(e.mode)).length})` }
-              ].map(item => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setExamModeFilter(item.id)}
-                  style={{
-                    padding: "5px 11px",
-                    borderRadius: "9999px",
-                    fontSize: "12px",
-                    fontWeight: "600",
-                    background: examModeFilter === item.id ? "var(--accent-blue)" : "#ffffff",
-                    color: examModeFilter === item.id ? "#ffffff" : "var(--text-secondary)",
-                    border: `1px solid ${examModeFilter === item.id ? "var(--accent-blue)" : "var(--border-subtle)"}`,
-                    cursor: "pointer",
-                    transition: "all 0.13s"
-                  }}
-                >{item.label}</button>
-              ))}
-            </div>
-
-            {/* Status Filter Pills */}
-            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.4px" }}>Status:</span>
-              {[
-                { id: "all", label: "All" },
-                { id: "published", label: `● Published (${exams.filter(e => e.status === "published").length})` },
-                { id: "draft", label: `○ Draft (${exams.filter(e => e.status === "draft").length})` }
-              ].map(item => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setExamStatusFilter(item.id)}
-                  style={{
-                    padding: "5px 11px",
-                    borderRadius: "9999px",
-                    fontSize: "12px",
-                    fontWeight: "600",
-                    background: examStatusFilter === item.id ? "var(--accent-emerald)" : "#ffffff",
-                    color: examStatusFilter === item.id ? "#ffffff" : "var(--text-secondary)",
-                    border: `1px solid ${examStatusFilter === item.id ? "var(--accent-emerald)" : "var(--border-subtle)"}`,
-                    cursor: "pointer",
-                    transition: "all 0.13s"
-                  }}
-                >{item.label}</button>
-              ))}
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowCreateExamModal(true)}
+              style={{
+                padding: "7px 14px",
+                background: "var(--accent-blue)",
+                color: "#ffffff",
+                borderRadius: "6px",
+                fontSize: "12px",
+                fontWeight: "700",
+                border: "none",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                boxShadow: "0 1px 2px rgba(37,99,235,0.2)"
+              }}
+            >
+              <span>+</span>
+              <span className="hide-on-mobile">New Exam</span>
+            </button>
           </div>
+        </header>
 
-          {/* Table */}
-          <table className="dash-table">
-            <thead>
-              <tr>
-                <th>Exam Title &amp; Mode</th>
-                <th>Pattern / Room</th>
-                <th>Duration</th>
-                <th>Status</th>
-                <th>Operations</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredExams.length === 0 ? (
-                <tr>
-                  <td colSpan="5" style={{ textAlign: "center", padding: "48px", color: "var(--text-muted)" }}>
-                    {exams.length === 0 ? (
-                      <div>
-                        <div style={{ fontSize: "36px", marginBottom: "10px" }}>📋</div>
-                        <p style={{ fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>No exams yet</p>
-                        <p style={{ fontSize: "13px" }}>Click "✦ Create New Exam" to get started.</p>
-                      </div>
-                    ) : (
-                      <div>
-                        <div style={{ fontSize: "30px", marginBottom: "10px" }}>🔍</div>
-                        <p style={{ fontWeight: "700", color: "var(--text-secondary)", marginBottom: "8px" }}>No examinations match your filters.</p>
-                        <button
-                          type="button"
-                          onClick={() => { setExamSearchQuery(""); setExamModeFilter("all"); setExamStatusFilter("all"); }}
-                          style={{ padding: "7px 14px", background: "var(--accent-blue-subtle)", color: "var(--accent-blue)", border: "1px solid rgba(37,99,235,0.2)", borderRadius: "8px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
-                        >Clear All Filters</button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                filteredExams.map((ex, rowIdx) => (
-                  <tr key={ex.id}>
-                    <td>
-                      <div style={{ fontWeight: "700", color: "var(--text-primary)", fontSize: "14px", marginBottom: "5px" }}>{ex.title}</div>
-                      <span style={{
-                        fontSize: "11px",
-                        fontWeight: "700",
-                        padding: "2px 9px",
-                        borderRadius: "9999px",
-                        background: ex.mode === "quick_quiz"
-                          ? "var(--accent-amber-subtle)"
-                          : ex.mode === "standard_quiz"
-                            ? "var(--accent-emerald-subtle)"
-                            : "var(--accent-blue-subtle)",
-                        color: ex.mode === "quick_quiz"
-                          ? "var(--accent-amber)"
-                          : ex.mode === "standard_quiz"
-                            ? "var(--accent-emerald)"
-                            : "var(--accent-blue)"
-                      }}>
-                        {ex.mode === "quick_quiz"
-                          ? "⚡ Quick Quiz Arena"
-                          : ex.mode === "standard_quiz"
-                            ? "📝 Standard Practice"
-                            : "🛡️ NTA Proctored CBT"}
-                      </span>
-                    </td>
-                    <td>
-                      {ex.room_code ? (
-                        <div style={{ fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent-amber)", fontSize: "13px", letterSpacing: "0.5px" }}>
-                          🏠 {ex.room_code}
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Physics · Chemistry · Math</div>
-                      )}
-                    </td>
-                    <td>
-                      <span style={{ fontFamily: "var(--font-mono)", fontWeight: "600", fontSize: "13px" }}>{ex.duration_minutes}</span>
-                      <span style={{ fontSize: "12px", color: "var(--text-muted)", marginLeft: "3px" }}>min</span>
-                    </td>
-                    <td>
-                      <span style={{
-                        padding: "4px 11px",
-                        borderRadius: "9999px",
-                        fontSize: "11px",
-                        fontWeight: "700",
-                        letterSpacing: "0.4px",
-                        background: ex.status === "published" ? "var(--accent-emerald-subtle)" : ex.status === "archived" ? "var(--bg-surface-elevated)" : "var(--accent-blue-subtle)",
-                        color: ex.status === "published" ? "var(--accent-emerald)" : ex.status === "archived" ? "var(--text-muted)" : "var(--accent-blue)"
-                      }}>
-                        {ex.status === "published" ? "● Published" : ex.status === "archived" ? "○ Archived" : "○ Draft"}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="action-bar">
-                        {/* Direct Candidate Attempt */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (onTakeExam) {
-                              onTakeExam(ex.slug || ex.id, "TEST-CANDIDATE-01", "2026");
-                            } else {
-                              navigate(`/exam/${ex.slug || ex.id}`);
-                            }
-                          }}
-                          title="Take / Give Attempt as Candidate"
-                          style={{
-                            padding: "4px 8px",
-                            borderRadius: "4px",
-                            fontSize: "11px",
-                            fontWeight: "700",
-                            background: "#eff6ff",
-                            color: "#2563eb",
-                            border: "1px solid #bfdbfe",
-                            cursor: "pointer"
-                          }}
-                        >
-                          🎯 Attempt
-                        </button>
+        {/* Main Content Body */}
+        <main style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "clamp(16px, 2vw, 28px)", width: "100%" }}>
+          <div style={{ maxWidth: "1600px", width: "100%", margin: "0 auto" }}>
 
-                        {/* Copy Link */}
-                        <button
-                          type="button"
-                          onClick={() => handleCopyExamLink(ex.id)}
-                          title="Copy Direct Candidate Test URL"
-                          className={copiedExamId === ex.id ? "success" : ""}
-                          style={copiedExamId === ex.id ? { background: "var(--accent-emerald-subtle)", color: "var(--accent-emerald)" } : {}}
-                        >
-                          {copiedExamId === ex.id ? "✓ Copied!" : "🔗 Link"}
-                        </button>
+          {/* ── UNIFIED ACADEMY OVERVIEW & QUOTA RIBBON ───────────────────────── */}
+          <div style={{
+            background: "#ffffff",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: "12px",
+            padding: "20px 24px",
+            marginBottom: "24px",
+            boxShadow: "0 1px 3px rgba(0, 0, 0, 0.03)"
+          }}>
+            {/* Top Row: Academy identity & Quick tool links */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px", marginBottom: "20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                <div style={{
+                  width: "44px",
+                  height: "44px",
+                  borderRadius: "10px",
+                  background: "var(--accent-blue-subtle)",
+                  color: "var(--accent-blue)",
+                  fontSize: "18px",
+                  fontWeight: "800",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "1px solid rgba(37,99,235,0.15)"
+                }}>
+                  {orgInitials || "LN"}
+                </div>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                    <h1 style={{ fontSize: "20px", fontWeight: "800", color: "#0f172a", fontFamily: "var(--font-display)" }}>
+                      {displayOrgName}
+                    </h1>
+                    <span style={{
+                      fontSize: "11px",
+                      fontWeight: "700",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                      padding: "3px 9px",
+                      borderRadius: "6px",
+                      background: (orgUsage?.plan_id === "institution" ? "#eff6ff" : orgUsage?.plan_id === "creator_pro" ? "#f5f3ff" : "#f8fafc"),
+                      color: (orgUsage?.plan_id === "institution" ? "#1d4ed8" : orgUsage?.plan_id === "creator_pro" ? "#6d28d9" : "#475569"),
+                      border: `1px solid ${orgUsage?.plan_id === "institution" ? "#bfdbfe" : orgUsage?.plan_id === "creator_pro" ? "#ddd6fe" : "#cbd5e1"}`
+                    }}>
+                      {orgUsage?.plan_name || (currentPlan === "institution" ? "Institution Plan" : currentPlan === "creator_pro" ? "Creator Pro" : "Free Starter Tier")}
+                    </span>
+                    <span style={{ fontSize: "12px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                      ID: {activeOrgId.slice(0, 8)}...
+                    </span>
+                  </div>
+                  <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>
+                    Multi-tenant specialized assessment workspace with automated anti-cheat, secure computer-based testing, and real-time proctoring.
+                  </p>
+                </div>
+              </div>
 
-                        {/* Google Classroom Action */}
-                        <button
-                          type="button"
-                          onClick={() => openClassroomModal(ex.id)}
-                          title={ex.classroom_coursework_id ? "View in Google Classroom" : "Publish as Google Classroom Assignment"}
-                          style={{
-                            padding: "4px 8px",
-                            borderRadius: "4px",
-                            fontSize: "11px",
-                            fontWeight: "700",
-                            background: ex.classroom_coursework_id ? "#f0fdf4" : "#ffffff",
-                            color: ex.classroom_coursework_id ? "#16a34a" : "#475569",
-                            border: `1px solid ${ex.classroom_coursework_id ? "#bbf7d0" : "#cbd5e1"}`,
-                            cursor: "pointer"
-                          }}
-                        >
-                          🎓 {ex.classroom_coursework_id ? "Classroom ✓" : "Classroom"}
-                        </button>
-
-                        {ex.status === "draft" && (
-                          <button
-                            type="button"
-                            onClick={() => handlePublishExam(ex.id)}
-                            title="Publish Exam"
-                            className="success"
-                          >🚀 Publish</button>
-                        )}
-
-                        {orgServices.bulk_enrollment !== false && (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedEnrollmentExam(ex)}
-                            title="Manage Candidate UIDs"
-                            className="primary-action"
-                          >👥 UIDs</button>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => api.downloadExamCredentialsPdf(ex.id, ex.room_code || "EXAM")}
-                          title="Download Printable Credentials Sheet (Login UIDs & Passwords PDF)"
-                          style={{
-                            padding: "5px 10px",
-                            borderRadius: "4px",
-                            fontSize: "11px",
-                            fontWeight: "700",
-                            background: "#eff6ff",
-                            color: "#2563eb",
-                            border: "1px solid #bfdbfe",
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "4px"
-                          }}
-                        >
-                          📄 Credentials PDF
-                        </button>
-
-                        {ex.mode === "quick_quiz" && orgServices.quick_quiz !== false && (
-                          <button
-                            type="button"
-                            onClick={() => handleHostQuickQuizRoom(ex.id)}
-                            disabled={hostingRoom}
-                            title="Host Quick Quiz Room"
-                            style={{ color: "var(--accent-amber)" }}
-                          >⚡ Host</button>
-                        )}
-
-                        {orgServices.detailed_analytics !== false && (
-                          <button
-                            type="button"
-                            onClick={() => setAnalyticsExamId(ex.id)}
-                            title="View Analytics"
-                          >📊 Stats</button>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditExam(ex)}
-                          title="Edit Exam Settings"
-                        >✏️ Edit</button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteExam(ex)}
-                          title="Delete Exam Permanently"
-                          className="danger"
-                        >🗑️</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* ── TAB 2: QUESTION BANK ─────────────────────────────────────────── */}
-      {activeTab === "questions" && (
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", flexWrap: "wrap", gap: "12px" }}>
-            {/* Subject Filters */}
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-              {["", ...(orgSubjects.length > 0 ? orgSubjects.map(s => s.name) : Array.from(new Set(questions.map(q => q.subject).filter(Boolean))))].map((s, sIdx) => (
+              {/* Quick Action Tools */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                 <button
-                  key={`subj-filter-${s || "all"}-${sIdx}`}
                   type="button"
-                  onClick={() => setSelectedSubject(s)}
+                  onClick={() => openClassroomModal(null, "upload_anything")}
                   style={{
-                    padding: "7px 16px",
-                    borderRadius: "9999px",
-                    fontSize: "13px",
+                    padding: "7px 12px",
+                    fontSize: "12px",
                     fontWeight: "600",
-                    background: selectedSubject === s ? "var(--gradient-primary)" : "#ffffff",
-                    color: selectedSubject === s ? "#fff" : "var(--text-secondary)",
-                    border: `1px solid ${selectedSubject === s ? "transparent" : "var(--border-subtle)"}`,
-                    cursor: "pointer",
-                    boxShadow: selectedSubject === s ? "0 2px 6px rgba(37,99,235,0.22)" : "none",
-                    transition: "all 0.13s"
-                  }}
-                >
-                  {s === "" ? "All Subjects" : s}
-                </button>
-              ))}
-
-              {/* Question Search */}
-              <input
-                type="text"
-                placeholder="Search question text or topic…"
-                value={questionSearchQuery}
-                onChange={(e) => setQuestionSearchQuery(e.target.value)}
-                style={{
-                  padding: "8px 14px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--border-subtle)",
-                  fontSize: "13px",
-                  minWidth: "220px",
-                  background: "#ffffff"
-                }}
-              />
-            </div>
-
-            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-              {questions.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleClearQuestions}
-                  style={{
-                    padding: "9px 14px",
-                    fontSize: "13px",
-                    color: "#dc2626",
-                    border: "1px solid #fca5a5",
-                    background: "#fff5f5",
-                    borderRadius: "8px",
-                    fontWeight: "700",
+                    borderRadius: "6px",
+                    border: "1px solid #bbf7d0",
+                    background: "#f0fdf4",
+                    color: "#16a34a",
                     cursor: "pointer",
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: "6px"
+                    gap: "5px"
                   }}
-                  title="Clear questions from bank"
+                  title="Upload exam, notes, or announcement directly to Google Classroom"
                 >
-                  🗑️ Clear {selectedSubject ? `${selectedSubject} (${filteredQuestions.length})` : `All (${questions.length})`}
+                  <span>Upload to Classroom</span>
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setShowSubjectsModal(true)}
-                className="btn-secondary"
-                style={{ padding: "9px 16px", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px" }}
+
+                <button
+                  type="button"
+                  onClick={() => setShowInviteModal(true)}
+                  style={{
+                    padding: "7px 12px",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    borderRadius: "6px",
+                    border: "1px solid var(--border-subtle)",
+                    background: "#ffffff",
+                    color: "var(--text-secondary)",
+                    cursor: "pointer"
+                  }}
+                >
+                  + Invite Faculty
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("billing")}
+                  style={{
+                    padding: "7px 14px",
+                    fontSize: "12px",
+                    fontWeight: "700",
+                    borderRadius: "6px",
+                    border: "1px solid var(--accent-blue)",
+                    background: "#ffffff",
+                    color: "var(--accent-blue)",
+                    cursor: "pointer"
+                  }}
+                >
+                  Plan &amp; UPI Billing
+                </button>
+              </div>
+            </div>
+
+            {/* 4 Metrics & Quota Cards Grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px" }}>
+              {/* Metric 1: Examinations */}
+              <div style={{
+                background: "#f8fafc",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "8px",
+                padding: "14px 16px"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-muted)" }}>
+                    Examinations
+                  </span>
+                  <span style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: "600" }}>
+                    Limit: {orgUsage?.max_exams || 3}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+                  <span style={{ fontSize: "24px", fontWeight: "800", color: "#0f172a", fontVariantNumeric: "tabular-nums" }}>
+                    {exams.length}
+                  </span>
+                  <span style={{ fontSize: "12px", color: "var(--accent-emerald)", fontWeight: "600" }}>
+                    {exams.filter(e => e.status === "published").length} Published
+                  </span>
+                </div>
+                <div style={{ width: "100%", height: "4px", background: "#e2e8f0", borderRadius: "2px", marginTop: "10px", overflow: "hidden" }}>
+                  <div style={{
+                    width: `${Math.min(100, (exams.length / (orgUsage?.max_exams || 3)) * 100)}%`,
+                    height: "100%",
+                    background: exams.length >= (orgUsage?.max_exams || 3) ? "#ef4444" : "var(--accent-blue)",
+                    borderRadius: "2px",
+                    transition: "width 0.3s ease"
+                  }} />
+                </div>
+              </div>
+
+              {/* Metric 2: Question Bank */}
+              <div style={{
+                background: "#f8fafc",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "8px",
+                padding: "14px 16px"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-muted)" }}>
+                    Question Bank
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSubjectsModal(true)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--accent-blue)",
+                      fontSize: "11px",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                      padding: 0
+                    }}
+                  >
+                    Taxonomy ({orgSubjects.length})
+                  </button>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+                  <span style={{ fontSize: "24px", fontWeight: "800", color: "#0f172a", fontVariantNumeric: "tabular-nums" }}>
+                    {questions.length}
+                  </span>
+                  <span style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "500" }}>
+                    Items across {orgSubjects.length || "all"} subjects
+                  </span>
+                </div>
+                <div style={{ width: "100%", height: "4px", background: "#e2e8f0", borderRadius: "2px", marginTop: "10px", overflow: "hidden" }}>
+                  <div style={{
+                    width: `${Math.min(100, Math.max(10, questions.length * 2))}%`,
+                    height: "100%",
+                    background: "#7c3aed",
+                    borderRadius: "2px"
+                  }} />
+                </div>
+              </div>
+
+              {/* Metric 3: Candidate Capacity & Enrolled Roster */}
+              <div
+                onClick={() => setShowCapacityModal(true)}
+                style={{
+                  background: "#f8fafc",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "8px",
+                  padding: "14px 16px",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease"
+                }}
+                title="Click to view enrolled students, manage roster, and edit candidate capacity"
               >
-                ⚙️ Curriculum Taxonomy ({orgSubjects.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowCreateQModal(true)}
-                className="btn-primary"
-                style={{ padding: "9px 18px", fontSize: "13px" }}
-              >
-                + Author New Question
-              </button>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-muted)" }}>
+                    Candidate Capacity
+                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: "600", fontVariantNumeric: "tabular-nums" }}>
+                      {orgUsage?.candidates_count || 0} / {orgUsage?.max_candidates || 5000}
+                    </span>
+                    <span style={{ fontSize: "10px", color: "var(--accent-blue)", fontWeight: "700", textDecoration: "underline" }}>
+                      Manage Roster ↗
+                    </span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+                  <span style={{ fontSize: "24px", fontWeight: "800", color: "#0f172a", fontVariantNumeric: "tabular-nums" }}>
+                    {orgUsage?.candidates_count || 0}
+                  </span>
+                  <span style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "500" }}>
+                    Enrolled candidate seats (Click to view & edit)
+                  </span>
+                </div>
+                <div style={{ width: "100%", height: "4px", background: "#e2e8f0", borderRadius: "2px", marginTop: "10px", overflow: "hidden" }}>
+                  <div style={{
+                    width: `${Math.min(100, (((orgUsage?.candidates_count || 0) / (orgUsage?.max_candidates || 5000)) * 100))}%`,
+                    height: "100%",
+                    background: ((orgUsage?.candidates_count || 0) >= (orgUsage?.max_candidates || 5000)) ? "#ef4444" : "#059669",
+                    borderRadius: "2px",
+                    transition: "width 0.3s ease"
+                  }} />
+                </div>
+              </div>
+
+              {/* Metric 4: AI & Proctoring Attempts */}
+              <div style={{
+                background: "#f8fafc",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "8px",
+                padding: "14px 16px"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-muted)" }}>
+                    AI Proctoring
+                  </span>
+                  <span style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: "600", fontVariantNumeric: "tabular-nums" }}>
+                    {orgUsage?.proctoring_used || 0} / {orgUsage?.max_proctoring_attempts || 5}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+                  <span style={{ fontSize: "24px", fontWeight: "800", color: "#0f172a", fontVariantNumeric: "tabular-nums" }}>
+                    {orgUsage?.proctoring_used || 0}
+                  </span>
+                  <span style={{ fontSize: "12px", color: "var(--accent-blue)", fontWeight: "600" }}>
+                    Invigilated sessions
+                  </span>
+                </div>
+                <div style={{ width: "100%", height: "4px", background: "#e2e8f0", borderRadius: "2px", marginTop: "10px", overflow: "hidden" }}>
+                  <div style={{
+                    width: `${Math.min(100, (((orgUsage?.proctoring_used || 0) / (orgUsage?.max_proctoring_attempts || 5)) * 100))}%`,
+                    height: "100%",
+                    background: ((orgUsage?.proctoring_used || 0) >= (orgUsage?.max_proctoring_attempts || 5)) ? "#ef4444" : "#0891b2",
+                    borderRadius: "2px",
+                    transition: "width 0.3s ease"
+                  }} />
+                </div>
+              </div>
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "14px" }}>
-            {filteredQuestions.length === 0 ? (
-              <div className="dash-card" style={{ padding: "48px", textAlign: "center", color: "var(--text-muted)" }}>
-                <div style={{ fontSize: "36px", marginBottom: "10px" }}>📚</div>
-                <p style={{ fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>
-                  {questions.length === 0 ? "No questions in question bank yet." : "No questions match your search."}
-                </p>
-                <p style={{ fontSize: "13px" }}>
-                  {questions.length === 0 ? "Click \"+ Author New Question\" or use AI Question Studio to synthesize items." : "Try a different search term or subject filter."}
+          {/* ── TAB 1: EXAMS ─────────────────────────────────────────────────── */}
+          {activeTab === "exams" && (
+            <div style={{
+              background: "#ffffff",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "12px",
+              overflow: "hidden",
+              boxShadow: "0 1px 3px rgba(0, 0, 0, 0.03)"
+            }}>
+              {/* Header bar */}
+              <div style={{
+                padding: "18px 24px",
+                borderBottom: "1px solid var(--border-subtle)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "12px"
+              }}>
+                <div>
+                  <h2 style={{ fontSize: "16px", fontWeight: "700", color: "#0f172a" }}>
+                    Scheduled and Published Examinations
+                  </h2>
+                  <p style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "2px" }}>
+                    Configure assessment papers, computer-based testing parameters, candidate login sheets, and classroom sync.
+                  </p>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span style={{
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    color: "var(--text-secondary)",
+                    background: "#f8fafc",
+                    border: "1px solid var(--border-subtle)",
+                    padding: "4px 10px",
+                    borderRadius: "9999px"
+                  }}>
+                    {filteredExams.length} of {exams.length} papers
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateExamModal(true)}
+                    style={{
+                      padding: "7px 14px",
+                      background: "var(--accent-blue)",
+                      color: "#ffffff",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      border: "none",
+                      cursor: "pointer"
+                    }}
+                  >
+                    + Create Exam
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter & Search Bar */}
+              <div style={{
+                padding: "12px 24px",
+                background: "#f8fafc",
+                borderBottom: "1px solid var(--border-subtle)",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "12px",
+                alignItems: "center",
+                justifyContent: "space-between"
+              }}>
+                {/* Search input */}
+                <div style={{ position: "relative", minWidth: "260px", flex: "1 1 260px" }}>
+                  <input
+                    type="text"
+                    placeholder="Search exam by title, room code, or ID..."
+                    value={examSearchQuery}
+                    onChange={(e) => setExamSearchQuery(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 32px 8px 12px",
+                      borderRadius: "6px",
+                      border: "1px solid var(--border-subtle)",
+                      background: "#ffffff",
+                      fontSize: "13px",
+                      color: "var(--text-primary)",
+                      outline: "none"
+                    }}
+                  />
+                  {examSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setExamSearchQuery("")}
+                      style={{
+                        position: "absolute",
+                        right: "8px",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        background: "none",
+                        border: "none",
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                        fontSize: "12px"
+                      }}
+                    >
+                      
+                    </button>
+                  )}
+                </div>
+
+                {/* Mode Filters */}
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                  {[
+                    { id: "all", label: "All Modes" },
+                    { id: "proctored_cbt", label: "Proctored CBT" },
+                    { id: "standard_quiz", label: "Standard Practice" },
+                    { id: "quick_quiz", label: "Quick Quiz" }
+                  ].map(item => {
+                    const isSelected = examModeFilter === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setExamModeFilter(item.id)}
+                        style={{
+                          padding: "5px 10px",
+                          borderRadius: "6px",
+                          fontSize: "12px",
+                          fontWeight: isSelected ? "700" : "500",
+                          background: isSelected ? "var(--accent-blue)" : "#ffffff",
+                          color: isSelected ? "#ffffff" : "var(--text-secondary)",
+                          border: `1px solid ${isSelected ? "var(--accent-blue)" : "var(--border-subtle)"}`,
+                          cursor: "pointer"
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Status Filters */}
+                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                  {[
+                    { id: "all", label: "All Status" },
+                    { id: "published", label: "Published" },
+                    { id: "draft", label: "Draft" }
+                  ].map(item => {
+                    const isSelected = examStatusFilter === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setExamStatusFilter(item.id)}
+                        style={{
+                          padding: "5px 10px",
+                          borderRadius: "6px",
+                          fontSize: "12px",
+                          fontWeight: isSelected ? "700" : "500",
+                          background: isSelected ? "#0f172a" : "#ffffff",
+                          color: isSelected ? "#ffffff" : "var(--text-secondary)",
+                          border: `1px solid ${isSelected ? "#0f172a" : "var(--border-subtle)"}`,
+                          cursor: "pointer"
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Table */}
+              <div style={{ overflowX: "auto" }}>
+                <table className="dash-table">
+                  <thead>
+                    <tr>
+                      <th>Exam Title and Format</th>
+                      <th>Room / Subject</th>
+                      <th>Duration</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredExams.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" style={{ textAlign: "center", padding: "48px 24px", color: "var(--text-muted)" }}>
+                          <div style={{ maxWidth: "360px", margin: "0 auto" }}>
+                            <p style={{ fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px", fontSize: "15px" }}>
+                              {exams.length === 0 ? "No examinations created yet" : "No examinations match your filter"}
+                            </p>
+                            <p style={{ fontSize: "13px", marginBottom: "16px" }}>
+                              {exams.length === 0 ? "Click '+ Create Exam' to launch your first assessment paper." : "Try clearing your search query or mode filter."}
+                            </p>
+                            {exams.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => { setExamSearchQuery(""); setExamModeFilter("all"); setExamStatusFilter("all"); }}
+                                style={{
+                                  padding: "6px 14px",
+                                  background: "#ffffff",
+                                  border: "1px solid var(--border-subtle)",
+                                  borderRadius: "6px",
+                                  fontSize: "12px",
+                                  fontWeight: "600",
+                                  cursor: "pointer"
+                                }}
+                              >
+                                Reset Filters
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      pagedExams.map((ex) => (
+                        <tr key={ex.id}>
+                          <td>
+                            <div style={{ fontWeight: "700", color: "#0f172a", fontSize: "14px", marginBottom: "4px" }}>
+                              {ex.title}
+                            </div>
+                            <span style={{
+                              fontSize: "11px",
+                              fontWeight: "600",
+                              padding: "2px 8px",
+                              borderRadius: "4px",
+                              background: ex.mode === "quick_quiz"
+                                ? "var(--accent-amber-subtle)"
+                                : ex.mode === "standard_quiz"
+                                  ? "var(--accent-emerald-subtle)"
+                                  : "var(--accent-blue-subtle)",
+                              color: ex.mode === "quick_quiz"
+                                ? "var(--accent-amber)"
+                                : ex.mode === "standard_quiz"
+                                  ? "var(--accent-emerald)"
+                                  : "var(--accent-blue)",
+                              border: `1px solid ${
+                                ex.mode === "quick_quiz"
+                                  ? "rgba(217,119,6,0.2)"
+                                  : ex.mode === "standard_quiz"
+                                    ? "rgba(5,150,105,0.2)"
+                                    : "rgba(37,99,235,0.2)"
+                              }`
+                            }}>
+                              {ex.mode === "quick_quiz"
+                                ? "Quick Quiz Arena"
+                                : ex.mode === "standard_quiz"
+                                  ? "Standard Practice"
+                                  : "Proctored CBT"}
+                            </span>
+                          </td>
+                          <td>
+                            {ex.room_code ? (
+                              <span style={{ fontFamily: "var(--font-mono)", fontWeight: "700", color: "var(--accent-blue)", fontSize: "13px" }}>
+                                {ex.room_code}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                                Standard Roster
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <span style={{ fontFamily: "var(--font-mono)", fontWeight: "600", fontSize: "13px" }}>
+                              {ex.duration_minutes}
+                            </span>
+                            <span style={{ fontSize: "12px", color: "var(--text-muted)", marginLeft: "4px" }}>
+                              min
+                            </span>
+                          </td>
+                          <td>
+                            <span style={{
+                              padding: "3px 9px",
+                              borderRadius: "9999px",
+                              fontSize: "11px",
+                              fontWeight: "700",
+                              background: ex.status === "published" ? "#ecfdf5" : "#f1f5f9",
+                              color: ex.status === "published" ? "#059669" : "#475569",
+                              border: `1px solid ${ex.status === "published" ? "#a7f3d0" : "#e2e8f0"}`
+                            }}>
+                              {ex.status === "published" ? "Published" : ex.status === "archived" ? "Archived" : "Draft"}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="action-bar">
+                              {/* Attempt Preview */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onTakeExam) {
+                                    onTakeExam(ex.slug || ex.id, "TEST-CANDIDATE-01", "2026");
+                                  } else {
+                                    navigate(`/exam/${ex.slug || ex.id}`);
+                                  }
+                                }}
+                                title="Take / Test Run Exam as Candidate"
+                                style={{ color: "var(--accent-blue)", fontWeight: "700" }}
+                              >
+                                Attempt
+                              </button>
+
+                              {/* Copy Link */}
+                              <button
+                                type="button"
+                                onClick={() => handleCopyExamLink(ex.id)}
+                                title="Copy Candidate Portal Link"
+                                className={copiedExamId === ex.id ? "success" : ""}
+                              >
+                                {copiedExamId === ex.id ? "Copied" : "Link"}
+                              </button>
+
+                              {/* Google Classroom Direct Upload */}
+                              <button
+                                type="button"
+                                onClick={() => openClassroomModal(ex.id, "upload_anything")}
+                                title="Upload this exam directly to Google Classroom"
+                                style={ex.classroom_coursework_id ? { color: "#16a34a", fontWeight: "700" } : {}}
+                              >
+                                Classroom {ex.classroom_coursework_id ? "" : ""}
+                              </button>
+
+                              {ex.status === "draft" && (
+                                <button
+                                  type="button"
+                                  onClick={() => handlePublishExam(ex.id)}
+                                  title="Publish Exam to Candidates"
+                                  className="success"
+                                >
+                                  Publish
+                                </button>
+                              )}
+
+                              {orgServices.bulk_enrollment !== false && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedEnrollmentExam(ex)}
+                                  title="Manage Candidate UIDs and Passwords"
+                                >
+                                  UIDs
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => api.downloadExamCredentialsPdf(ex.id, ex.room_code || "EXAM")}
+                                title="Download Printable Credentials Sheet (Login UIDs & Passwords PDF)"
+                              >
+                                PDF
+                              </button>
+
+                              {ex.mode === "quick_quiz" && orgServices.quick_quiz !== false && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleHostQuickQuizRoom(ex.id)}
+                                  disabled={hostingRoom}
+                                  title="Host Quick Quiz Arena"
+                                  style={{ color: "var(--accent-amber)" }}
+                                >
+                                  Host
+                                </button>
+                              )}
+
+                              {orgServices.detailed_analytics !== false && (
+                                <button
+                                  type="button"
+                                  onClick={() => setAnalyticsExamId(ex.id)}
+                                  title="View Candidate Analytics"
+                                >
+                                  Stats
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditExam(ex)}
+                                title="Edit Exam Configuration"
+                              >
+                                Edit
+                              </button>
+
+                              {/* Dedicated Live Proctor Console Shortcut */}
+                              {ex.mode === "proctored_cbt" && (
+                                <button
+                                  type="button"
+                                  onClick={() => window.open("/proctor", "_blank")}
+                                  title="Open Live Proctoring Console in New Window"
+                                  style={{
+                                    color: "#0284c7",
+                                    fontWeight: "600"
+                                  }}
+                                >
+                                  Proctor ↗
+                                </button>
+                              )}
+
+                              {/* Delete Exam Action Button */}
+                              <button
+                                type="button"
+                                onClick={() => setExamToDelete(ex)}
+                                title="Permanently Delete Examination"
+                                style={{
+                                  color: "#dc2626",
+                                  fontWeight: "600"
+                                }}
+                              >
+                                Delete
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteExam(ex)}
+                                title="Delete Exam Permanently"
+                                className="danger"
+                              >
+                                
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {/* Examinations Table Pagination */}
+              {filteredExams.length > examPageSize && (
+                <div
+                  style={{
+                    padding: "12px 20px",
+                    borderTop: "1px solid var(--border-subtle)",
+                    background: "#f8fafc",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "10px"
+                  }}
+                >
+                  <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                    Showing <strong>{((examPage - 1) * examPageSize) + 1}</strong> - <strong>{Math.min(examPage * examPageSize, filteredExams.length)}</strong> of <strong>{filteredExams.length}</strong> examinations
+                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <button
+                      type="button"
+                      disabled={examPage <= 1}
+                      onClick={() => setExamPage((p) => Math.max(1, p - 1))}
+                      style={{
+                        padding: "5px 10px",
+                        borderRadius: "6px",
+                        border: "1px solid var(--border-subtle)",
+                        background: examPage <= 1 ? "#f1f5f9" : "#ffffff",
+                        color: examPage <= 1 ? "#94a3b8" : "#334155",
+                        fontSize: "12px",
+                        fontWeight: "600",
+                        cursor: examPage <= 1 ? "not-allowed" : "pointer"
+                      }}
+                    >
+                      ← Previous
+                    </button>
+                    {Array.from({ length: totalExamPages }, (_, i) => i + 1).map((num) => {
+                      if (totalExamPages > 7 && Math.abs(num - examPage) > 2 && num !== 1 && num !== totalExamPages) {
+                        if (Math.abs(num - examPage) === 3) {
+                          return <span key={num} style={{ fontSize: "11px", color: "#94a3b8", padding: "0 2px" }}>...</span>;
+                        }
+                        return null;
+                      }
+                      const isCur = num === examPage;
+                      return (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setExamPage(num)}
+                          style={{
+                            padding: "4px 9px",
+                            borderRadius: "5px",
+                            border: `1px solid ${isCur ? "var(--accent-blue)" : "var(--border-subtle)"}`,
+                            background: isCur ? "var(--accent-blue)" : "#ffffff",
+                            color: isCur ? "#ffffff" : "#334155",
+                            fontSize: "12px",
+                            fontWeight: isCur ? "700" : "500",
+                            cursor: "pointer"
+                          }}
+                        >
+                          {num}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      disabled={examPage >= totalExamPages}
+                      onClick={() => setExamPage((p) => Math.min(totalExamPages, p + 1))}
+                      style={{
+                        padding: "5px 10px",
+                        borderRadius: "6px",
+                        border: "1px solid var(--border-subtle)",
+                        background: examPage >= totalExamPages ? "#f1f5f9" : "#ffffff",
+                        color: examPage >= totalExamPages ? "#94a3b8" : "#334155",
+                        fontSize: "12px",
+                        fontWeight: "600",
+                        cursor: examPage >= totalExamPages ? "not-allowed" : "pointer"
+                      }}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── TAB 2: QUESTION BANK ─────────────────────────────────────────── */}
+          {activeTab === "questions" && (
+            <div>
+              {/* Top Toolbar */}
+              <div style={{
+                background: "#ffffff",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "12px",
+                padding: "16px 20px",
+                marginBottom: "16px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "12px",
+                boxShadow: "0 1px 3px rgba(0, 0, 0, 0.03)"
+              }}>
+                {/* Subject filters & search */}
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                  {["", ...(orgSubjects.length > 0 ? orgSubjects.map(s => s.name) : Array.from(new Set(questions.map(q => q.subject).filter(Boolean))))].map((s, sIdx) => {
+                    const isSel = selectedSubject === s;
+                    return (
+                      <button
+                        key={`subj-filter-${s || "all"}-${sIdx}`}
+                        type="button"
+                        onClick={() => setSelectedSubject(s)}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: "6px",
+                          fontSize: "12px",
+                          fontWeight: isSel ? "700" : "500",
+                          background: isSel ? "var(--accent-blue)" : "#f8fafc",
+                          color: isSel ? "#ffffff" : "var(--text-secondary)",
+                          border: `1px solid ${isSel ? "var(--accent-blue)" : "var(--border-subtle)"}`,
+                          cursor: "pointer"
+                        }}
+                      >
+                        {s === "" ? "All Subjects" : s}
+                      </button>
+                    );
+                  })}
+
+                  <input
+                    type="text"
+                    placeholder="Search question text or stem..."
+                    value={questionSearchQuery}
+                    onChange={(e) => setQuestionSearchQuery(e.target.value)}
+                    style={{
+                      padding: "7px 12px",
+                      borderRadius: "6px",
+                      border: "1px solid var(--border-subtle)",
+                      fontSize: "13px",
+                      minWidth: "220px",
+                      background: "#ffffff",
+                      outline: "none"
+                    }}
+                  />
+                </div>
+
+                {/* Action buttons */}
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("ai_studio")}
+                    style={{
+                      padding: "7px 14px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      background: "#f0fdf4",
+                      color: "#16a34a",
+                      border: "1px solid #bbf7d0",
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px"
+                    }}
+                    title="Import past year papers (PYQ), test sheets, or notes"
+                  >
+                    <UploadIcon size={14} />
+                    <span>Import File / PYQ</span>
+                  </button>
+                  {questions.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearQuestions}
+                      style={{
+                        padding: "7px 12px",
+                        fontSize: "12px",
+                        color: "#dc2626",
+                        border: "1px solid #fecaca",
+                        background: "#fef2f2",
+                        borderRadius: "6px",
+                        fontWeight: "600",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Clear {selectedSubject ? `${selectedSubject} (${filteredQuestions.length})` : `All (${questions.length})`}
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setShowSubjectsModal(true)}
+                    style={{
+                      padding: "7px 12px",
+                      background: "#ffffff",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: "var(--text-secondary)",
+                      cursor: "pointer"
+                    }}
+                  >
+                    Curriculum Taxonomy ({orgSubjects.length})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateQModal(true)}
+                    style={{
+                      padding: "7px 14px",
+                      background: "var(--accent-blue)",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      cursor: "pointer"
+                    }}
+                  >
+                    + Author Question
+                  </button>
+                </div>
+              </div>
+
+              {/* Questions List */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "12px" }}>
+                {filteredQuestions.length === 0 ? (
+                  <div style={{
+                    background: "#ffffff",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: "12px",
+                    padding: "48px 24px",
+                    textAlign: "center",
+                    color: "var(--text-muted)"
+                  }}>
+                    <p style={{ fontWeight: "700", color: "#0f172a", fontSize: "15px", marginBottom: "4px" }}>
+                      {questions.length === 0 ? "No questions in bank yet" : "No questions match your query"}
+                    </p>
+                    <p style={{ fontSize: "13px" }}>
+                      {questions.length === 0 ? "Click '+ Author Question' or use AI Studio to generate curriculum-aligned items." : "Try clearing your search query or subject filter."}
+                    </p>
+                  </div>
+                ) : (
+                  pagedQuestions.map((q, idx) => {
+                    const sc = subjectColor(q.subject || "");
+                    return (
+                      <div
+                        key={q.id}
+                        style={{
+                          background: "#ffffff",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: "10px",
+                          padding: "18px 20px",
+                          boxShadow: "0 1px 2px rgba(0, 0, 0, 0.02)"
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <span style={{
+                              padding: "2px 8px",
+                              background: sc.bg,
+                              color: sc.text,
+                              borderRadius: "4px",
+                              fontSize: "11px",
+                              fontWeight: "700",
+                              textTransform: "uppercase"
+                            }}>
+                              {q.subject}
+                            </span>
+                            <span style={{
+                              fontSize: "11px",
+                              color: "var(--text-muted)",
+                              fontWeight: "600",
+                              background: "#f1f5f9",
+                              padding: "2px 8px",
+                              borderRadius: "4px"
+                            }}>
+                              {q.question_type === "numerical" ? "NVQ Numerical" : "MCQ Multiple Choice"}
+                            </span>
+                          </div>
+
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600" }}>
+                              Item #{idx + 1}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteQuestion(q)}
+                              title="Delete question from bank"
+                              style={{
+                                background: "#fef2f2",
+                                color: "#dc2626",
+                                border: "1px solid #fecaca",
+                                borderRadius: "4px",
+                                padding: "2px 8px",
+                                fontSize: "11px",
+                                fontWeight: "600",
+                                cursor: "pointer"
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+
+                        <p style={{ fontSize: "14px", color: "#0f172a", lineHeight: "1.6", marginBottom: "14px", fontWeight: "500" }}>
+                          {q.content.text}
+                        </p>
+
+                        {q.question_type === "numerical" ? (
+                          <div style={{
+                            background: "#ecfdf5",
+                            border: "1px solid #a7f3d0",
+                            padding: "8px 14px",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            color: "#059669",
+                            fontWeight: "600",
+                            display: "inline-block"
+                          }}>
+                            Correct Answer: {q.content.numerical_answer} (Tolerance ±{q.content.tolerance || 0.01})
+                          </div>
+                        ) : (
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                            {q.content.options?.map((opt, i) => {
+                              const isCorrect = opt.id === q.content.correct_option_id;
+                              return (
+                                <div
+                                  key={opt.id}
+                                  style={{
+                                    padding: "8px 12px",
+                                    borderRadius: "6px",
+                                    background: isCorrect ? "#ecfdf5" : "#f8fafc",
+                                    color: isCorrect ? "#059669" : "var(--text-secondary)",
+                                    fontWeight: isCorrect ? "700" : "500",
+                                    border: `1px solid ${isCorrect ? "#a7f3d0" : "var(--border-subtle)"}`,
+                                    fontSize: "13px",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "8px"
+                                  }}
+                                >
+                                  <span style={{
+                                    width: "20px",
+                                    height: "20px",
+                                    borderRadius: "50%",
+                                    background: isCorrect ? "#059669" : "#e2e8f0",
+                                    color: isCorrect ? "#ffffff" : "#475569",
+                                    fontSize: "10px",
+                                    fontWeight: "700",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    flexShrink: 0
+                                  }}>
+                                    {String.fromCharCode(65 + i)}
+                                  </span>
+                                  <span>{opt.text}</span>
+                                  {isCorrect && <span style={{ marginLeft: "auto", fontSize: "12px" }}></span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── TAB 3: AI QUESTION STUDIO ─────────────────────────────────────── */}
+          {activeTab === "ai_studio" && (
+            orgServices.ai_studio === false ? (
+              <div style={{
+                background: "#ffffff",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "12px",
+                padding: "48px 24px",
+                textAlign: "center"
+              }}>
+                <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a" }}>AI Question Studio Disabled</h3>
+                <p style={{ fontSize: "13px", color: "var(--text-muted)", maxWidth: "480px", margin: "8px auto 0 auto", lineHeight: "1.5" }}>
+                  The AI Question Studio service is currently disabled for this organization by the platform administrator.
                 </p>
               </div>
             ) : (
-              filteredQuestions.map((q, idx) => {
-                const sc = subjectColor(q.subject || "");
-                return (
-                  <div key={q.id} className="dash-card" style={{ padding: "0", overflow: "hidden", borderLeft: `4px solid ${sc.border}` }}>
-                    <div style={{ padding: "18px 20px 14px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                          <span style={{
-                            padding: "3px 10px",
-                            background: sc.bg,
-                            color: sc.text,
-                            borderRadius: "9999px",
-                            fontSize: "11px",
-                            fontWeight: "700",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.4px"
-                          }}>
-                            {q.subject}
-                          </span>
-                          <span style={{
-                            fontSize: "11px",
-                            color: "var(--text-muted)",
-                            fontWeight: "600",
-                            background: "var(--bg-secondary)",
-                            padding: "2px 8px",
-                            borderRadius: "6px"
-                          }}>
-                            {q.question_type === "numerical" ? "NVQ Numerical" : "MCQ Multiple Choice"}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                          <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600" }}>Item #{idx + 1}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteQuestion(q)}
-                            title="Delete question from bank"
-                            style={{
-                              background: "#fee2e2",
-                              color: "#dc2626",
-                              border: "1px solid #fca5a5",
-                              borderRadius: "6px",
-                              padding: "3px 10px",
-                              fontSize: "11px",
-                              fontWeight: "700",
-                              cursor: "pointer",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px"
-                            }}
-                          >
-                            🗑️ Delete
-                          </button>
-                        </div>
-                      </div>
+              <AiQuestionStudio
+                organizationId={activeOrgId}
+                onQuestionApproved={loadAllData}
+              />
+            )
+          )}
 
-                      <p style={{ fontSize: "15px", color: "var(--text-primary)", lineHeight: "1.7", marginBottom: "14px", fontWeight: "500" }}>
-                        {q.content.text}
-                      </p>
-
-                      {q.question_type === "numerical" ? (
-                        <div style={{
-                          background: "var(--accent-emerald-subtle)",
-                          border: "1px solid rgba(5,150,105,0.2)",
-                          padding: "10px 16px",
-                          borderRadius: "8px",
-                          fontSize: "13px",
-                          color: "var(--accent-emerald)",
-                          fontWeight: "600",
-                          display: "inline-block"
-                        }}>
-                          ✓ Answer: {q.content.numerical_answer} <span style={{ fontWeight: "400", color: "var(--text-muted)" }}>(Tolerance ±{q.content.tolerance || 0.01})</span>
-                        </div>
-                      ) : (
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                          {q.content.options?.map((opt, i) => {
-                            const isCorrect = opt.id === q.content.correct_option_id;
-                            return (
-                              <div
-                                key={opt.id}
-                                style={{
-                                  padding: "10px 14px",
-                                  borderRadius: "8px",
-                                  background: isCorrect ? "var(--accent-emerald-subtle)" : "var(--bg-secondary)",
-                                  color: isCorrect ? "var(--accent-emerald)" : "var(--text-secondary)",
-                                  fontWeight: isCorrect ? "700" : "500",
-                                  border: `1px solid ${isCorrect ? "rgba(5,150,105,0.3)" : "var(--border-subtle)"}`,
-                                  fontSize: "13px",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "8px"
-                                }}
-                              >
-                                <span style={{
-                                  width: "22px", height: "22px", borderRadius: "50%",
-                                  background: isCorrect ? "var(--accent-emerald)" : "var(--border-strong)",
-                                  color: "#fff",
-                                  fontSize: "11px", fontWeight: "700",
-                                  display: "flex", alignItems: "center", justifyContent: "center",
-                                  flexShrink: 0
-                                }}>
-                                  {String.fromCharCode(65 + i)}
-                                </span>
-                                {opt.text}
-                                {isCorrect && <span style={{ marginLeft: "auto" }}>✓</span>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── TAB 3: AI QUESTION STUDIO ─────────────────────────────────────── */}
-      {activeTab === "ai_studio" && (
-        orgServices.ai_studio === false ? (
-          <div className="dash-card" style={{ padding: "48px 24px", textAlign: "center", background: "#ffffff" }}>
-            <div style={{ fontSize: "40px", marginBottom: "12px" }}>🔒</div>
-            <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a" }}>AI Question Studio Disabled</h3>
-            <p style={{ fontSize: "13px", color: "var(--text-muted)", maxWidth: "480px", margin: "8px auto 20px auto", lineHeight: "1.5" }}>
-              The AI Question Studio service is currently disabled for this organization by the platform administrator.
-              Please contact the platform owner to enable AI synthesis permissions.
-            </p>
-          </div>
-        ) : (
-          <AiQuestionStudio
-            organizationId={activeOrgId}
-            onQuestionApproved={loadAllData}
-          />
-        )
-      )}
-
-      {/* ── TAB 4: MEMBERS ───────────────────────────────────────────────── */}
-      {activeTab === "members" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-          {/* Invite Code Banner */}
-          <div className="dash-card" style={{
-            padding: "28px",
-            background: "linear-gradient(135deg, #f8fafc 0%, #eff6ff 60%, #f5f3ff 100%)",
-            border: "1px solid #bfdbfe",
-            overflow: "hidden",
-            position: "relative"
-          }}>
-            <div style={{
-              position: "absolute", top: 0, right: 0, width: "200px", height: "200px", pointerEvents: "none",
-              background: "radial-gradient(circle at 80% 20%, rgba(124,58,237,0.08) 0%, transparent 70%)"
-            }} />
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "24px", position: "relative" }}>
-              <div>
-                <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "4px 12px", background: "linear-gradient(135deg,#dbeafe,#ede9fe)", color: "var(--accent-purple)", borderRadius: "9999px", fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "12px" }}>
-                  🔑 Workspace Invite Key
-                </div>
-                <h3 style={{ fontSize: "19px", fontWeight: "800", color: "var(--text-primary)", marginBottom: "6px" }}>
-                  Organization Invite Code
-                </h3>
-                <p style={{ fontSize: "13px", color: "var(--text-secondary)", maxWidth: "560px", lineHeight: "1.6" }}>
-                  Share this code with faculty colleagues. They can enter it under <strong>"🔑 Join Workspace"</strong> on the Lunaris homepage to link their account.
+          {/* ── TAB 4: LIVE PROCTOR ──────────────────────────────────────────── */}
+          {activeTab === "live_proctor" && (
+            orgServices.proctor_console === false ? (
+              <div style={{
+                background: "#ffffff",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "12px",
+                padding: "48px 24px",
+                textAlign: "center"
+              }}>
+                <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a" }}>Live Proctor Console Disabled</h3>
+                <p style={{ fontSize: "13px", color: "var(--text-muted)", maxWidth: "480px", margin: "8px auto 0 auto", lineHeight: "1.5" }}>
+                  Live invigilation and streaming proctor console services are currently disabled for this organization by the platform administrator.
                 </p>
               </div>
+            ) : (
+              <div>
+                <LiveProctorDashboard organizationId={activeOrgId} />
+              </div>
+            )
+          )}
 
-              {/* Code widget */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px" }}>
-                <div style={{
-                  padding: "14px 24px",
-                  background: "#ffffff",
-                  border: "2px dashed var(--accent-blue)",
-                  borderRadius: "12px",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "22px",
-                  fontWeight: "900",
-                  color: "var(--accent-blue)",
-                  letterSpacing: "3px",
-                  boxShadow: "0 4px 14px rgba(37,99,235,0.1)"
-                }}>
-                  {inviteCode}
+          {/* ── TAB 5: MEMBERS & FACULTY ─────────────────────────────────────── */}
+          {activeTab === "members" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+              {/* Invite Code Card */}
+              <div style={{
+                background: "#ffffff",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "12px",
+                padding: "24px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "20px",
+                boxShadow: "0 1px 3px rgba(0, 0, 0, 0.03)"
+              }}>
+                <div>
+                  <span style={{
+                    fontSize: "11px",
+                    fontWeight: "700",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                    color: "var(--accent-blue)",
+                    background: "var(--accent-blue-subtle)",
+                    padding: "2px 8px",
+                    borderRadius: "4px"
+                  }}>
+                    Workspace Invite Key
+                  </span>
+                  <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a", marginTop: "6px" }}>
+                    Organization Faculty Invite Code
+                  </h3>
+                  <p style={{ fontSize: "13px", color: "var(--text-muted)", maxWidth: "520px", marginTop: "4px" }}>
+                    Share this code with faculty colleagues to link their account directly to this academy workspace.
+                  </p>
                 </div>
-                <div style={{ display: "flex", gap: "8px" }}>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                  <div style={{
+                    padding: "10px 20px",
+                    background: "#f8fafc",
+                    border: "1px dashed var(--accent-blue)",
+                    borderRadius: "8px",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "20px",
+                    fontWeight: "800",
+                    color: "var(--accent-blue)",
+                    letterSpacing: "2px"
+                  }}>
+                    {inviteCode}
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
                       navigator.clipboard.writeText(inviteCode);
                       alert(`Copied Invite Code: ${inviteCode}`);
                     }}
-                    className="btn-primary"
-                    style={{ padding: "8px 16px", fontSize: "12px" }}
+                    style={{
+                      padding: "9px 14px",
+                      background: "var(--accent-blue)",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      cursor: "pointer"
+                    }}
                   >
-                    📋 Copy Code
+                    Copy Code
                   </button>
                   <button
                     type="button"
@@ -2107,163 +2700,169 @@ export default function OrgDashboard({
                       navigator.clipboard.writeText(joinUrl);
                       alert(`Copied Join URL: ${joinUrl}`);
                     }}
-                    className="btn-secondary"
-                    style={{ padding: "8px 14px", fontSize: "12px" }}
+                    style={{
+                      padding: "9px 14px",
+                      background: "#ffffff",
+                      border: "1px solid var(--border-subtle)",
+                      color: "var(--text-secondary)",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      cursor: "pointer"
+                    }}
                   >
-                    🔗 Copy Link
+                    Copy Link
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Members Table */}
-          <div className="dash-card" style={{ overflow: "hidden" }}>
-            <div style={{
-              background: "linear-gradient(90deg, var(--accent-blue-subtle), var(--accent-purple-subtle))",
-              borderBottom: "1px solid var(--border-subtle)",
-              padding: "18px 22px",
-              display: "flex", justifyContent: "space-between", alignItems: "center"
-            }}>
-              <div>
-                <h3 style={{ fontSize: "16px", fontWeight: "700", color: "var(--text-primary)" }}>
-                  Workspace Team &amp; Enrolled Members ({members.length})
-                </h3>
-                <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                  Exam authors, proctors, and administrators active in this workspace
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => { setInviteModalSent(null); setShowInviteModal(true); }}
-                className="btn-primary"
-                style={{ padding: "8px 16px", fontSize: "13px" }}
-              >
-                + Invite New Member
-              </button>
-            </div>
+              {/* Members Table */}
+              <div style={{
+                background: "#ffffff",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "12px",
+                overflow: "hidden",
+                boxShadow: "0 1px 3px rgba(0, 0, 0, 0.03)"
+              }}>
+                <div style={{
+                  padding: "18px 24px",
+                  borderBottom: "1px solid var(--border-subtle)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center"
+                }}>
+                  <div>
+                    <h3 style={{ fontSize: "16px", fontWeight: "700", color: "#0f172a" }}>
+                      Workspace Faculty and Team ({members.length})
+                    </h3>
+                    <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                      Exam authors, proctors, and administrators active in this workspace
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setInviteModalSent(null); setShowInviteModal(true); }}
+                    style={{
+                      padding: "7px 14px",
+                      background: "var(--accent-blue)",
+                      color: "#ffffff",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      border: "none",
+                      cursor: "pointer"
+                    }}
+                  >
+                    + Invite Member
+                  </button>
+                </div>
 
-            <table className="dash-table">
-              <thead>
-                <tr>
-                  <th>User Identity</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Permissions</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {members.length === 0 ? (
-                  <tr>
-                    <td colSpan="5" style={{ textAlign: "center", padding: "48px", color: "var(--text-muted)" }}>
-                      <div style={{ fontSize: "32px", marginBottom: "10px" }}>👥</div>
-                      <p style={{ fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>No members yet</p>
-                      <p style={{ fontSize: "13px" }}>Click "+ Invite New Member" or share your workspace invite key.</p>
-                    </td>
-                  </tr>
-                ) : (
-                  members.map((m) => {
-                    const initials = getInitials(m.name || m.email);
-                    const grad = avatarColor(m.name || m.email);
-                    const roleColor = m.role === "owner"
-                      ? { bg: "var(--accent-blue-subtle)", text: "var(--accent-blue)" }
-                      : m.role === "exam_author"
-                        ? { bg: "var(--accent-amber-subtle)", text: "var(--accent-amber)" }
-                        : m.role === "proctor"
-                          ? { bg: "var(--accent-purple-subtle)", text: "var(--accent-purple)" }
-                          : { bg: "var(--bg-surface-elevated)", text: "var(--text-secondary)" };
-                    return (
-                      <tr key={m.id}>
-                        <td>
-                          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                            <div className="avatar-circle-sm" style={{ background: grad }}>{initials || "?"}</div>
-                            <div>
-                              <div style={{ fontWeight: "700", color: "var(--text-primary)", fontSize: "14px" }}>{m.name}</div>
-                              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{m.email}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <span style={{
-                            padding: "3px 10px",
-                            background: roleColor.bg,
-                            color: roleColor.text,
-                            borderRadius: "9999px",
-                            fontSize: "11px",
-                            fontWeight: "700",
-                            textTransform: "capitalize"
-                          }}>
-                            {m.role.replace(/_/g, " ")}
-                          </span>
-                        </td>
-                        <td style={{
-                          color: m.status.includes("Pending") ? "var(--accent-amber)" : "var(--accent-emerald)",
-                          fontWeight: "600",
-                          fontSize: "13px"
-                        }}>
-                          {m.status.includes("Pending") ? "⏳ " + m.status : "✓ " + m.status}
-                        </td>
-                        <td style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{m.permissions}</td>
-                        <td>
-                          {m.role !== "owner" || (currentUser && m.email !== currentUser.email) ? (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveMember(m)}
-                              style={{
-                                padding: "5px 12px",
-                                background: "var(--accent-rose-subtle)",
-                                color: "var(--accent-rose)",
-                                border: "1px solid rgba(225,29,72,0.2)",
-                                borderRadius: "8px",
-                                fontSize: "12px",
-                                fontWeight: "600",
-                                cursor: "pointer"
-                              }}
-                            >
-                              🗑️ Remove
-                            </button>
-                          ) : (
-                            <span style={{ fontSize: "11px", color: "var(--text-muted)", fontStyle: "italic", background: "var(--bg-surface-elevated)", padding: "3px 9px", borderRadius: "6px" }}>
-                              Workspace Owner
-                            </span>
-                          )}
+                <table className="dash-table">
+                  <thead>
+                    <tr>
+                      <th>User Identity</th>
+                      <th>Role</th>
+                      <th>Status</th>
+                      <th>Permissions</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {members.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" style={{ textAlign: "center", padding: "48px 24px", color: "var(--text-muted)" }}>
+                          <p style={{ fontWeight: "700", color: "#0f172a", fontSize: "15px", marginBottom: "4px" }}>No members enrolled yet</p>
+                          <p style={{ fontSize: "13px" }}>Click "+ Invite Member" or share the invite key above.</p>
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                    ) : (
+                      members.map((m) => {
+                        const initials = getInitials(m.name || m.email);
+                        const grad = avatarColor(m.name || m.email);
+                        const roleColor = m.role === "owner"
+                          ? { bg: "var(--accent-blue-subtle)", text: "var(--accent-blue)" }
+                          : m.role === "exam_author"
+                            ? { bg: "var(--accent-amber-subtle)", text: "var(--accent-amber)" }
+                            : m.role === "proctor"
+                              ? { bg: "var(--accent-purple-subtle)", text: "var(--accent-purple)" }
+                              : { bg: "#f1f5f9", text: "#475569" };
+                        return (
+                          <tr key={m.id}>
+                            <td>
+                              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                <div className="avatar-circle-sm" style={{ background: grad }}>{initials || "?"}</div>
+                                <div>
+                                  <div style={{ fontWeight: "700", color: "#0f172a", fontSize: "13px" }}>{m.name}</div>
+                                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{m.email}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <span style={{
+                                padding: "2px 8px",
+                                background: roleColor.bg,
+                                color: roleColor.text,
+                                borderRadius: "4px",
+                                fontSize: "11px",
+                                fontWeight: "700",
+                                textTransform: "capitalize"
+                              }}>
+                                {m.role.replace(/_/g, " ")}
+                              </span>
+                            </td>
+                            <td style={{
+                              color: m.status.includes("Pending") ? "var(--accent-amber)" : "var(--accent-emerald)",
+                              fontWeight: "600",
+                              fontSize: "12px"
+                            }}>
+                              {m.status.includes("Pending") ? "Pending" : "Active"}
+                            </td>
+                            <td style={{ fontSize: "12px", color: "var(--text-secondary)" }}>{m.permissions}</td>
+                            <td>
+                              {m.role !== "owner" || (currentUser && m.email !== currentUser.email) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveMember(m)}
+                                  style={{
+                                    padding: "4px 10px",
+                                    background: "#fef2f2",
+                                    color: "#dc2626",
+                                    border: "1px solid #fecaca",
+                                    borderRadius: "4px",
+                                    fontSize: "11px",
+                                    fontWeight: "600",
+                                    cursor: "pointer"
+                                  }}
+                                >
+                                  Remove
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: "11px", color: "var(--text-muted)", fontStyle: "italic" }}>
+                                  Owner
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── TAB 6: BILLING & UPI ─────────────────────────────────────────── */}
+          {activeTab === "billing" && (
+            <PlansBillingView
+              organizationId={activeOrgId}
+              currentPlanId={orgUsage?.plan_id || currentPlan}
+              onPlanChanged={loadAllData}
+            />
+          )}
         </div>
-      )}
-
-      {/* ── TAB: LIVE PROCTOR ────────────────────────────────────────────── */}
-      {activeTab === "live_proctor" && (
-        orgServices.proctor_console === false ? (
-          <div className="dash-card" style={{ padding: "48px 24px", textAlign: "center", background: "#ffffff" }}>
-            <div style={{ fontSize: "40px", marginBottom: "12px" }}>🔒</div>
-            <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#0f172a" }}>Live Proctor Console Disabled</h3>
-            <p style={{ fontSize: "13px", color: "var(--text-muted)", maxWidth: "480px", margin: "8px auto 20px auto", lineHeight: "1.5" }}>
-              Live invigilation and streaming proctor console services are currently disabled for this organization by the platform administrator.
-            </p>
-          </div>
-        ) : (
-          <div style={{ marginTop: "8px" }}>
-            <LiveProctorDashboard organizationId={activeOrgId} />
-          </div>
-        )
-      )}
-
-      {/* ── TAB 5: BILLING ───────────────────────────────────────────────── */}
-      {activeTab === "billing" && (
-        <PlansBillingView
-          organizationId={activeOrgId}
-          currentPlanId={orgUsage?.plan_id || currentPlan}
-          onPlanChanged={loadAllData}
-        />
-      )}
+        </main>
+      </div>
 
       {/* ── MODALS ───────────────────────────────────────────────────────── */}
 
@@ -2335,10 +2934,10 @@ export default function OrgDashboard({
               display: "flex", justifyContent: "space-between", alignItems: "center"
             }}>
               <div>
-                <h3 style={{ fontSize: "18px", fontWeight: "800", color: "var(--text-primary)" }}>✏️ Edit Examination</h3>
+                <h3 style={{ fontSize: "18px", fontWeight: "800", color: "var(--text-primary)" }}>Edit Examination</h3>
                 <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Update exam parameters, duration, mode, or publication status</span>
               </div>
-              <button type="button" onClick={() => setEditingExam(null)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "var(--text-muted)", lineHeight: 1 }}>✕</button>
+              <button type="button" onClick={() => setEditingExam(null)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "var(--text-muted)", lineHeight: 1 }}><XIcon size={16} /></button>
             </div>
 
             <form onSubmit={handleSaveEditExam} style={{ padding: "24px" }}>
@@ -2409,10 +3008,10 @@ export default function OrgDashboard({
                   value={["proctored_cbt", "quick_quiz", "standard_quiz"].includes(editFormData.mode) ? editFormData.mode : "custom"}
                   onChange={(e) => setEditFormData({ ...editFormData, mode: e.target.value })}
                 >
-                  <option value="proctored_cbt">🛡️ AI Proctored Examination (AI Webcam + Audio + Tab Security)</option>
-                  <option value="standard_quiz">📝 Standard Assessment (Self-paced Practice Assessment)</option>
-                  <option value="quick_quiz">⚡ Quick Quiz (Live Speed Arena with Join Code)</option>
-                  <option value="custom">✦ Custom Examination Format</option>
+                  <option value="proctored_cbt">AI Proctored Examination (AI Webcam + Audio + Tab Security)</option>
+                  <option value="standard_quiz">Standard Assessment (Self-paced Practice Assessment)</option>
+                  <option value="quick_quiz">Quick Quiz (Live Speed Arena with Join Code)</option>
+                  <option value="custom">Custom Examination Format</option>
                 </select>
               </div>
 
@@ -2432,42 +3031,68 @@ export default function OrgDashboard({
       {/* ── HOSTED QUICK QUIZ ROOM MODAL ─────────────────────────────────── */}
       {hostedRoomModal && (
         <div style={{
-          position: "fixed", inset: 0,
-          background: "rgba(15, 23, 42, 0.7)",
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15, 23, 42, 0.55)",
           backdropFilter: "blur(6px)",
-          display: "flex", justifyContent: "center", alignItems: "center",
-          zIndex: 9999, padding: "20px"
+          WebkitBackdropFilter: "blur(6px)",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 10001,
+          padding: "20px"
         }}>
-          <div className="dash-card" style={{ maxWidth: "480px", width: "100%", padding: "32px", textAlign: "center" }}>
-            <div style={{ fontSize: "42px", marginBottom: "8px" }}>⚡</div>
-            <h3 style={{ fontSize: "24px", fontWeight: "800", color: "var(--text-primary)", fontFamily: "var(--font-display)" }}>
+          <div style={{
+            maxWidth: "460px",
+            width: "100%",
+            padding: "32px",
+            textAlign: "center",
+            background: "#ffffff",
+            borderRadius: "16px",
+            border: "1px solid var(--border-subtle)",
+            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.05)"
+          }}>
+            <div style={{
+              width: "48px",
+              height: "48px",
+              borderRadius: "12px",
+              background: "var(--accent-blue-subtle)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 14px auto"
+            }}>
+              <ZapIcon size={24} color="var(--accent-blue)" />
+            </div>
+
+            <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#0f172a", margin: 0, letterSpacing: "-0.01em" }}>
               Quick Quiz Room Live!
             </h3>
-            <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginTop: "4px", marginBottom: "24px" }}>
+            <p style={{ fontSize: "14px", color: "#475569", marginTop: "6px", marginBottom: "20px" }}>
               {hostedRoomModal.exam_title}
             </p>
 
             <div style={{
-              background: "linear-gradient(135deg,#fffbeb,#fef9c3)",
-              border: "2px dashed var(--accent-amber)",
-              borderRadius: "14px",
-              padding: "24px",
-              marginBottom: "24px"
+              background: "#f8fafc",
+              border: "1.5px solid #e2e8f0",
+              borderRadius: "12px",
+              padding: "20px",
+              marginBottom: "22px"
             }}>
-              <div style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "700", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" }}>
+              <div style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
                 Join Code for Students
               </div>
               <div style={{
-                fontSize: "46px",
+                fontSize: "40px",
                 fontWeight: "900",
-                fontFamily: "var(--font-mono)",
-                color: "var(--accent-amber)",
-                letterSpacing: "5px",
-                margin: "4px 0 8px"
+                fontFamily: "var(--font-mono, monospace)",
+                color: "var(--accent-blue)",
+                letterSpacing: "4px",
+                margin: "4px 0 6px"
               }}>
                 {hostedRoomModal.room_code}
               </div>
-              <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+              <div style={{ fontSize: "12px", color: "#64748b" }}>
                 {hostedRoomModal.per_question_seconds}s per question · Speed Bonus Scoring Active
               </div>
             </div>
@@ -2477,12 +3102,25 @@ export default function OrgDashboard({
                 type="button"
                 onClick={() => {
                   navigator.clipboard.writeText(hostedRoomModal.room_code);
-                  alert(`Copied room code ${hostedRoomModal.room_code} to clipboard!`);
+                  toast.success(`Copied room code ${hostedRoomModal.room_code} to clipboard`);
                 }}
-                className="btn-secondary"
-                style={{ padding: "11px 16px", fontSize: "13px" }}
+                style={{
+                  padding: "10px 16px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--border-subtle)",
+                  background: "#ffffff",
+                  color: "#334155",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px"
+                }}
               >
-                📋 Copy Room Code
+                <CopyIcon size={14} />
+                <span>Copy Room Code</span>
               </button>
 
               {onTakeQuickQuiz && (
@@ -2494,24 +3132,34 @@ export default function OrgDashboard({
                     onTakeQuickQuiz(code);
                   }}
                   style={{
-                    padding: "13px 18px",
-                    background: "var(--accent-amber)",
+                    padding: "11px 18px",
+                    background: "var(--accent-blue)",
                     color: "#ffffff",
-                    borderRadius: "10px",
+                    borderRadius: "8px",
+                    border: "none",
                     fontSize: "14px",
-                    fontWeight: "800",
+                    fontWeight: "700",
                     cursor: "pointer",
-                    boxShadow: "0 4px 14px rgba(217,119,6,0.28)"
+                    boxShadow: "0 2px 8px rgba(37,99,235,0.25)"
                   }}
                 >
-                  🚀 Enter Room in Quick Quiz Arena
+                  Enter Room in Quick Quiz Arena
                 </button>
               )}
 
               <button
                 type="button"
                 onClick={() => setHostedRoomModal(null)}
-                style={{ padding: "9px 14px", background: "transparent", color: "var(--text-secondary)", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
+                style={{
+                  padding: "9px 14px",
+                  background: "transparent",
+                  color: "#64748b",
+                  border: "1px solid transparent",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  borderRadius: "8px"
+                }}
               >
                 Close Window
               </button>
@@ -2533,7 +3181,7 @@ export default function OrgDashboard({
             {inviteModalSent ? (
               <div style={{ padding: "28px" }}>
                 <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "5px 12px", background: "var(--accent-emerald-subtle)", color: "var(--accent-emerald)", borderRadius: "9999px", fontSize: "12px", fontWeight: "700", marginBottom: "14px" }}>
-                  ✓ Nodemailer SMTP Delivered
+                  Nodemailer SMTP Delivered
                 </div>
                 <h3 style={{ fontSize: "20px", fontWeight: "800", color: "var(--text-primary)", marginBottom: "6px" }}>
                   Invitation Dispatched!
@@ -2600,7 +3248,7 @@ export default function OrgDashboard({
                     <h3 style={{ fontSize: "18px", fontWeight: "800", color: "var(--text-primary)" }}>Invite Organization Member</h3>
                     <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Send an invitation via Nodemailer SMTP</span>
                   </div>
-                  <button type="button" onClick={() => setShowInviteModal(false)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "var(--text-muted)" }}>✕</button>
+                  <button type="button" onClick={() => setShowInviteModal(false)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "var(--text-muted)" }}><XIcon size={16} /></button>
                 </div>
 
                 <div style={{ padding: "24px" }}>
@@ -2635,7 +3283,7 @@ export default function OrgDashboard({
                   </div>
 
                   <div style={{ padding: "10px 14px", background: "var(--accent-blue-subtle)", border: "1px solid rgba(37,99,235,0.15)", borderRadius: "8px", fontSize: "12px", color: "var(--text-secondary)", marginBottom: "22px" }}>
-                    🔑 Recipient will receive code: <strong style={{ color: "var(--accent-blue)", fontFamily: "var(--font-mono)" }}>{inviteCode}</strong> to link their account.
+                    Recipient will receive code: <strong style={{ color: "var(--accent-blue)", fontFamily: "var(--font-mono)" }}>{inviteCode}</strong> to link their account.
                   </div>
 
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
@@ -2710,14 +3358,14 @@ export default function OrgDashboard({
                     }}
                     title="Remove all current subjects to start fresh with your own"
                   >
-                    🗑️ Clear All ({orgSubjects.length})
+                    Clear All ({orgSubjects.length})
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setShowSubjectsModal(false)}
                   style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "var(--text-muted)" }}
-                >✕</button>
+                ><XIcon size={16} /></button>
               </div>
             </div>
 
@@ -2727,7 +3375,7 @@ export default function OrgDashboard({
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
                   <div>
                     <h4 style={{ fontSize: "14px", fontWeight: "700", color: "var(--accent-blue)" }}>
-                      ⚡ Instant 1-Click Curriculum Packs
+                      Instant 1-Click Curriculum Packs
                     </h4>
                     <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
                       Quickly seed industry-standard domains and subjects into your organization.
@@ -2742,7 +3390,7 @@ export default function OrgDashboard({
                     onClick={() => handleSeedPack("tech")}
                     style={{ padding: "6px 12px", background: "#ffffff", border: "1px solid rgba(37,99,235,0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
                   >
-                    💻 Tech & Computer Science
+                    Tech & Computer Science
                   </button>
                   <button
                     type="button"
@@ -2750,7 +3398,7 @@ export default function OrgDashboard({
                     onClick={() => handleSeedPack("law")}
                     style={{ padding: "6px 12px", background: "#ffffff", border: "1px solid rgba(37,99,235,0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
                   >
-                    ⚖️ Law & Judicial Services
+                    Law & Judicial Services
                   </button>
                   <button
                     type="button"
@@ -2758,7 +3406,7 @@ export default function OrgDashboard({
                     onClick={() => handleSeedPack("medical")}
                     style={{ padding: "6px 12px", background: "#ffffff", border: "1px solid rgba(37,99,235,0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
                   >
-                    🩺 Medicine & Health
+                    Medicine & Health
                   </button>
                   <button
                     type="button"
@@ -2766,7 +3414,7 @@ export default function OrgDashboard({
                     onClick={() => handleSeedPack("commerce")}
                     style={{ padding: "6px 12px", background: "#ffffff", border: "1px solid rgba(37,99,235,0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
                   >
-                    📊 Commerce & Finance
+                    Commerce & Finance
                   </button>
                   <button
                     type="button"
@@ -2774,7 +3422,7 @@ export default function OrgDashboard({
                     onClick={() => handleSeedPack("stem")}
                     style={{ padding: "6px 12px", background: "#ffffff", border: "1px solid rgba(37,99,235,0.25)", borderRadius: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
                   >
-                    🔬 Universal STEM
+                    Universal STEM
                   </button>
                 </div>
               </div>
@@ -2869,7 +3517,7 @@ export default function OrgDashboard({
                             </span>
                           </td>
                           <td style={{ padding: "10px 14px", fontFamily: "var(--font-mono)", fontSize: "12px", color: "var(--text-muted)" }}>
-                            {s.code || "—"}
+                            {s.code || "-"}
                           </td>
                           <td style={{ padding: "10px 14px", textAlign: "right" }}>
                             <button
@@ -2909,7 +3557,7 @@ export default function OrgDashboard({
         </div>
       )}
 
-      {/* ── GOOGLE CLASSROOM INTEGRATION MODAL ───────────────────────── */}
+            {/* ── GOOGLE CLASSROOM INTEGRATION HUB & UPLOADER MODAL ───────────── */}
       {showClassroomModal && (
         <div style={{
           position: "fixed",
@@ -2926,41 +3574,43 @@ export default function OrgDashboard({
             background: "#ffffff",
             borderRadius: "16px",
             width: "100%",
-            maxWidth: "720px",
+            maxWidth: "760px",
             maxHeight: "92vh",
             overflowY: "auto",
             boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
-            border: "1px solid var(--border-subtle)"
+            border: "1px solid var(--border-subtle)",
+            display: "flex",
+            flexDirection: "column"
           }}>
-            {/* Header */}
+            {/* Modal Header */}
             <div style={{
-              padding: "20px 24px",
+              padding: "18px 24px",
               borderBottom: "1px solid var(--border-subtle)",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              background: "linear-gradient(90deg, #f0fdf4 0%, #dcfce7 100%)"
+              background: "#f0fdf4"
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <div style={{
-                  width: "42px",
-                  height: "42px",
+                  width: "40px",
+                  height: "40px",
                   borderRadius: "10px",
                   background: "#16a34a",
                   color: "#ffffff",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: "22px"
+                  fontSize: "20px"
                 }}>
-                  🎓
+                  
                 </div>
                 <div>
-                  <h3 style={{ fontSize: "18px", fontWeight: "800", color: "#14532d" }}>
+                  <h3 style={{ fontSize: "17px", fontWeight: "800", color: "#14532d", margin: 0 }}>
                     Google Classroom Integration Hub
                   </h3>
-                  <p style={{ fontSize: "12px", color: "#166534", marginTop: "2px" }}>
-                    Publish assessments as coursework, sync student rosters, and collect turned-in work with auto-grading.
+                  <p style={{ fontSize: "12px", color: "#166534", margin: "2px 0 0 0" }}>
+                    Upload exams, notes, documents, or announcements directly to Google Classroom.
                   </p>
                 </div>
               </div>
@@ -2968,120 +3618,332 @@ export default function OrgDashboard({
                 type="button"
                 onClick={() => setShowClassroomModal(false)}
                 style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "#166534" }}
-              >✕</button>
+              >
+                
+              </button>
             </div>
 
-            <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "20px" }}>
-              {/* Account Status Card */}
-              <div style={{
-                padding: "16px 20px",
-                background: classroomConnected ? "#f0fdf4" : "#fefce8",
-                borderRadius: "12px",
-                border: classroomConnected ? "1px solid #bbf7d0" : "1px solid #fef08a",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                flexWrap: "wrap",
-                gap: "12px"
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <div style={{
-                    width: "12px",
-                    height: "12px",
-                    borderRadius: "50%",
-                    background: classroomConnected ? "#16a34a" : "#ca8a04"
-                  }} />
-                  <div>
-                    <div style={{ fontSize: "14px", fontWeight: "700", color: classroomConnected ? "#14532d" : "#713f12" }}>
-                      {classroomConnected
-                        ? `Connected to Google Classroom (${currentUser?.email || "Educator"})`
-                        : "Google Classroom Not Linked Yet"}
-                    </div>
-                    <div style={{ fontSize: "12px", color: classroomConnected ? "#166534" : "#854d0e", marginTop: "2px" }}>
-                      {classroomConnected
-                        ? `${classroomCourses.length} active course(s) available on your Google account`
-                        : "Authorize Google Classroom to fetch your courses, sync student rosters, and upload assignments."}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <button
-                    type="button"
-                    onClick={handleConnectGoogleClassroom}
-                    disabled={classroomLoading}
-                    className="btn-primary"
-                    style={{
-                      padding: "8px 14px",
-                      fontSize: "12px",
-                      background: "#16a34a",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px"
-                    }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24">
-                      <path fill="#ffffff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                      <path fill="#ffffff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                      <path fill="#ffffff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                      <path fill="#ffffff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                    </svg>
-                    {classroomConnected ? "Re-authorize Google" : "Connect Google Classroom"}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={refreshClassroomCourses}
-                    disabled={classroomLoading}
-                    style={{
-                      padding: "8px 14px",
-                      background: "#ffffff",
-                      border: "1px solid var(--border-subtle)",
-                      borderRadius: "6px",
-                      fontSize: "12px",
-                      fontWeight: "600",
-                      cursor: "pointer"
-                    }}
-                  >
-                    {classroomLoading ? "Syncing..." : "🔄 Refresh"}
-                  </button>
-                </div>
+            {/* Connection Status Ribbon */}
+            <div style={{
+              padding: "12px 24px",
+              background: classroomConnected ? "#ffffff" : "#fefce8",
+              borderBottom: "1px solid var(--border-subtle)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "10px"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{
+                  width: "10px",
+                  height: "10px",
+                  borderRadius: "50%",
+                  background: classroomConnected ? "#16a34a" : "#ca8a04",
+                  display: "inline-block"
+                }} />
+                <span style={{ fontSize: "13px", fontWeight: "600", color: classroomConnected ? "#14532d" : "#713f12" }}>
+                  {classroomConnected
+                    ? `Connected: ${currentUser?.email || "Google Account"} (${classroomCourses.length} active courses)`
+                    : "Google Classroom Not Linked Yet"}
+                </span>
               </div>
 
-              {/* Course & Exam Selection Controls */}
-              <div style={{
-                padding: "20px",
-                borderRadius: "12px",
-                border: "1px solid var(--border-subtle)",
-                background: "#ffffff"
-              }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  onClick={handleConnectGoogleClassroom}
+                  disabled={classroomLoading}
+                  style={{
+                    padding: "5px 12px",
+                    fontSize: "12px",
+                    fontWeight: "700",
+                    background: "#16a34a",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: "pointer"
+                  }}
+                >
+                  {classroomConnected ? "Re-authorize Google" : "Connect Google Classroom"}
+                </button>
+                <button
+                  type="button"
+                  onClick={refreshClassroomCourses}
+                  disabled={classroomLoading}
+                  style={{
+                    padding: "5px 10px",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    background: "#ffffff",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: "6px",
+                    cursor: "pointer"
+                  }}
+                >
+                  {classroomLoading ? "..." : "Refresh"}
+                </button>
+              </div>
+            </div>
+
+            {/* Segmented Modal Tabs */}
+            <div style={{
+              display: "flex",
+              borderBottom: "1px solid var(--border-subtle)",
+              background: "#f8fafc",
+              padding: "0 24px"
+            }}>
+              {[
+                { id: "upload_anything", label: "Upload Anything to Classroom" },
+                { id: "publish_exam", label: "Coursework & Credentials PDF" },
+                { id: "roster_sync", label: "Student Roster Import" }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setClassroomActiveTab(tab.id)}
+                  style={{
+                    padding: "12px 16px",
+                    fontSize: "13px",
+                    fontWeight: classroomActiveTab === tab.id ? "700" : "500",
+                    color: classroomActiveTab === tab.id ? "var(--accent-blue)" : "var(--text-secondary)",
+                    background: classroomActiveTab === tab.id ? "#ffffff" : "transparent",
+                    borderBottom: classroomActiveTab === tab.id ? "2px solid var(--accent-blue)" : "2px solid transparent",
+                    borderTop: "none",
+                    borderLeft: "none",
+                    borderRight: "none",
+                    cursor: "pointer"
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: "16px" }}>
+
+              {/* Course Selector Dropdown (Shared across all tabs) */}
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "6px" }}>
+                  Select Target Google Classroom Course:
+                </label>
+                {classroomCourses.length > 0 ? (
+                  <select
+                    value={selectedClassroomCourse}
+                    onChange={(e) => handleCourseChange(e.target.value)}
+                    className="lunaris-input"
+                  >
+                    {classroomCourses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} {c.section ? `(${c.section})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)", padding: "10px", background: "#f8fafc", borderRadius: "6px", border: "1px dashed var(--border-subtle)" }}>
+                    No Google Classroom courses found. Connect your Google Educator account above to load your active classrooms.
+                  </div>
+                )}
+              </div>
+
+              {/* ── TAB 1: UPLOAD ANYTHING DIRECTLY TO CLASSROOM ─────────── */}
+              {classroomActiveTab === "upload_anything" && (
+                <form onSubmit={handleUploadDirectToClassroom} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                  {/* Post Type Selector */}
                   <div>
                     <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "6px" }}>
-                      Select Google Classroom Course:
+                      Upload Type:
                     </label>
-                    {classroomCourses.length > 0 ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
+                      {[
+                        { id: "assignment", label: "CourseWork Assignment", desc: "Graded assessment or test" },
+                        { id: "announcement", label: "Stream Announcement", desc: "Post to class stream feed" },
+                        { id: "material", label: "Course Material", desc: "Notes, syllabus & docs" }
+                      ].map(t => (
+                        <div
+                          key={t.id}
+                          onClick={() => setClassroomUploadType(t.id)}
+                          style={{
+                            padding: "10px",
+                            borderRadius: "8px",
+                            border: `1px solid ${classroomUploadType === t.id ? "var(--accent-blue)" : "var(--border-subtle)"}`,
+                            background: classroomUploadType === t.id ? "var(--accent-blue-subtle)" : "#ffffff",
+                            cursor: "pointer"
+                          }}
+                        >
+                          <div style={{ fontSize: "12px", fontWeight: "700", color: classroomUploadType === t.id ? "var(--accent-blue)" : "#0f172a" }}>
+                            {t.label}
+                          </div>
+                          <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
+                            {t.desc}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Title */}
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                      Title / Headline *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Midterm Assessment Paper 1 / Computer Science Notes"
+                      value={classroomUploadTitle}
+                      onChange={(e) => setClassroomUploadTitle(e.target.value)}
+                      className="lunaris-input"
+                    />
+                  </div>
+
+                  {/* Description / Instructions */}
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                      Instructions or Notes
+                    </label>
+                    <textarea
+                      rows="3"
+                      placeholder="Provide student instructions, syllabus coverage, or test guidance..."
+                      value={classroomUploadDesc}
+                      onChange={(e) => setClassroomUploadDesc(e.target.value)}
+                      className="lunaris-input"
+                      style={{ resize: "vertical" }}
+                    />
+                  </div>
+
+                  {/* Attachment Options Grid */}
+                  <div style={{ background: "#f8fafc", border: "1px solid var(--border-subtle)", borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                    <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-muted)" }}>
+                      Attach Content to Classroom Post:
+                    </span>
+
+                    {/* Option A: Attach Lunaris Exam */}
+                    <div>
+                      <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "3px" }}>
+                        Option 1: Link Lunaris Exam / Assessment Paper
+                      </label>
                       <select
-                        value={selectedClassroomCourse}
-                        onChange={(e) => handleCourseChange(e.target.value)}
+                        value={classroomUploadExamId}
+                        onChange={(e) => {
+                          const exId = e.target.value;
+                          setClassroomUploadExamId(exId);
+                          const ex = exams.find(x => x.id === exId);
+                          if (ex && !classroomUploadTitle) {
+                            setClassroomUploadTitle(ex.title);
+                          }
+                        }}
                         className="lunaris-input"
+                        style={{ fontSize: "12px" }}
                       >
-                        {classroomCourses.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name} {c.section ? `(${c.section})` : ""}
+                        <option value="">-- None (No Exam Link) --</option>
+                        {exams.map(ex => (
+                          <option key={ex.id} value={ex.id}>
+                            {ex.title} ({ex.duration_minutes}m • {ex.mode})
                           </option>
                         ))}
                       </select>
-                    ) : (
-                      <div style={{ fontSize: "12px", color: "var(--text-muted)", padding: "10px", background: "#f8fafc", borderRadius: "6px", border: "1px dashed var(--border-subtle)" }}>
-                        No courses found. Connect your Google account above to load your active classrooms.
-                      </div>
-                    )}
+                    </div>
+
+                    {/* Option B: Upload Local File / PDF */}
+                    <div>
+                      <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "3px" }}>
+                        Option 2: Upload File / PDF from Computer (Direct to Google Drive &amp; Classroom)
+                      </label>
+                      <input
+                        type="file"
+                        onChange={handleClassroomFileSelect}
+                        style={{ fontSize: "12px" }}
+                      />
+                      {classroomUploadFileName && (
+                        <div style={{ fontSize: "11px", color: "var(--accent-emerald)", marginTop: "4px", fontWeight: "600" }}>
+                          Selected file: {classroomUploadFileName} (will be attached to Classroom)
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Option C: Direct Web Link */}
+                    <div>
+                      <label style={{ display: "block", fontSize: "11px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "3px" }}>
+                        Option 3: External Resource URL / Study Link
+                      </label>
+                      <input
+                        type="url"
+                        placeholder="https://example.com/notes.pdf"
+                        value={classroomUploadLink}
+                        onChange={(e) => setClassroomUploadLink(e.target.value)}
+                        className="lunaris-input"
+                        style={{ fontSize: "12px" }}
+                      />
+                    </div>
                   </div>
 
+                  {/* Points (if assignment) */}
+                  {classroomUploadType === "assignment" && (
+                    <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                          Maximum Points / Grade:
+                        </label>
+                        <input
+                          type="number"
+                          value={classroomUploadPoints}
+                          onChange={(e) => setClassroomUploadPoints(e.target.value)}
+                          className="lunaris-input"
+                          min="1"
+                          max="1000"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Submit Button */}
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "6px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowClassroomModal(false)}
+                      style={{
+                        padding: "9px 16px",
+                        background: "#ffffff",
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: "6px",
+                        fontSize: "13px",
+                        fontWeight: "600",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={classroomLoading || !selectedClassroomCourse || !classroomUploadTitle.trim()}
+                      style={{
+                        padding: "9px 20px",
+                        background: "#16a34a",
+                        color: "#ffffff",
+                        border: "none",
+                        borderRadius: "6px",
+                        fontSize: "13px",
+                        fontWeight: "700",
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px"
+                      }}
+                    >
+                      {classroomLoading ? "Uploading to Classroom..." : "Upload to Google Classroom"}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* ── TAB 2: PUBLISH EXAM & CREDENTIALS PDF ───────────────── */}
+              {classroomActiveTab === "publish_exam" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                   <div>
                     <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "6px" }}>
-                      Select Lunaris Examination:
+                      Select Lunaris Examination to Publish:
                     </label>
                     <select
                       value={selectedClassroomExam}
@@ -3095,280 +3957,268 @@ export default function OrgDashboard({
                       ))}
                     </select>
                   </div>
-                </div>
 
-                {/* Section 1: Upload Exam & Credentials PDF to Google Classroom */}
-                <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: "16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-                  <div>
+                  <div style={{ padding: "14px", background: "#f8fafc", borderRadius: "8px", border: "1px solid var(--border-subtle)" }}>
                     <strong style={{ fontSize: "13px", color: "var(--text-primary)" }}>
-                      1. Push Quiz & Candidate Credentials PDF to Classroom
+                      Automated Coursework &amp; Credentials PDF Publishing:
                     </strong>
-                    <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                      Posts official CourseWork to Google Classroom stream with the Exam Portal link AND the Candidate Credentials PDF sheet attached.
-                    </div>
+                    <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px" }}>
+                      Publishes this examination as an official CourseWork assignment on Google Classroom. Automatically generates candidate credentials, attaches the PDF credential sheet, and sets up automated grading sync.
+                    </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handlePublishToClassroom}
-                    disabled={classroomLoading || !selectedClassroomExam || !selectedClassroomCourse}
-                    className="btn-primary"
-                    style={{
-                      padding: "9px 18px",
-                      fontSize: "13px",
-                      background: "#16a34a",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px"
-                    }}
-                  >
-                    {classroomLoading ? "Pushing Quiz & Credentials PDF..." : "🚀 Push Quiz & Credentials PDF to Classroom"}
-                  </button>
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <button
+                      type="button"
+                      onClick={handlePublishToClassroom}
+                      disabled={classroomLoading || !selectedClassroomExam || !selectedClassroomCourse}
+                      style={{
+                        padding: "9px 20px",
+                        background: "#16a34a",
+                        color: "#ffffff",
+                        border: "none",
+                        borderRadius: "6px",
+                        fontSize: "13px",
+                        fontWeight: "700",
+                        cursor: "pointer"
+                      }}
+                    >
+                      {classroomLoading ? "Publishing Coursework..." : "Push Quiz &amp; Credentials PDF to Classroom"}
+                    </button>
+                  </div>
                 </div>
+              )}
 
-                {classroomSyncResult && (
-                  <div style={{
-                    marginTop: "16px",
-                    padding: "12px 16px",
-                    background: "#f0fdf4",
-                    borderRadius: "8px",
-                    border: "1px solid #bbf7d0",
-                    fontSize: "13px",
-                    color: "#166534"
-                  }}>
-                    <div style={{ fontWeight: "700" }}>✓ {classroomSyncResult.message}</div>
-                    <div style={{ marginTop: "4px", fontSize: "12px" }}>
-                      CourseWork ID: <code>{classroomSyncResult.coursework_id}</code> • Room Code: <strong>{classroomSyncResult.room_code || "ACTIVE"}</strong>
-                    </div>
-                    <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                      <a
-                        href={classroomSyncResult.alternate_link}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          padding: "6px 12px",
-                          background: "#16a34a",
-                          color: "#ffffff",
-                          borderRadius: "6px",
-                          textDecoration: "none",
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "4px"
-                        }}
-                      >
-                        Open in Google Classroom ↗
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const ex = exams.find(e => e.id === selectedClassroomExam) || {};
-                          api.downloadExamCredentialsPdf(selectedClassroomExam, classroomSyncResult.room_code || ex.room_code || "CLASSROOM");
-                        }}
-                        style={{
-                          padding: "6px 12px",
-                          background: "#ffffff",
-                          color: "#166534",
-                          border: "1px solid #16a34a",
-                          borderRadius: "6px",
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          cursor: "pointer",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "4px"
-                        }}
-                      >
-                        📄 Download Credentials PDF Sheet
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Section 2: Fetch & Stuff Student Roster */}
-              <div style={{
-                padding: "20px",
-                borderRadius: "12px",
-                border: "1px solid var(--border-subtle)",
-                background: "#ffffff"
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "10px" }}>
+              {/* ── TAB 3: IMPORT STUDENT ROSTER ────────────────────────── */}
+              {classroomActiveTab === "roster_sync" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                   <div>
-                    <h4 style={{ fontSize: "15px", fontWeight: "700", color: "var(--text-primary)", margin: 0 }}>
-                      2. Fetch & Stuff Student Roster
-                    </h4>
-                    <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>
-                      Fetch student names and emails from this Google Classroom course and stuff them into the exam candidates roster.
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "6px" }}>
+                      Select Target Examination:
+                    </label>
+                    <select
+                      value={selectedClassroomExam}
+                      onChange={(e) => setSelectedClassroomExam(e.target.value)}
+                      className="lunaris-input"
+                    >
+                      {exams.map((ex) => (
+                        <option key={ex.id} value={ex.id}>
+                          {ex.title} ({ex.duration_minutes}m • {ex.status})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                    <span style={{ fontSize: "13px", fontWeight: "700", color: "#0f172a" }}>
+                      Students Loaded from Course: {classroomStudents.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleImportClassroomStudents}
+                      disabled={classroomLoading || classroomStudentsLoading || classroomStudents.length === 0 || !selectedClassroomExam}
+                      style={{
+                        padding: "8px 16px",
+                        background: "var(--accent-blue)",
+                        color: "#ffffff",
+                        borderRadius: "6px",
+                        border: "none",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Enroll {classroomStudents.length} Students into Exam
+                    </button>
+                  </div>
+
+                  {classroomStudentsLoading ? (
+                    <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)", fontSize: "13px" }}>
+                      Fetching students from Google Classroom...
                     </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleImportClassroomStudents}
-                    disabled={classroomLoading || classroomStudentsLoading || classroomStudents.length === 0 || !selectedClassroomExam}
-                    className="btn-primary"
-                    style={{
-                      padding: "9px 18px",
-                      fontSize: "13px",
-                      background: "#2563eb",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px"
-                    }}
-                  >
-                    📥 Stuff & Enroll {classroomStudents.length} Students into Exam
-                  </button>
-                </div>
-
-                {/* Students List Display */}
-                {classroomStudentsLoading ? (
-                  <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)", fontSize: "13px" }}>
-                    🔄 Fetching real students from Google Classroom...
-                  </div>
-                ) : classroomStudents.length > 0 ? (
-                  <div>
-                    <div style={{
-                      maxHeight: "220px",
-                      overflowY: "auto",
-                      border: "1px solid var(--border-subtle)",
-                      borderRadius: "8px"
-                    }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", textAlign: "left" }}>
+                  ) : classroomStudents.length > 0 ? (
+                    <div style={{ maxHeight: "200px", overflowY: "auto", border: "1px solid var(--border-subtle)", borderRadius: "6px" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
                         <thead>
-                          <tr style={{ background: "#f8fafc", borderBottom: "1px solid var(--border-subtle)" }}>
+                          <tr style={{ background: "#f8fafc", borderBottom: "1px solid var(--border-subtle)", textAlign: "left" }}>
                             <th style={{ padding: "8px 12px" }}>Student Name</th>
-                            <th style={{ padding: "8px 12px" }}>Email Address</th>
-                            <th style={{ padding: "8px 12px" }}>Google User ID</th>
-                            <th style={{ padding: "8px 12px", textAlign: "right" }}>Status</th>
+                            <th style={{ padding: "8px 12px" }}>Email</th>
+                            <th style={{ padding: "8px 12px" }}>User ID</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {classroomStudents.map((stu, idx) => (
-                            <tr key={stu.userId || idx} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                              <td style={{ padding: "8px 12px", fontWeight: "600", display: "flex", alignItems: "center", gap: "8px" }}>
-                                {stu.photoUrl ? (
-                                  <img src={stu.photoUrl} alt="" style={{ width: "22px", height: "22px", borderRadius: "50%" }} />
-                                ) : (
-                                  <div style={{ width: "22px", height: "22px", borderRadius: "50%", background: "#e2e8f0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: "700" }}>
-                                    {(stu.name || "S").charAt(0).toUpperCase()}
-                                  </div>
-                                )}
-                                {stu.name}
-                              </td>
-                              <td style={{ padding: "8px 12px", color: "var(--text-secondary)", fontFamily: "monospace" }}>
-                                {stu.email || `${(stu.name || "student").toLowerCase().replace(/[^a-z0-9]/g, '.')}@classroom.google.com`}
-                              </td>
-                              <td style={{ padding: "8px 12px", color: "var(--text-muted)", fontFamily: "monospace", fontSize: "11px" }}>
-                                {stu.userId}
-                              </td>
-                              <td style={{ padding: "8px 12px", textAlign: "right" }}>
-                                <span style={{
-                                  padding: "2px 8px",
-                                  borderRadius: "12px",
-                                  fontSize: "10px",
-                                  fontWeight: "700",
-                                  background: "#f0fdf4",
-                                  color: "#16a34a"
-                                }}>
-                                  Ready to Enroll
-                                </span>
-                              </td>
+                          {classroomStudents.map((stu, i) => (
+                            <tr key={stu.userId || i} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                              <td style={{ padding: "6px 12px", fontWeight: "600" }}>{stu.name}</td>
+                              <td style={{ padding: "6px 12px", color: "var(--text-secondary)" }}>{stu.email}</td>
+                              <td style={{ padding: "6px 12px", fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>{stu.userId}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                  </div>
-                ) : (
-                  <div style={{
-                    padding: "16px",
-                    background: "#f8fafc",
-                    borderRadius: "8px",
-                    border: "1px dashed var(--border-subtle)",
-                    fontSize: "12px",
-                    color: "var(--text-muted)",
-                    textAlign: "center"
-                  }}>
-                    No students currently found in this Classroom course. Enrolled students in Google Classroom will appear here automatically.
-                  </div>
-                )}
-
-                {/* Enrolled Result Details */}
-                {classroomEnrolledResult && (
-                  <div style={{
-                    marginTop: "16px",
-                    padding: "14px 18px",
-                    background: "#f0fdf4",
-                    borderRadius: "8px",
-                    border: "1px solid #bbf7d0",
-                    fontSize: "13px",
-                    color: "#166534"
-                  }}>
-                    <div style={{ fontWeight: "700" }}>✓ {classroomEnrolledResult.message}</div>
-                    <div style={{ marginTop: "4px", fontSize: "12px" }}>
-                      Total Candidates Enrolled: <strong>{classroomEnrolledResult.total || classroomEnrolledResult.students?.length}</strong>. Candidates can now enter the exam portal using their Candidate UID & PIN.
+                  ) : (
+                    <div style={{ padding: "16px", textAlign: "center", color: "var(--text-muted)", fontSize: "12px" }}>
+                      No students detected in this course.
                     </div>
+                  )}
+                </div>
+              )}
+
+              {/* Live Success Banner */}
+              {classroomSyncResult && (
+                <div style={{
+                  padding: "14px 18px",
+                  background: "#f0fdf4",
+                  borderRadius: "8px",
+                  border: "1px solid #bbf7d0",
+                  fontSize: "13px",
+                  color: "#166534"
+                }}>
+                  <div style={{ fontWeight: "700", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <CheckIcon size={14} color="#16a34a" />
+                    <span>{classroomSyncResult.message}</span>
+                  </div>
+                  {classroomSyncResult.alternate_link && (
                     <div style={{ marginTop: "10px" }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const ex = exams.find(e => e.id === selectedClassroomExam) || {};
-                          api.downloadExamCredentialsPdf(selectedClassroomExam, ex.room_code || "CLASSROOM");
-                        }}
+                      <a
+                        href={classroomSyncResult.alternate_link}
+                        target="_blank"
+                        rel="noreferrer"
                         style={{
-                          padding: "7px 14px",
-                          background: "#166534",
+                          padding: "6px 14px",
+                          background: "#16a34a",
                           color: "#ffffff",
-                          border: "none",
                           borderRadius: "6px",
+                          textDecoration: "none",
                           fontSize: "12px",
                           fontWeight: "700",
-                          cursor: "pointer",
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: "6px"
+                          gap: "5px"
                         }}
                       >
-                        📄 Download Candidate Credentials PDF (IDs & Passwords)
-                      </button>
+                        Open in Google Classroom ↗
+                      </a>
                     </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Live Turn-In Mechanism Explanation */}
-              <div style={{
-                padding: "14px 18px",
-                background: "var(--accent-blue-subtle)",
-                borderRadius: "10px",
-                border: "1px solid rgba(37,99,235,0.15)",
-                fontSize: "12px",
-                color: "var(--text-secondary)",
-                lineHeight: "1.6"
-              }}>
-                <div style={{ fontWeight: "700", color: "var(--accent-blue)", marginBottom: "4px" }}>
-                  ⚡ Automated Student Turn-In & Gradebook Sync
+                  )}
                 </div>
-                When candidates finish the test, Lunaris communicates with Google Classroom:
-                <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
-                  <li>Marks the student's submission as <strong>"Turned In"</strong> in Google Classroom.</li>
-                  <li>Syncs evaluated marks directly into your Classroom course gradebook.</li>
-                </ul>
-              </div>
+              )}
             </div>
+          </div>
+        </div>
+      )}
 
-            <div style={{ padding: "16px 24px", borderTop: "1px solid var(--border-subtle)", display: "flex", justifyContent: "flex-end" }}>
+
+      {/* ── JOIN EXISTING ACADEMY / ORGANIZATION MODAL ───────────────────────── */}
+      {showJoinOrgModal && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15, 23, 42, 0.65)",
+          backdropFilter: "blur(4px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1070,
+          padding: "20px"
+        }}>
+          <div style={{
+            background: "#ffffff",
+            borderRadius: "16px",
+            width: "100%",
+            maxWidth: "500px",
+            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+            border: "1px solid var(--border-subtle)",
+            overflow: "hidden"
+          }}>
+            <div style={{
+              padding: "18px 24px",
+              borderBottom: "1px solid var(--border-subtle)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              background: "#f8fafc"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <UsersIcon size={20} color="var(--accent-blue)" />
+                <h3 style={{ fontSize: "16px", fontWeight: "800", color: "var(--text-primary)", margin: 0 }}>
+                  Join Academy Workspace
+                </h3>
+              </div>
               <button
                 type="button"
-                onClick={() => setShowClassroomModal(false)}
-                className="btn-primary"
-                style={{ padding: "9px 24px", fontSize: "13px" }}
-              >
-                Close
-              </button>
+                onClick={() => setShowJoinOrgModal(false)}
+                style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "var(--text-muted)" }}
+              ><XIcon size={16} /></button>
             </div>
+
+            <form onSubmit={handleJoinAcademy} style={{ padding: "24px" }}>
+              <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px", lineHeight: "1.5" }}>
+                Enter the unique organization invite code provided by your administrator. Once joined, this academy workspace will be linked to your account and accessible from your Academy Switcher at any time.
+              </p>
+
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "6px", color: "#334155" }}>
+                  Organization Invite Code *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={joinInviteCode}
+                  onChange={(e) => setJoinInviteCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. ORG-APEX, ORG-STANFORD, or slug"
+                  className="lunaris-input"
+                  style={{
+                    width: "100%",
+                    height: "44px",
+                    fontSize: "14px",
+                    fontWeight: "700",
+                    letterSpacing: "1px",
+                    fontFamily: "var(--font-mono, monospace)"
+                  }}
+                  autoFocus
+                />
+                <span style={{ fontSize: "11px", color: "#94a3b8", marginTop: "4px", display: "block" }}>
+                  Invite codes are formatted as ORG-SLUG or your academy's unique handle.
+                </span>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowJoinOrgModal(false)}
+                  style={{
+                    padding: "9px 18px",
+                    borderRadius: "8px",
+                    background: "#f1f5f9",
+                    border: "1px solid #e2e8f0",
+                    color: "#475569",
+                    fontWeight: "600",
+                    fontSize: "13px",
+                    cursor: "pointer"
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={joiningOrg || !joinInviteCode.trim()}
+                  style={{
+                    padding: "9px 20px",
+                    borderRadius: "8px",
+                    background: joiningOrg || !joinInviteCode.trim() ? "#94a3b8" : "var(--accent-blue)",
+                    border: "none",
+                    color: "#ffffff",
+                    fontWeight: "700",
+                    fontSize: "13px",
+                    cursor: joiningOrg || !joinInviteCode.trim() ? "not-allowed" : "pointer"
+                  }}
+                >
+                  {joiningOrg ? "Joining..." : "Join Academy Now"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -3404,7 +4254,7 @@ export default function OrgDashboard({
               background: "#f8fafc"
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ fontSize: "20px" }}>🏛️</span>
+                <span style={{ fontSize: "20px" }}></span>
                 <h3 style={{ fontSize: "16px", fontWeight: "800", color: "var(--text-primary)" }}>
                   Create New Academy Workspace
                 </h3>
@@ -3413,7 +4263,7 @@ export default function OrgDashboard({
                 type="button"
                 onClick={() => setShowCreateAcademyModal(false)}
                 style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "var(--text-muted)" }}
-              >✕</button>
+              ><XIcon size={16} /></button>
             </div>
 
             <form onSubmit={handleCreateAcademy} style={{ padding: "24px" }}>
@@ -3447,7 +4297,7 @@ export default function OrgDashboard({
                 marginBottom: "20px"
               }}>
                 <div style={{ fontWeight: "700", color: "var(--text-primary)", marginBottom: "4px" }}>
-                  ✨ Instant Workspace Features:
+                  Instant Workspace Features:
                 </div>
                 • Free Starter Plan activated instantly (30 candidate seats, 3 exams)<br />
                 • Independent Google Classroom integration & stream publishing<br />
@@ -3478,6 +4328,22 @@ export default function OrgDashboard({
       )}
 
       {/* Rename Academy Workspace Modal */}
+      {showCapacityModal && (
+        <CandidateCapacityModal
+          organizationId={activeOrgId}
+          orgUsage={orgUsage}
+          members={members}
+          exams={exams}
+          onClose={() => setShowCapacityModal(false)}
+          onCapacityUpdated={(newCap) => {
+            if (newCap) {
+              setOrgUsage((prev) => prev ? { ...prev, max_candidates: newCap } : prev);
+            }
+            loadAllData();
+          }}
+        />
+      )}
+
       {showRenameOrgModal && (
         <div style={{
           position: "fixed",
@@ -3511,7 +4377,7 @@ export default function OrgDashboard({
               background: "#f8fafc"
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ fontSize: "20px" }}>✏️</span>
+                <EditIcon size={18} />
                 <h3 style={{ fontSize: "16px", fontWeight: "800", color: "var(--text-primary)" }}>
                   Rename Academy Workspace
                 </h3>
@@ -3520,7 +4386,7 @@ export default function OrgDashboard({
                 type="button"
                 onClick={() => setShowRenameOrgModal(false)}
                 style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "var(--text-muted)" }}
-              >✕</button>
+              ><XIcon size={16} /></button>
             </div>
 
             <form onSubmit={handleUpdateOrgName} style={{ padding: "24px" }}>
@@ -3566,6 +4432,120 @@ export default function OrgDashboard({
           </div>
         </div>
       )}
-    </div>
+    
+      {/* Delete Exam Confirmation Modal Popup */}
+      {examToDelete && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10001,
+            background: "rgba(15, 23, 42, 0.55)",
+            backdropFilter: "blur(6px)",
+            WebkitBackdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+            animation: "fadeIn 0.15s ease-out"
+          }}
+          onClick={() => !deletingExam && setExamToDelete(null)}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: "16px",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.08)",
+              width: "100%",
+              maxWidth: "460px",
+              padding: "24px",
+              position: "relative"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "14px" }}>
+              <div
+                style={{
+                  width: "44px",
+                  height: "44px",
+                  borderRadius: "12px",
+                  background: "#fee2e2",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0
+                }}
+              >
+                <TrashIcon size={22} color="#dc2626" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ margin: 0, fontSize: "17px", fontWeight: "700", color: "#0f172a", letterSpacing: "-0.01em" }}>
+                  Delete Examination?
+                </h3>
+                <p style={{ margin: "8px 0 0 0", fontSize: "13px", color: "#475569", lineHeight: 1.55 }}>
+                  Are you sure you want to permanently delete{" "}
+                  <strong style={{ color: "#0f172a" }}>{examToDelete.title}</strong>?
+                </p>
+                <div
+                  style={{
+                    marginTop: "12px",
+                    padding: "10px 12px",
+                    background: "#fff1f2",
+                    border: "1px solid #fecdd3",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    color: "#9f1239",
+                    lineHeight: 1.5
+                  }}
+                >
+                  All candidate sessions, answers, proctoring events, and enrolled candidate records for this examination will be permanently removed.
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: "22px", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "10px" }}>
+              <button
+                type="button"
+                disabled={deletingExam}
+                onClick={() => setExamToDelete(null)}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: "8px",
+                  border: "1px solid #e2e8f0",
+                  background: "#ffffff",
+                  color: "#475569",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  cursor: deletingExam ? "not-allowed" : "pointer"
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingExam}
+                onClick={confirmDeleteExam}
+                style={{
+                  padding: "8px 18px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "#dc2626",
+                  color: "#ffffff",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  cursor: deletingExam ? "not-allowed" : "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  boxShadow: "0 2px 8px rgba(220, 38, 38, 0.25)"
+                }}
+              >
+                {deletingExam ? "Deleting..." : "Delete Exam"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+</div>
   );
 }

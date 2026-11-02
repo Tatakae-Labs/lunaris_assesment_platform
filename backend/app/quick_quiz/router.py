@@ -31,6 +31,9 @@ class QuickQuizAnswerRequest(BaseModel):
 class ReconnectRequest(BaseModel):
     participant_token: str
 
+class QuickQuizFinishRequest(BaseModel):
+    session_id: str
+
 @router.post("/create-room")
 def create_quick_quiz_room(
     exam_id: str,
@@ -252,6 +255,35 @@ def submit_quick_quiz_answer(
         "points_awarded": points_awarded,
         "current_total_score": int(attempt.score_total),
         "correct_option_id": correct_opt_id
+    }
+
+@router.post("/rooms/{room_code}/finish")
+def finish_quick_quiz(
+    room_code: str,
+    req: QuickQuizFinishRequest,
+    db: Session = Depends(get_db)
+):
+    clean_code = room_code.strip().upper()
+    attempt = db.query(ExamAttempt).filter(ExamAttempt.id == req.session_id).first()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Attempt session not found")
+
+    now = datetime.now(timezone.utc)
+    attempt.status = "completed"
+    attempt.submitted_at = now
+
+    quiz_room = db.query(QuizRoom).filter(QuizRoom.room_code == clean_code).first()
+    if quiz_room:
+        participant = db.query(QuizParticipant).filter(QuizParticipant.id == req.session_id).first()
+        if participant:
+            participant.is_connected = False
+
+    db.commit()
+    return {
+        "status": "completed",
+        "session_id": attempt.id,
+        "score": int(attempt.score_total or 0),
+        "submitted_at": now.isoformat()
     }
 
 @router.get("/rooms/{room_code}/leaderboard")

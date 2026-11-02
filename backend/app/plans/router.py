@@ -193,6 +193,14 @@ def subscribe_or_upgrade_plan(
 
     db.commit()
 
+    # When an organization is upgraded to a paid plan, remove any free organization owned by this user
+    if req.plan_code != "free":
+        try:
+            from app.platform.router import cleanup_free_organizations_for_user
+            cleanup_free_organizations_for_user(db, current_user.id)
+        except Exception as exc:
+            print(f"Cleanup free orgs on upgrade note: {exc}")
+
     return {
         "message": f"Successfully activated {selected_plan.name} plan!",
         "plan": {
