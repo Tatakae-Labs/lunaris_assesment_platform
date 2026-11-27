@@ -1,12 +1,18 @@
 import os
 import uuid
 
-CLASSROOM_FILES_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "data",
-    "classroom_files"
-)
-os.makedirs(CLASSROOM_FILES_DIR, exist_ok=True)
+if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    CLASSROOM_FILES_DIR = "/tmp/classroom_files"
+else:
+    CLASSROOM_FILES_DIR = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "data",
+        "classroom_files"
+    )
+try:
+    os.makedirs(CLASSROOM_FILES_DIR, exist_ok=True)
+except OSError:
+    pass
 import os
 import json
 import base64

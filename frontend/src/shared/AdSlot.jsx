@@ -3,7 +3,7 @@ import { AD_PLACEMENTS, ADSENSE_CLIENT_ID } from "./adConfig";
 
 /**
  * Reusable AdSlot Component
- * Supports Adsterra (Popunder, Social Bar, Native Banner, Display Banners, Smartlink)
+ * Supports Adsterra (Social Bar, Native Banner, Display Banners)
  * and falls back to Google AdSense when Adsterra invoke URLs are not yet configured.
  *
  * When `show` is false (e.g., paid users on dashboard), renders nothing and loads no scripts.
@@ -19,10 +19,10 @@ export default function AdSlot({
   const containerRef = useRef(null);
   const cfg = AD_PLACEMENTS[placement];
 
-  // Global script placements (Popunder / Social Bar)
+  // Global script placements (Social Bar)
   useEffect(() => {
     if (!show || !cfg) return;
-    if (cfg.type !== "popunder" && cfg.type !== "social_bar") return;
+    if (cfg.type !== "social_bar") return;
     if (!cfg.scriptSrc) return;
 
     const existing = document.querySelector(`script[data-ad-placement="${cfg.id}"]`);
@@ -131,7 +131,7 @@ export default function AdSlot({
 
   if (!show || !cfg) return null;
 
-  if (cfg.type === "popunder" || cfg.type === "social_bar") {
+  if (cfg.type === "social_bar") {
     return null;
   }
 

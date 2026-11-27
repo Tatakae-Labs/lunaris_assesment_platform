@@ -82,6 +82,7 @@ class Settings(BaseSettings):
             # If running on Vercel or AWS Lambda serverless runtime, redirect SQLite to /tmp so it is writable
             is_serverless = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
             if is_serverless:
+                self.LOCAL_STORAGE_DIR = "/tmp/storage_assets"
                 tmp_db = "/tmp/lunaris.db"
                 if not os.path.exists(tmp_db):
                     for cand in [_DEFAULT_DB_PATH, os.path.join(_BACKEND_DIR, "lunaris.db"), os.path.join(_ROOT_DIR, "lunaris.db")]:

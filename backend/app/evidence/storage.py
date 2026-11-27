@@ -4,7 +4,10 @@ import base64
 from typing import Optional
 from app.core.config import settings
 
-os.makedirs(settings.LOCAL_STORAGE_DIR, exist_ok=True)
+try:
+    os.makedirs(settings.LOCAL_STORAGE_DIR, exist_ok=True)
+except OSError:
+    pass
 
 class StorageService:
     @staticmethod

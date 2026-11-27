@@ -12,12 +12,6 @@
 export const ADSENSE_CLIENT_ID = "ca-pub-2586489862357963";
 
 export const AD_PLACEMENTS = {
-  Popunder_1: {
-    id: "32510498",
-    name: "Popunder_1",
-    type: "popunder",
-    scriptSrc: import.meta.env.VITE_AD_POPUNDER_1_SRC || "https://abscloud.org/1/8d7704666332f6042442a1ce26bafc8c"
-  },
   SocialBar_1: {
     id: "32510499",
     name: "SocialBar_1",
