@@ -32,6 +32,7 @@ export default function AdSlot({
     script.type = "text/javascript";
     script.src = cfg.scriptSrc;
     script.async = true;
+    script.setAttribute("data-cfasync", "false");
     script.setAttribute("data-ad-placement", cfg.id);
     script.setAttribute("data-ad-name", cfg.name);
     document.body.appendChild(script);
@@ -93,7 +94,7 @@ export default function AdSlot({
                   'params': {}
                 };
               <\/script>
-              <script type="text/javascript" src="${cfg.scriptSrc}"><\/script>
+              <script data-cfasync="false" type="text/javascript" src="${cfg.scriptSrc}"><\/script>
             </body>
           </html>
         `);
@@ -132,28 +133,6 @@ export default function AdSlot({
 
   if (cfg.type === "popunder" || cfg.type === "social_bar") {
     return null;
-  }
-
-  if (cfg.type === "smartlink") {
-    if (!cfg.href) return null;
-    return (
-      <a
-        href={cfg.href}
-        target="_blank"
-        rel="noopener noreferrer sponsored"
-        data-ad-unit={cfg.name}
-        data-placement-id={cfg.id}
-        style={{
-          fontSize: "12px",
-          color: "var(--accent-blue)",
-          fontWeight: "600",
-          textDecoration: "underline",
-          ...style
-        }}
-      >
-        {label || "Sponsored Partner"}
-      </a>
-    );
   }
 
   return (
