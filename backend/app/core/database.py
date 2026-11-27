@@ -12,7 +12,11 @@ except Exception:
     pass
 
 _db_url = settings.DATABASE_URL
-if _db_url.startswith("mysql://"):
+if _db_url.startswith("postgres://"):
+    _db_url = _db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+elif _db_url.startswith("postgresql://") and not _db_url.startswith("postgresql+"):
+    _db_url = _db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+elif _db_url.startswith("mysql://"):
     _db_url = _db_url.replace("mysql://", "mysql+pymysql://", 1)
 
 if _db_url.startswith("sqlite"):
@@ -79,6 +83,9 @@ def checkpoint_and_sync_db(db_or_engine=None):
 
         # Check which database is the active one in DATABASE_URL
         active_db_path = settings.DATABASE_URL.replace("sqlite:///", "")
+        if active_db_path.startswith("/tmp"):
+            # Serverless environment (e.g. Vercel) - do not attempt to write back to read-only app directories
+            return
         if os.path.exists(active_db_path):
             if os.path.abspath(active_db_path) == os.path.abspath(root_db) and os.path.exists(root_db):
                 shutil.copy2(root_db, backend_db)

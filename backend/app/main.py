@@ -24,10 +24,14 @@ from app.templates.router import router as templates_router
 from app.paper_studio.router import router as paper_studio_router
 
 # Initialize tables and auto-migrate schema
-Base.metadata.create_all(bind=engine)
-from app.core.database import auto_migrate_sqlite, checkpoint_sqlite, SessionLocal
-auto_migrate_sqlite(engine)
-checkpoint_sqlite(engine)
+try:
+    Base.metadata.create_all(bind=engine)
+    from app.core.database import auto_migrate_sqlite, checkpoint_sqlite, SessionLocal
+    auto_migrate_sqlite(engine)
+    checkpoint_sqlite(engine)
+except Exception as _schema_exc:
+    print(f"Startup database initialization warning: {_schema_exc}")
+from app.core.database import SessionLocal
 
 try:
     with SessionLocal() as _db_init:
@@ -63,6 +67,8 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
+        "https://lunarisbuild.vercel.app",
+        "https://lunaris-assesment-platform.vercel.app",
     ],
     allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*(rugveddev\.tech|vercel\.app|localhost|127\.0\.0\.1)(:[0-9]+)?$",
     allow_credentials=True,

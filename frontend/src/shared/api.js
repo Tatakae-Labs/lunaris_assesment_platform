@@ -1,7 +1,9 @@
 export const API_BASE_URL =
   import.meta.env.VITE_API_URL ||
   (typeof window !== "undefined"
-    ? `${window.location.origin}/api/v1`
+    ? (window.location.hostname === "lunarisbuild.vercel.app" || (window.location.hostname.endsWith(".vercel.app") && !window.location.hostname.includes("assesment"))
+        ? "https://lunaris-assesment-platform.vercel.app/api/v1"
+        : `${window.location.origin}/api/v1`)
     : "http://localhost:8000/api/v1");
 
 export async function request(endpoint, options = {}) {
