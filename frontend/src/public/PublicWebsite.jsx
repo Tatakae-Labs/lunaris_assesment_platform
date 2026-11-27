@@ -758,11 +758,13 @@ export default function PublicWebsite({
 
       {/* Hero Section */}
       {activeTab === "home" && (
-        <div>
+        <div style={{
+          background: "radial-gradient(ellipse 80% 45% at 50% 0%, rgba(37, 99, 235, 0.06) 0%, rgba(255, 255, 255, 0) 70%)"
+        }}>
           <section
             className="hero-section"
             style={{
-              padding: "60px 24px 40px",
+              padding: "56px 24px 40px",
               maxWidth: "1160px",
               margin: "0 auto",
               textAlign: "center"
@@ -818,12 +820,12 @@ export default function PublicWebsite({
             </p>
 
             {/* Taste Skill v2 Primary CTA: Visible above the fold without scroll */}
-            <div className="hero-actions" style={{ display: "flex", justifyContent: "center", gap: "12px", marginBottom: "36px", flexWrap: "wrap" }}>
+            <div className="hero-actions" style={{ display: "flex", justifyContent: "center", gap: "12px", marginBottom: "24px", flexWrap: "wrap" }}>
               <button
                 type="button"
                 className="btn-primary"
                 onClick={() => handleOpenSignupWithPlan("free")}
-                style={{ padding: "12px 26px", fontSize: "14px", fontWeight: "700" }}
+                style={{ padding: "12px 26px", fontSize: "14px", fontWeight: "700", boxShadow: "0 4px 14px rgba(37, 99, 235, 0.25)" }}
               >
                 Create Workspace Account →
               </button>
@@ -835,6 +837,59 @@ export default function PublicWebsite({
               >
                 Sign In to Platform
               </button>
+              <button
+                type="button"
+                onClick={() => navigate("/candidate-login")}
+                style={{
+                  padding: "12px 20px",
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  background: "#f8fafc",
+                  color: "#0f172a",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "8px",
+                  cursor: "pointer"
+                }}
+              >
+                Candidate Exam Portal →
+              </button>
+            </div>
+
+            {/* Platform Trust & Live Telemetry Strip */}
+            <div style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexWrap: "wrap",
+              gap: "18px",
+              padding: "10px 20px",
+              background: "#ffffff",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "999px",
+              marginBottom: "28px",
+              fontSize: "12px",
+              color: "var(--text-secondary)",
+              boxShadow: "0 2px 8px rgba(15, 23, 42, 0.04)"
+            }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontWeight: "600" }}>
+                <ShieldIcon size={14} color="#2563eb" /> Server-Authoritative Timer
+              </span>
+              <span style={{ color: "#cbd5e1" }}>•</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontWeight: "600" }}>
+                <VideoIcon size={14} color="#059669" /> On-Device MediaPipe AI
+              </span>
+              <span style={{ color: "#cbd5e1" }}>•</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontWeight: "600" }}>
+                <GraduationCapIcon size={14} color="#7c3aed" /> Google Classroom Sync
+              </span>
+              {publicStats?.total_exams > 0 && (
+                <>
+                  <span style={{ color: "#cbd5e1" }}>•</span>
+                  <span style={{ fontWeight: "700", color: "#0f172a" }}>
+                    {publicStats.total_exams.toLocaleString()}+ Assessments Delivered
+                  </span>
+                </>
+              )}
             </div>
 
             {/* Flagship Product Demonstration */}
@@ -1951,7 +2006,7 @@ export default function PublicWebsite({
           />
           <span>© 2026 Lunaris Assessment Platform. All rights reserved.</span>
         </div>
-        <div style={{ display: "flex", gap: "20px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "20px", alignItems: "center", flexWrap: "wrap" }}>
           <button
             type="button"
             onClick={() => changeRouteTab("features")}
@@ -1965,6 +2020,13 @@ export default function PublicWebsite({
             style={{ background: "none", color: "var(--text-secondary)", fontWeight: "600", cursor: "pointer" }}
           >
             Pricing & Plans
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("/candidate-login")}
+            style={{ background: "none", color: "var(--text-secondary)", fontWeight: "600", cursor: "pointer" }}
+          >
+            Candidate Portal
           </button>
           <button
             type="button"

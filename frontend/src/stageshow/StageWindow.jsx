@@ -7,7 +7,7 @@ import React from "react";
  */
 export default function StageWindow({
   title = "Lunaris Assessment Platform",
-  url = "lunaris.app/exams/specialized-assessment",
+  url = "lunarisedu.tatakaelabs.tech/exams",
   type = "browser", // 'browser' | 'app' | 'glass' | 'card'
   width = "100%",
   maxWidth = "960px",
@@ -38,8 +38,8 @@ export default function StageWindow({
           background: isGlass
             ? "rgba(255, 255, 255, 0.85)"
             : isCard
-            ? "#ffffff"
-            : "#ffffff",
+              ? "#ffffff"
+              : "#ffffff",
           backdropFilter: isGlass ? "blur(16px)" : "none",
           WebkitBackdropFilter: isGlass ? "blur(16px)" : "none",
           borderRadius: "14px",

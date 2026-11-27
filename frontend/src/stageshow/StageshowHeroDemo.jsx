@@ -237,17 +237,35 @@ export default function StageshowHeroDemo() {
       {/* The Master Stage Window */}
       <StageWindow
         title="Lunaris Assessment Platform"
-        url={step >= 3 ? "lunaris.app/exam/midterm-assessment?uid=LUN-981240" : "lunaris.app/dashboard/exams"}
+        url={step >= 3 ? "lunarisedu.tatakaelabs.tech/candidate-login?uid=LUN-981240" : "lunarisedu.tatakaelabs.tech/dashboard"}
         type={step >= 3 ? "app" : "browser"}
         satellite={renderSatellite()}
       >
         <div className="stageshow-hero-screen-body" style={{ height: "480px", background: step >= 3 ? "#0a0f1d" : "#f8fafc", position: "relative", overflow: "hidden", display: "flex" }}>
+          {/* Animated Step Progress Bar */}
+          <div style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: "3px",
+            background: "rgba(148, 163, 184, 0.2)",
+            zIndex: 30
+          }}>
+            <div style={{
+              height: "100%",
+              width: `${((step + 1) / 5) * 100}%`,
+              background: "linear-gradient(90deg, #2563eb 0%, #06b6d4 100%)",
+              transition: "width 0.4s cubic-bezier(0.22, 1, 0.36, 1)"
+            }} />
+          </div>
+
           {/* Animated Stageshow Pointer Cursor */}
           <StageshowCursor
             x={cursorPos.x}
             y={cursorPos.y}
             isClicking={isClicking}
-            label={step >= 3 ? "Rugved (Candidate)" : "Faculty Admin"}
+            label={step >= 3 ? "Candidate (LUN-981240)" : "Faculty Admin"}
             visible={true}
           />
 

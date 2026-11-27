@@ -31,7 +31,7 @@ export default function StageshowBentoGrid() {
             marginBottom: "12px"
           }}
         >
-          <span></span> STAGESHOW ARCHITECTURE GRID
+          PLATFORM ARCHITECTURE
         </div>
         <h2
           style={{
