@@ -53,8 +53,8 @@ def get_mongo_client() -> Optional[MongoClient]:
         try:
             _mongo_client = MongoClient(
                 settings.MONGODB_URL,
-                serverSelectionTimeoutMS=1000,
-                connectTimeoutMS=1000
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000
             )
             # Test connectivity
             _mongo_client.admin.command("ping")
