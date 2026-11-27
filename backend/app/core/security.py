@@ -4,6 +4,7 @@ Lunaris security utilities.
 - Passwords hashed with bcrypt (Argon2id upgrade path noted).
 - UserSession table checked on every request → revocable tokens.
 """
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import secrets as _secrets
@@ -157,12 +158,14 @@ def _make_get_current_user(require_active: bool = True):
                 db.rollback()
 
         user = db.query(User).filter(User.id == user_id).first()
-        if not user:
+        if not user or os.environ.get("VERCEL"):
             try:
                 from app.core.mongo_sync import hydrate_user_context_from_mongodb
-                user = hydrate_user_context_from_mongodb(db, user_id)
+                hydrated = hydrate_user_context_from_mongodb(db, user_id)
+                if hydrated and not user:
+                    user = hydrated
             except Exception:
-                user = None
+                pass
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         if require_active and user.status != "active":

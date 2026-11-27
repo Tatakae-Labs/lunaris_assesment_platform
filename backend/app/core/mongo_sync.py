@@ -329,6 +329,10 @@ def hydrate_user_context_from_mongodb(db: Session, user_id: str):
                 db.merge(models.Organization(**_deserialize_doc_for_model(models.Organization, org_doc)))
             for sub_doc in db_mongo.subscriptions.find({"organization_id": str(oid)}):
                 db.merge(models.Subscription(**_deserialize_doc_for_model(models.Subscription, sub_doc)))
+            for pay_doc in db_mongo.payment_events.find({"organization_id": str(oid)}):
+                db.merge(models.PaymentEvent(**_deserialize_doc_for_model(models.PaymentEvent, pay_doc)))
+            for exam_doc in db_mongo.exams.find({"organization_id": str(oid)}):
+                db.merge(models.Exam(**_deserialize_doc_for_model(models.Exam, exam_doc)))
 
         db.commit()
         return user_obj
