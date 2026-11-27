@@ -1548,10 +1548,6 @@ export default function OrgDashboard({
 
           {/* Free-Tier Only Ads (never rendered for paid plans or SuperAdmins) */}
           <AdSlot
-            placement="SocialBar_1"
-            show={(orgUsage?.plan_id || currentPlan || "free").toLowerCase() === "free" && !currentUser?.is_superadmin}
-          />
-          <AdSlot
             placement="468x60_1"
             show={(orgUsage?.plan_id || currentPlan || "free").toLowerCase() === "free" && !currentUser?.is_superadmin}
             onUpgradeClick={() => setActiveTab("billing")}

@@ -12,12 +12,6 @@
 export const ADSENSE_CLIENT_ID = "ca-pub-2586489862357963";
 
 export const AD_PLACEMENTS = {
-  SocialBar_1: {
-    id: "32510499",
-    name: "SocialBar_1",
-    type: "social_bar",
-    scriptSrc: import.meta.env.VITE_AD_SOCIALBAR_1_SRC || "https://bauval.org/14/6963ce990bcbf443b57b7e31aa1aa391"
-  },
   NativeBanner_1: {
     id: "32510501",
     name: "NativeBanner_1",

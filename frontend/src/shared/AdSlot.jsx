@@ -3,7 +3,7 @@ import { AD_PLACEMENTS, ADSENSE_CLIENT_ID } from "./adConfig";
 
 /**
  * Reusable AdSlot Component
- * Supports Adsterra (Social Bar, Native Banner, Display Banners)
+ * Supports Adsterra (Native Banner, Display Banners)
  * and falls back to Google AdSense when Adsterra invoke URLs are not yet configured.
  *
  * When `show` is false (e.g., paid users on dashboard), renders nothing and loads no scripts.
@@ -18,32 +18,6 @@ export default function AdSlot({
 }) {
   const containerRef = useRef(null);
   const cfg = AD_PLACEMENTS[placement];
-
-  // Global script placements (Social Bar)
-  useEffect(() => {
-    if (!show || !cfg) return;
-    if (cfg.type !== "social_bar") return;
-    if (!cfg.scriptSrc) return;
-
-    const existing = document.querySelector(`script[data-ad-placement="${cfg.id}"]`);
-    if (existing) return;
-
-    const script = document.createElement("script");
-    script.type = "text/javascript";
-    script.src = cfg.scriptSrc;
-    script.async = true;
-    script.setAttribute("data-cfasync", "false");
-    script.setAttribute("data-ad-placement", cfg.id);
-    script.setAttribute("data-ad-name", cfg.name);
-    document.body.appendChild(script);
-
-    return () => {
-      const node = document.querySelector(`script[data-ad-placement="${cfg.id}"]`);
-      if (node && node.parentNode) {
-        node.parentNode.removeChild(node);
-      }
-    };
-  }, [show, cfg]);
 
   // Inline placements (Banner / Native)
   useEffect(() => {
@@ -130,10 +104,6 @@ export default function AdSlot({
   }, [show, cfg]);
 
   if (!show || !cfg) return null;
-
-  if (cfg.type === "social_bar") {
-    return null;
-  }
 
   return (
     <div

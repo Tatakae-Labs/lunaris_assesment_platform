@@ -407,6 +407,10 @@ export const api = {
     request("/plans/submit-upi", { method: "POST", body: JSON.stringify(data) }),
   getOrgPayments: (org_id) =>
     request(`/plans/my-payments/${org_id}`),
+  createRazorpayOrder: (data) =>
+    request("/plans/razorpay/create-order", { method: "POST", body: JSON.stringify(data) }),
+  verifyRazorpayPayment: (data) =>
+    request("/plans/razorpay/verify-payment", { method: "POST", body: JSON.stringify(data) }),
   getOrgServices: (org_id) => request(`/organizations/${org_id}/services`),
 
   // MongoDB Dual-Engine Operations

@@ -1916,8 +1916,7 @@ export default function PublicWebsite({
         </section>
       )}
 
-      {/* Landing Page Native Banner + Global SocialBar */}
-      <AdSlot placement="SocialBar_1" show={activeTab === "home" || activeTab === "login"} />
+      {/* Landing Page Native Banner */}
       {activeTab === "home" && (
         <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "12px 24px 28px" }}>
           <AdSlot placement="NativeBanner_1" show={true} />

@@ -26,6 +26,10 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
   const [subStatus, setSubStatus] = useState(null);
   const [sendingTestReminder, setSendingTestReminder] = useState(false);
 
+  // Razorpay Checkout State
+  const [razorpayProcessing, setRazorpayProcessing] = useState(false);
+  const [razorpayError, setRazorpayError] = useState(null);
+
   useEffect(() => {
     loadPlans();
     if (organizationId) {
@@ -113,14 +117,104 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
     setPayerVpa("");
     setCopiedUpi(false);
     setCopiedLink(false);
+    setRazorpayError(null);
     try {
       const info = await api.getUpiCheckoutInfo(organizationId, plan.code || plan.id);
       setCheckoutInfo(info);
     } catch (err) {
-      alert("Failed to initialize UPI checkout: " + err.message);
+      alert("Failed to initialize checkout: " + err.message);
       setCheckoutPlan(null);
     } finally {
       setLoadingCheckout(false);
+    }
+  }
+
+  async function handleRazorpayCheckout() {
+    if (!checkoutPlan) return;
+    setRazorpayError(null);
+
+    if (typeof window === "undefined" || !window.Razorpay) {
+      setRazorpayError("Razorpay Checkout script failed to load. Please refresh the page.");
+      return;
+    }
+
+    const rzpKeyId = import.meta.env.VITE_RAZORPAY_KEY_ID;
+    if (!rzpKeyId) {
+      setRazorpayError("Razorpay Key ID (VITE_RAZORPAY_KEY_ID) is not configured.");
+      return;
+    }
+
+    const amountInr = checkoutInfo?.amount_inr || checkoutPlan.price_inr;
+    const amountPaise = Math.round(Number(amountInr) * 100);
+    if (!amountPaise || amountPaise < 100) {
+      setRazorpayError("Minimum payable amount is ₹1.00 (100 paise).");
+      return;
+    }
+
+    setRazorpayProcessing(true);
+    try {
+      const order = await api.createRazorpayOrder({
+        amount: amountPaise,
+        currency: "INR",
+        organization_id: organizationId,
+        plan_id: checkoutPlan.code || checkoutPlan.id
+      });
+
+      const options = {
+        key: rzpKeyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: "Lunaris Assessment Platform",
+        description: `${checkoutPlan.name} Plan Subscription`,
+        order_id: order.order_id,
+        handler: async function (response) {
+          try {
+            const verifyRes = await api.verifyRazorpayPayment({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              organization_id: organizationId,
+              plan_id: checkoutPlan.code || checkoutPlan.id,
+              amount_inr: amountInr
+            });
+
+            if (verifyRes?.verified) {
+              setSelectedPlanCode(checkoutPlan.code || checkoutPlan.id);
+              setAlertMsg(`Payment verified! ${checkoutPlan.name} plan activated (Payment ID: ${response.razorpay_payment_id}).`);
+              setCheckoutPlan(null);
+              loadMyPayments();
+              loadSubStatus();
+              if (onPlanChanged) onPlanChanged();
+            } else {
+              setRazorpayError("Payment verification failed. Please contact support.");
+            }
+          } catch (verifyErr) {
+            setRazorpayError("Payment signature verification failed: " + verifyErr.message);
+          } finally {
+            setRazorpayProcessing(false);
+          }
+        },
+        modal: {
+          ondismiss: function () {
+            setRazorpayProcessing(false);
+            setRazorpayError("Payment cancelled. You can retry anytime.");
+          }
+        },
+        theme: {
+          color: "#2563eb"
+        }
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", function (resp) {
+        setRazorpayProcessing(false);
+        const desc = resp?.error?.description || "Payment failed. Please try another method.";
+        setRazorpayError(`Payment failed: ${desc}`);
+      });
+      rzp.open();
+    } catch (err) {
+      setRazorpayProcessing(false);
+      setRazorpayError(err.message || "Could not initiate Razorpay checkout.");
     }
   }
 
@@ -698,6 +792,50 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                   <div style={{ fontSize: "12px", color: "var(--text-secondary, #64748b)" }}>
                     Payee: <strong>{checkoutInfo.payee_name}</strong>
                   </div>
+                </div>
+
+                {/* Razorpay Standard Web Checkout */}
+                <div>
+                  <button
+                    type="button"
+                    disabled={razorpayProcessing}
+                    onClick={handleRazorpayCheckout}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "10px",
+                      width: "100%",
+                      padding: "13px 20px",
+                      background: razorpayProcessing
+                        ? "#94a3b8"
+                        : "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      fontWeight: "800",
+                      boxShadow: "0 4px 12px rgba(15, 23, 42, 0.25)",
+                      cursor: razorpayProcessing ? "not-allowed" : "pointer",
+                      boxSizing: "border-box"
+                    }}
+                  >
+                    <span>{razorpayProcessing ? "Opening Razorpay Checkout..." : "Pay Instantly with Razorpay (Cards / UPI / NetBanking)"}</span>
+                  </button>
+                  {razorpayError && (
+                    <div style={{
+                      marginTop: "8px",
+                      padding: "8px 12px",
+                      borderRadius: "6px",
+                      background: "#fef2f2",
+                      border: "1px solid #fecaca",
+                      color: "#b91c1c",
+                      fontSize: "12px",
+                      fontWeight: "600"
+                    }}>
+                      {razorpayError}
+                    </div>
+                  )}
                 </div>
 
                 {/* Direct Action 1: Mobile Instant Deep Link */}
