@@ -150,7 +150,7 @@ def send_welcome_joined_org_email(
           You can now log in to your workspace dashboard to create questions, manage examinations, and review results.
         </p>
         <div style="margin-top: 24px;">
-          <a href="http://localhost:5173/login" style="background: #2563eb; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px; display: inline-block;">
+          <a href="{os.getenv('FRONTEND_URL', 'http://localhost:5173').rstrip('/')}/login" style="background: #2563eb; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px; display: inline-block;">
             Access Workspace Dashboard →
           </a>
         </div>
@@ -261,7 +261,7 @@ def send_subscription_renewal_reminder_email(
         </div>
 
         <div style="text-align: center; margin: 28px 0;">
-          <a href="http://localhost:5173/dashboard?tab=billing" style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px;">
+          <a href="{os.getenv('FRONTEND_URL', 'http://localhost:5173').rstrip('/')}/dashboard?tab=billing" style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px;">
             Renew Subscription via UPI Gateway →
           </a>
         </div>
@@ -313,7 +313,7 @@ def send_subscription_expired_email(
         </p>
 
         <div style="text-align: center; margin: 28px 0;">
-          <a href="http://localhost:5173/dashboard?tab=billing" style="display: inline-block; background: #dc2626; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px;">
+          <a href="{os.getenv('FRONTEND_URL', 'http://localhost:5173').rstrip('/')}/dashboard?tab=billing" style="display: inline-block; background: #dc2626; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px;">
             Renew Now (₹{amount_inr:,} / mo) →
           </a>
         </div>

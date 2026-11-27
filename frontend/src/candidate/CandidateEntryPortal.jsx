@@ -705,10 +705,10 @@ export default function CandidateEntryPortal({
                 }}
               />
               <h2 style={{ fontSize: "24px", fontWeight: "800", color: "var(--text-primary)" }}>
-                Candidate Exam Portal
+                Lunaris Assessment Platform
               </h2>
               <p style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "4px" }}>
-                Enter your assigned Exam UID to begin. No permanent account required.
+                Candidate Examination Portal • Enter your assigned UID to begin
               </p>
             </div>
 

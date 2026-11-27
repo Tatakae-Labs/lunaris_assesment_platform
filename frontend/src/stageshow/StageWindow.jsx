@@ -6,7 +6,7 @@ import React from "react";
  * subtle border, deep diffuse shadow, and optional satellite overlays.
  */
 export default function StageWindow({
-  title = "Lunaris Assessment Engine",
+  title = "Lunaris Assessment Platform",
   url = "lunaris.app/exams/specialized-assessment",
   type = "browser", // 'browser' | 'app' | 'glass' | 'card'
   width = "100%",

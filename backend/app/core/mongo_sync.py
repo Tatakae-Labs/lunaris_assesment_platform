@@ -21,7 +21,11 @@ JSON_ATTRIBUTES = {
     "metadata_json": "metadata",
     "answer_json": "answer",
     "snapshot_json": "snapshot",
-    "details_json": "details"
+    "details_json": "details",
+    "sections_json": "sections",
+    "rules_json": "rules",
+    "sections_data_json": "sections_data",
+    "sets_data_json": "sets_data"
 }
 
 
@@ -197,3 +201,7 @@ def bulk_sync_sqlite_to_mongodb(db: Session) -> Dict[str, int]:
 
     print(f"[OK] MongoDB initial bulk sync completed: {summary}")
     return summary
+
+
+# Backwards compatibility alias
+bulk_sync_sql_to_mongodb = bulk_sync_sqlite_to_mongodb

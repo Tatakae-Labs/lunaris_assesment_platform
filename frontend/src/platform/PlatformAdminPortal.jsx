@@ -768,7 +768,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
             />
             <div>
               <div style={{ fontSize: "15px", fontWeight: "800", color: "#0f172a", letterSpacing: "-0.2px" }}>LUNARIS</div>
-              <div style={{ fontSize: "10px", color: "#2563eb", fontWeight: "700", letterSpacing: "0.5px" }}>SUPER ADMIN CONTROL</div>
+              <div style={{ fontSize: "9px", color: "#2563eb", fontWeight: "700", letterSpacing: "0.5px" }}>ASSESSMENT PLATFORM · ADMIN</div>
             </div>
           </div>
         </div>

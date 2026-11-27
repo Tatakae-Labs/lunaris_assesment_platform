@@ -13,7 +13,7 @@ import CandidateEntryPortal from "./candidate/CandidateEntryPortal";
 import OrgDashboard from "./organization/OrgDashboard";
 import QuickQuizPortal from "./candidate/QuickQuizPortal";
 import LiveProctorDashboard from "./proctor-console/LiveProctorDashboard";
-import { ToastContainer } from "./shared/toast";
+import { ToastContainer, toast } from "./shared/toast";
 import { WebsiteInitialLoader, LoginSuccessOverlay } from "./shared/BrandTransition";
 
 function AppRoutes() {
@@ -58,6 +58,22 @@ function AppRoutes() {
     document.body.setAttribute("data-theme", "light");
     document.documentElement.style.backgroundColor = "#ffffff";
   }, []);
+
+  // Handle unauthorized / expired session
+  useEffect(() => {
+    let notified = false;
+    const handleUnauthorized = () => {
+      if (notified) return;
+      notified = true;
+      setCurrentUser(null);
+      setCurrentOrg(null);
+      toast.error("Your session has expired. Please log in again.");
+      navigate("/login");
+      setTimeout(() => { notified = false; }, 2000);
+    };
+    window.addEventListener("lunaris:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("lunaris:unauthorized", handleUnauthorized);
+  }, [navigate]);
 
   function handleLoginSuccess(userData) {
     setCurrentUser(userData);

@@ -9,8 +9,10 @@ import {
   UploadIcon, DownloadIcon, SearchIcon, LinkIcon, CopyIcon, BellIcon,
   MegaphoneIcon, MailIcon, PhoneIcon, PlusIcon, CrownIcon, SparklesIcon,
   FolderIcon, CodeIcon, ClockIcon, TrophyIcon, UserIcon, GraduationCapIcon,
-  BookIcon, MenuIcon
+  BookIcon, MenuIcon, LayersIcon
 } from "../shared/Icons";
+import TemplateManager from "./TemplateManager";
+import QuestionPaperStudio from "./QuestionPaperStudio";
 import CreateQuestionModal from "./CreateQuestionModal";
 import ExamAnalyticsModal from "./ExamAnalyticsModal";
 import AiQuestionStudio from "./AiQuestionStudio";
@@ -67,7 +69,8 @@ export default function OrgDashboard({
 }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "exams"); // 'exams', 'questions', 'ai_studio', 'members', 'billing'
+  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "exams");
+  const [selectedTemplateForStudio, setSelectedTemplateForStudio] = useState(null); // 'exams', 'questions', 'ai_studio', 'members', 'billing'
   const [loading, setLoading] = useState(false);
 
   // Derive active organization ID and meta with multi-academy switching
@@ -1035,7 +1038,7 @@ export default function OrgDashboard({
             <div
               style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", minWidth: 0 }}
               onClick={onExitToPublic}
-              title="Return to Lunaris Homepage"
+              title="Return to Lunaris Assessment Platform"
             >
               <img
                 src="/logo.png"
@@ -1043,16 +1046,29 @@ export default function OrgDashboard({
                 style={{ width: "32px", height: "32px", objectFit: "contain", borderRadius: "50%", flexShrink: 0 }}
               />
               {!sidebarCollapsed && (
-                <span style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: "800",
-                  fontSize: "17px",
-                  letterSpacing: "0.5px",
-                  color: "#0f172a",
-                  whiteSpace: "nowrap"
-                }}>
-                  LUNARIS
-                </span>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <span style={{
+                    fontFamily: "var(--font-display)",
+                    fontWeight: "800",
+                    fontSize: "15px",
+                    letterSpacing: "0.5px",
+                    color: "#0f172a",
+                    lineHeight: "1.1",
+                    whiteSpace: "nowrap"
+                  }}>
+                    LUNARIS
+                  </span>
+                  <span style={{
+                    fontSize: "10px",
+                    fontWeight: "700",
+                    color: "var(--accent-blue)",
+                    letterSpacing: "0.2px",
+                    lineHeight: "1",
+                    marginTop: "2px"
+                  }}>
+                    Assessment Platform
+                  </span>
+                </div>
               )}
             </div>
 
@@ -1228,6 +1244,16 @@ export default function OrgDashboard({
             {[
               { key: "exams", label: "Examinations", icon: FileTextIcon, count: exams.length },
               { key: "questions", label: "Question Bank", icon: BookIcon, count: questions.length },
+              {
+                key: "templates",
+                label: "Paper Templates",
+                icon: LayersIcon
+              },
+              {
+                key: "paper_studio",
+                label: "Paper Studio",
+                icon: SparklesIcon
+              },
               {
                 key: "ai_studio",
                 label: "AI Question Studio",
@@ -1444,6 +1470,8 @@ export default function OrgDashboard({
               <h2 style={{ fontSize: "17px", fontWeight: "800", color: "#0f172a", margin: 0 }}>
                 {activeTab === "exams" && "Examinations and Assessments"}
                 {activeTab === "questions" && "Curriculum Question Bank"}
+                {activeTab === "templates" && "Question Paper Templates"}
+                {activeTab === "paper_studio" && "Question Paper Studio"}
                 {activeTab === "ai_studio" && "AI Question Studio"}
                 {activeTab === "live_proctor" && "Live Invigilation Console"}
                 {activeTab === "members" && "Faculty and Workspace Team"}
@@ -2312,6 +2340,46 @@ export default function OrgDashboard({
               }}>
                 {/* Subject filters & search */}
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("templates")}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      background: "var(--accent-blue-subtle)",
+                      color: "var(--accent-blue)",
+                      border: "1px solid rgba(37,99,235,0.2)",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      marginRight: "4px"
+                    }}
+                  >
+                    <LayersIcon size={13} /> Blueprints & Templates →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("paper_studio")}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      background: "#fdf4ff",
+                      color: "#9333ea",
+                      border: "1px solid #f0abfc",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      marginRight: "8px"
+                    }}
+                  >
+                    <SparklesIcon size={13} /> Paper Studio →
+                  </button>
                   {["", ...(orgSubjects.length > 0 ? orgSubjects.map(s => s.name) : Array.from(new Set(questions.map(q => q.subject).filter(Boolean))))].map((s, sIdx) => {
                     const isSel = selectedSubject === s;
                     return (
@@ -2858,6 +2926,27 @@ export default function OrgDashboard({
               organizationId={activeOrgId}
               currentPlanId={orgUsage?.plan_id || currentPlan}
               onPlanChanged={loadAllData}
+            />
+          )}
+
+          {/* ── TAB 7: PAPER BLUEPRINT TEMPLATES ─────────────────────────────── */}
+          {activeTab === "templates" && (
+            <TemplateManager
+              organizationId={activeOrgId}
+              onGeneratePaperFromTemplate={(tmpl) => {
+                setSelectedTemplateForStudio(tmpl);
+                setActiveTab("paper_studio");
+              }}
+              onNavigateToStudio={() => setActiveTab("paper_studio")}
+            />
+          )}
+
+          {/* ── TAB 8: QUESTION PAPER STUDIO WORKBENCH ──────────────────────── */}
+          {activeTab === "paper_studio" && (
+            <QuestionPaperStudio
+              organizationId={activeOrgId}
+              initialTemplateForCreation={selectedTemplateForStudio}
+              onNavigateToTemplates={() => setActiveTab("templates")}
             />
           )}
         </div>

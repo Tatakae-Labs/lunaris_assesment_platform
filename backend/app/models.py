@@ -141,9 +141,16 @@ class Question(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
     bank_id = Column(String(36), ForeignKey("question_banks.id"), nullable=True, index=True)
-    subject = Column(String(50), nullable=False)  # Physics, Chemistry, Mathematics
-    question_type = Column(String(50), nullable=False)  # single_mcq, multi_mcq, numerical
-    content_json = Column(Text, nullable=False)  # { text, options: [{id, text}], correct: [...], numerical_range: [min, max] }
+    subject = Column(String(50), nullable=False)  # Physics, Chemistry, Mathematics, CS, etc.
+    chapter = Column(String(100), nullable=True)
+    topic = Column(String(100), nullable=True)
+    difficulty = Column(String(50), default="medium")  # easy, medium, hard
+    question_type = Column(String(50), nullable=False)  # single_mcq, multi_mcq, numerical, fill_in_blanks, true_false, subjective
+    marks = Column(Float, default=4.0)
+    negative_marks = Column(Float, default=1.0)
+    source = Column(String(50), default="manual")  # manual, csv_import, ai_generated, template_builder
+    approval_status = Column(String(50), default="approved")  # approved, draft, flagged
+    content_json = Column(Text, nullable=False)  # { text, options: [{id, text}], correct: [...], numerical_range: [min, max], etc. }
     version = Column(Integer, default=1)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
@@ -644,3 +651,77 @@ class OrganizationSubject(Base):
     color_hex = Column(String(20), default="#2563eb")
     description = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class QuestionPaperTemplate(Base):
+    __tablename__ = "question_paper_templates"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    exam_type = Column(String(100), default="cbt")  # cbt, standard_quiz, midterm, final, olympiad, custom
+    language = Column(String(50), default="English")
+    total_marks = Column(Float, default=100.0)
+    total_questions = Column(Integer, default=0)
+    duration_minutes = Column(Integer, default=180)
+    instructions = Column(Text, nullable=True)
+    rules_json = Column(Text, nullable=True)  # { negative_marking: true, randomize_questions: true, etc. }
+    sections_json = Column(Text, nullable=False, default="[]")  # list of section definitions
+    status = Column(String(50), default="draft")  # draft, published, archived
+    current_version = Column(Integer, default=1)
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    organization = relationship("Organization")
+    versions = relationship("TemplateVersion", back_populates="template", cascade="all, delete-orphan")
+    papers = relationship("GeneratedPaper", back_populates="template", cascade="all, delete-orphan")
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class TemplateVersion(Base):
+    """Historical version snapshot of a question paper template for audit and rollback."""
+    __tablename__ = "template_versions"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    template_id = Column(String(36), ForeignKey("question_paper_templates.id"), nullable=False, index=True)
+    version_number = Column(Integer, nullable=False)
+    title = Column(String(255), nullable=False)
+    snapshot_json = Column(Text, nullable=False)  # Full serialized template snapshot
+    change_summary = Column(String(255), nullable=True)
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    template = relationship("QuestionPaperTemplate", back_populates="versions")
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class GeneratedPaper(Base):
+    """A fully generated, populated, and reviewed question paper with sections, sets, and answers."""
+    __tablename__ = "generated_papers"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    template_id = Column(String(36), ForeignKey("question_paper_templates.id"), nullable=True, index=True)
+    template_version_number = Column(Integer, nullable=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    exam_type = Column(String(100), default="cbt")
+    language = Column(String(50), default="English")
+    total_marks = Column(Float, default=100.0)
+    total_questions = Column(Integer, default=0)
+    duration_minutes = Column(Integer, default=180)
+    instructions = Column(Text, nullable=True)
+    status = Column(String(50), default="draft")  # draft, validated, published
+    sections_data_json = Column(Text, nullable=False)  # Array of sections with populated questions
+    sets_data_json = Column(Text, nullable=True)  # Permuted sets (Set A, Set B, Set C)
+    exam_id = Column(String(36), ForeignKey("exams.id"), nullable=True)  # Published online assessment link
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    template = relationship("QuestionPaperTemplate", back_populates="papers")
+    organization = relationship("Organization")
+    exam = relationship("Exam")
+    creator = relationship("User", foreign_keys=[created_by])

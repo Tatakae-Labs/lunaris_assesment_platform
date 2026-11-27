@@ -50,3 +50,9 @@ dist-ssr/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# SQLite temp journal files & scratch
+*.db-shm
+*.db-wal
+scratch/
+

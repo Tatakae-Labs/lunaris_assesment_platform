@@ -52,10 +52,11 @@ def create_quick_quiz_room(
             detail="Quick Quiz Live Arena service is disabled for your organization by the platform administrator."
         )
 
+    effective_per_q = per_question_time if per_question_time != 20 else (exam.per_question_time_seconds or 20)
     room_code = generate_room_code()
     exam.room_code = room_code
     exam.mode = "quick_quiz"
-    exam.per_question_time_seconds = per_question_time
+    exam.per_question_time_seconds = effective_per_q
     exam.speed_scoring = True
     exam.status = "published"
 
@@ -79,7 +80,7 @@ def create_quick_quiz_room(
         title=exam.title,
         mode="quick_quiz",
         room_code=room_code,
-        per_question_time_seconds=per_question_time,
+        per_question_time_seconds=effective_per_q,
         speed_scoring=True,
         duration_minutes=30,
         settings_json=json.dumps({"speed_scoring": True}),
@@ -95,7 +96,7 @@ def create_quick_quiz_room(
         status="waiting",
         current_round=1,
         total_rounds=len(snapshot_questions),
-        per_question_time_seconds=per_question_time,
+        per_question_time_seconds=effective_per_q,
         speed_scoring=True,
         host_user_id=exam.created_by,
         questions_json=json.dumps(snapshot_questions)
@@ -107,7 +108,7 @@ def create_quick_quiz_room(
         "room_code": room_code,
         "room_id": quiz_room.id,
         "exam_title": exam.title,
-        "per_question_seconds": per_question_time,
+        "per_question_seconds": effective_per_q,
         "total_questions": len(snapshot_questions)
     }
 

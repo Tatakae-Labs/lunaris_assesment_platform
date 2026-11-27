@@ -1,13 +1,13 @@
-# Lunaris: JEE-Style Proctored Assessment SaaS
+# Lunaris Assessment Platform
 
-> **Multi-Tenant Computer-Based Examination Platform & Remote Proctoring System**  
+> **Multi-Tenant Computer-Based Examination & Institutional Assessment Platform**  
 > *Engineered to the standards of the October 2026 Architectural Blueprint.*
 
 ---
 
 ## 1. System Overview
 
-Lunaris is an assessment SaaS platform designed for coaching institutes, universities, and recruitment teams administering high-stakes computer-based tests (CBT), specifically modeled on the **NTA JEE Main** examination format.
+Lunaris Assessment Platform is a specialized institutional testing platform designed for coaching institutes, universities, and recruitment teams administering high-stakes computer-based tests (CBT), specifically modeled on rigorous competitive examination formats.
 
 ### Key Innovations & Principles
 - **Server-Authoritative Lifecycle:** Exam timing, question release, answer persistence, and scoring are strictly enforced by the server. The client timer is purely cosmetic.

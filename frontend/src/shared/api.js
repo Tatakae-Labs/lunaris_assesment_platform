@@ -17,8 +17,30 @@ export async function request(endpoint, options = {}) {
   try {
     const res = await fetch(url, { ...options, headers });
     if (!res.ok) {
+      if (
+        res.status === 401 &&
+        !endpoint.startsWith("/auth/login") &&
+        !endpoint.startsWith("/auth/register") &&
+        typeof window !== "undefined"
+      ) {
+        localStorage.removeItem("lunaris_token");
+        localStorage.removeItem("lunaris_user");
+        window.dispatchEvent(new CustomEvent("lunaris:unauthorized"));
+      }
       const errData = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(errData.detail || "Request failed");
+      let errMsg = "Request failed";
+      if (typeof errData.detail === "string") {
+        errMsg = errData.detail;
+      } else if (Array.isArray(errData.detail)) {
+        errMsg = errData.detail
+          .map((d) => (d.loc ? `${d.loc[d.loc.length - 1]}: ` : "") + d.msg)
+          .join("; ");
+      } else if (errData.detail && typeof errData.detail === "object") {
+        errMsg = JSON.stringify(errData.detail);
+      } else if (errData.message) {
+        errMsg = errData.message;
+      }
+      throw new Error(errMsg);
     }
     return await res.json();
   } catch (error) {
@@ -97,6 +119,68 @@ export const api = {
     request("/ai/drafts/bulk-approve", { method: "POST", body: JSON.stringify({ organization_id, draft_ids }) }),
   ingestQuestionFile: (formData) =>
     request("/ai/ingest-file", { method: "POST", body: formData }),
+
+  // Question Bank Enhanced Filtering & Duplicates
+  getQuestionsFiltered: (org_id, params = {}) => {
+    const query = new URLSearchParams({ organization_id: org_id, ...params }).toString();
+    return request(`/questions?${query}`);
+  },
+  checkQuestionDuplicates: (organization_id, text, threshold = 0.70) =>
+    request("/questions/check-duplicates", { method: "POST", body: JSON.stringify({ organization_id, text, threshold }) }),
+
+  // Question Paper Templates
+  getTemplates: (org_id, params = {}) => {
+    const query = new URLSearchParams({ organization_id: org_id, ...params }).toString();
+    return request(`/templates?${query}`);
+  },
+  getTemplate: (template_id) => request(`/templates/${template_id}`),
+  createTemplate: (data) => request("/templates", { method: "POST", body: JSON.stringify(data) }),
+  updateTemplate: (template_id, data) => request(`/templates/${template_id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteTemplate: (template_id) => request(`/templates/${template_id}`, { method: "DELETE" }),
+  duplicateTemplate: (template_id) => request(`/templates/${template_id}/duplicate`, { method: "POST" }),
+  publishTemplate: (template_id) => request(`/templates/${template_id}/publish`, { method: "POST" }),
+  getTemplateVersions: (template_id) => request(`/templates/${template_id}/versions`),
+  rollbackTemplateVersion: (template_id, version_number) =>
+    request(`/templates/${template_id}/rollback/${version_number}`, { method: "POST" }),
+  validateTemplate: (template_id) => request(`/templates/${template_id}/validate`, { method: "POST" }),
+
+  // Question Paper Studio
+  generatePaper: (data) => request("/paper-studio/generate", { method: "POST", body: JSON.stringify(data) }),
+  getGeneratedPapers: (org_id, status = "") =>
+    request(`/paper-studio/papers?organization_id=${org_id}${status ? `&status=${status}` : ""}`),
+  getGeneratedPaper: (paper_id) => request(`/paper-studio/papers/${paper_id}`),
+  updateGeneratedPaper: (paper_id, data) =>
+    request(`/paper-studio/papers/${paper_id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteGeneratedPaper: (paper_id) =>
+    request(`/paper-studio/papers/${paper_id}`, { method: "DELETE" }),
+  replacePaperQuestion: (paper_id, data) =>
+    request(`/paper-studio/papers/${paper_id}/replace-question`, { method: "POST", body: JSON.stringify(data) }),
+  generatePaperSets: (paper_id, data) =>
+    request(`/paper-studio/papers/${paper_id}/generate-sets`, { method: "POST", body: JSON.stringify(data) }),
+  validateGeneratedPaper: (paper_id) =>
+    request(`/paper-studio/papers/${paper_id}/validate`, { method: "POST" }),
+  publishPaperToExam: (paper_id) =>
+    request(`/paper-studio/papers/${paper_id}/publish-exam`, { method: "POST" }),
+  saveAiQuestionsToBank: (paper_id) =>
+    request(`/paper-studio/papers/${paper_id}/save-ai-questions-to-bank`, { method: "POST" }),
+  downloadPaperPdf: async (paper_id, doc_type = "student", set_name = "SET A", title = "Paper") => {
+    const token = localStorage.getItem("lunaris_token");
+    const res = await fetch(`/api/v1/paper-studio/papers/${paper_id}/export-pdf?doc_type=${doc_type}&set_name=${encodeURIComponent(set_name)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to download ${doc_type === "student" ? "Question Paper" : "Answer Key"} PDF`);
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title.replace(/[^a-zA-Z0-9_-]/g, "_")}_${set_name}_${doc_type === "student" ? "Question_Paper" : "Answer_Key"}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
 
   // Exams & Publishing
   createExam: (data) => request("/exams", { method: "POST", body: JSON.stringify(data) }),

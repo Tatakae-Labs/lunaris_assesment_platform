@@ -5,13 +5,27 @@ from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker
 from app.core.config import settings
 
-connect_args = {"check_same_thread": False, "timeout": 60} if settings.DATABASE_URL.startswith("sqlite") else {}
+try:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+except Exception:
+    pass
 
-engine = create_engine(
-    settings.DATABASE_URL,
-    connect_args=connect_args,
-    pool_pre_ping=True
-)
+_db_url = settings.DATABASE_URL
+if _db_url.startswith("mysql://"):
+    _db_url = _db_url.replace("mysql://", "mysql+pymysql://", 1)
+
+if _db_url.startswith("sqlite"):
+    connect_args = {"check_same_thread": False, "timeout": 60}
+    engine = create_engine(_db_url, connect_args=connect_args, pool_pre_ping=True)
+else:
+    engine = create_engine(
+        _db_url,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+        pool_size=10,
+        max_overflow=20
+    )
 
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
@@ -110,6 +124,13 @@ def auto_migrate_sqlite(engine_instance):
             ("exam_attempts", "classroom_submission_id", "VARCHAR(100)"),
             ("exam_attempts", "classroom_turned_in", "BOOLEAN DEFAULT 0"),
             ("exam_attempts", "classroom_turned_in_at", "TIMESTAMP"),
+            ("questions", "chapter", "VARCHAR(100)"),
+            ("questions", "topic", "VARCHAR(100)"),
+            ("questions", "difficulty", "VARCHAR(50) DEFAULT 'medium'"),
+            ("questions", "marks", "FLOAT DEFAULT 4.0"),
+            ("questions", "negative_marks", "FLOAT DEFAULT 1.0"),
+            ("questions", "source", "VARCHAR(50) DEFAULT 'manual'"),
+            ("questions", "approval_status", "VARCHAR(50) DEFAULT 'approved'"),
         ]
 
         with engine_instance.connect() as conn:

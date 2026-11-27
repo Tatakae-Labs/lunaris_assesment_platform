@@ -342,3 +342,25 @@ export const TrophyIcon = createIcon(
   </>
 );
 
+export const LayersIcon = createIcon(
+  <>
+    <polygon points="12 2 2 7 12 12 22 7 12 2" />
+    <polyline points="2 17 12 22 22 17" />
+    <polyline points="2 12 12 17 22 12" />
+  </>
+);
+
+export const ArrowUpIcon = createIcon(
+  <>
+    <line x1="12" y1="19" x2="12" y2="5" />
+    <polyline points="5 12 12 5 19 12" />
+  </>
+);
+
+export const ArrowDownIcon = createIcon(
+  <>
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <polyline points="19 12 12 19 5 12" />
+  </>
+);
+

@@ -17,30 +17,56 @@ export default function ExamCreationWizard({
   // Step 1: Basic Details
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("Engineering Entrance");
+  const [category, setCategory] = useState("University & College Coursework");
   const [language, setLanguage] = useState("English");
-  const [instructions, setInstructions] = useState("1. Read all questions carefully.\n2. Ensure your webcam and network connection remain steady throughout.\n3. Do not switch tabs or exit fullscreen mode during proctored examinations.");
+  const [instructions, setInstructions] = useState(
+    "1. Read all questions carefully.\n2. Ensure your device network connection remains steady throughout.\n3. Complete all sections before submitting your examination."
+  );
 
   // Step 2: Exam Mode & Custom Type
-  const [mode, setMode] = useState("proctored_cbt"); // 'standard_quiz', 'quick_quiz', 'proctored_cbt', or custom
+  const [mode, setMode] = useState("standard_quiz"); // 'standard_quiz', 'quick_quiz', 'proctored_cbt', or custom
   const [customExamType, setCustomExamType] = useState("");
   const [isCustomMode, setIsCustomMode] = useState(false);
 
-  // Step 3: Questions
-  const [questionSource, setQuestionSource] = useState("question_bank"); // 'manual', 'question_bank', 'ai_generate', 'pdf_import'
+  // Step 3: Questions & PIC (Per-Item Clock)
   const [availableQuestions, setAvailableQuestions] = useState([]);
   const [selectedQuestionIds, setSelectedQuestionIds] = useState([]);
-  const [pdfFileName, setPdfFileName] = useState("");
+  const [defaultPerQuestionSeconds, setDefaultPerQuestionSeconds] = useState(30);
+  const [questionTimes, setQuestionTimes] = useState({}); // { [question_id]: seconds }
+  const [editingQuestionId, setEditingQuestionId] = useState(null);
 
-  // Step 4: Rules & Sections
-  const [durationMinutes, setDurationMinutes] = useState(180);
-  const [negativeMarking, setNegativeMarking] = useState(true);
+  // Timing Models & PIC Architecture
+  const [timingModel, setTimingModel] = useState("total_duration"); // 'total_duration', 'pic_only', 'dual'
+  const [perQuestionSeconds, setPerQuestionSeconds] = useState(30);
+  const [picAutoAdvance, setPicAutoAdvance] = useState(true);
+  const [picStrictCap, setPicStrictCap] = useState(false);
+  const [picStrictCapSeconds, setPicStrictCapSeconds] = useState(120);
+
+  // Quick Quiz Specific State
+  const [speedScoring, setSpeedScoring] = useState(true);
+  const [podiumRevealCadence, setPodiumRevealCadence] = useState("after_round"); // 'after_round', 'final_only'
+  const [allowGuestNicknames, setAllowGuestNicknames] = useState(true);
+  const [autoAdvanceRounds, setAutoAdvanceRounds] = useState(true);
+
+  // Standard Quiz Specific State
+  const [navigationPolicy, setNavigationPolicy] = useState("free"); // 'free', 'forward_only'
+  const [resultReleasePolicy, setResultReleasePolicy] = useState("instant"); // 'instant', 'manual'
+  const [allowRetries, setAllowRetries] = useState(false);
+  const [showInstantExplanation, setShowInstantExplanation] = useState(true);
+
+  // Proctored CBT Specific State
+  const [watermarkOverlay, setWatermarkOverlay] = useState(true);
+  const [mandatoryPreflight, setMandatoryPreflight] = useState(true);
+
+  // General Exam Parameters
+  const [durationMinutes, setDurationMinutes] = useState(45);
+  const [negativeMarking, setNegativeMarking] = useState(false);
   const [shuffleQuestions, setShuffleQuestions] = useState(true);
   const [sections, setSections] = useState([]);
   const [passPercentage, setPassPercentage] = useState(40);
 
   // Step 5: Enrollment
-  const [enrollmentType, setEnrollmentType] = useState("classroom"); // 'classroom', 'uid_batch', 'csv_import'
+  const [enrollmentType, setEnrollmentType] = useState("uid_batch"); // 'classroom', 'uid_batch', 'csv_import'
   const [candidateCount, setCandidateCount] = useState(25);
   const [csvCandidatesText, setCsvCandidatesText] = useState("Name,Email\nAarav Sharma,aarav@student.org\nRohan Verma,rohan@student.org");
   const [maxAttempts, setMaxAttempts] = useState(1);
@@ -53,7 +79,7 @@ export default function ExamCreationWizard({
   const [classroomLoading, setClassroomLoading] = useState(false);
   const [classroomAutoPublish, setClassroomAutoPublish] = useState(true);
 
-  // Step 6: Proctoring Permitted Checks
+  // Step 6: Proctoring Permitted Checks (Proctored CBT only)
   const [proctoringChecks, setProctoringChecks] = useState({
     face_not_detected: true,
     multiple_faces: true,
@@ -74,7 +100,6 @@ export default function ExamCreationWizard({
           api.getOrgSubjects(organizationId).catch(() => [])
         ]);
         setAvailableQuestions(qList || []);
-        // Select all available questions by default for ease of creation
         setSelectedQuestionIds((qList || []).map((q) => q.id));
         setEntitlements(ent);
         if (subjs && subjs.length > 0) {
@@ -174,7 +199,7 @@ export default function ExamCreationWizard({
               await loadClassroomStudentsForCourse(courses[0].id);
               setEnrollmentType("classroom");
             }
-            toast.success(" Google Classroom connected successfully! Found your course and students.");
+            toast.success("Google Classroom connected successfully! Found your course and students.");
           } catch (err) {
             toast.error("Failed to connect Google Classroom: " + err.message);
           } finally {
@@ -186,10 +211,46 @@ export default function ExamCreationWizard({
     tokenClient.requestAccessToken({ prompt: "consent" });
   }
 
+  function handleSelectMode(selectedMode) {
+    setIsCustomMode(false);
+    setMode(selectedMode);
+    if (selectedMode === "quick_quiz") {
+      setTimingModel("pic_only");
+      setPerQuestionSeconds(20);
+      setDefaultPerQuestionSeconds(20);
+      setSpeedScoring(true);
+      setDurationMinutes(15);
+      setInstructions("1. Fast-paced live arena quiz.\n2. Each question has a strict speed timer.\n3. Speed-bonus scoring awards more points for fast correct answers.");
+    } else if (selectedMode === "standard_quiz") {
+      setTimingModel("total_duration");
+      setPerQuestionSeconds(60);
+      setDefaultPerQuestionSeconds(60);
+      setSpeedScoring(false);
+      setDurationMinutes(45);
+      setNegativeMarking(false);
+      setInstructions("1. Self-paced practice quiz.\n2. Review your answers before final submission.\n3. Immediate scorecard with detailed explanations provided upon completion.");
+    } else if (selectedMode === "proctored_cbt") {
+      setTimingModel("total_duration");
+      setPerQuestionSeconds(120);
+      setDefaultPerQuestionSeconds(120);
+      setSpeedScoring(false);
+      setDurationMinutes(180);
+      setNegativeMarking(true);
+      setInstructions("1. Read all questions carefully.\n2. Ensure your webcam and network connection remain steady throughout.\n3. Do not switch tabs or exit fullscreen mode during proctored examinations.");
+    }
+  }
+
   function handleToggleQuestion(id) {
     setSelectedQuestionIds((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
     );
+  }
+
+  function handleSetCustomQuestionTime(id, seconds) {
+    setQuestionTimes((prev) => ({
+      ...prev,
+      [id]: Math.max(5, Number(seconds))
+    }));
   }
 
   function handleToggleCheck(key) {
@@ -199,7 +260,29 @@ export default function ExamCreationWizard({
     }));
   }
 
-  // Validate step progression
+  // Define steps list dynamically based on mode (Proctoring step ONLY for Proctored CBT)
+  const isProctorMode = mode === "proctored_cbt";
+  const stepDefinitions = [
+    { num: 1, key: "basic", label: "Basic Details" },
+    { num: 2, key: "mode", label: "Exam Mode" },
+    { num: 3, key: "questions", label: "Questions & PIC" },
+    {
+      num: 4,
+      key: "config",
+      label: mode === "quick_quiz"
+        ? "Arena Rules"
+        : mode === "standard_quiz"
+        ? "Quiz Config"
+        : "CBT Config"
+    },
+    { num: 5, key: "enrollment", label: "Enrollment" },
+    ...(isProctorMode ? [{ num: 6, key: "proctoring", label: "Proctoring Telemetry" }] : []),
+    { num: isProctorMode ? 7 : 6, key: "entitlement", label: "Entitlements" },
+    { num: isProctorMode ? 8 : 7, key: "publish", label: "Preview & Publish" }
+  ];
+
+  const totalSteps = stepDefinitions.length;
+
   function nextStep() {
     setErrorMsg("");
     if (currentStep === 1) {
@@ -214,19 +297,33 @@ export default function ExamCreationWizard({
         return;
       }
     }
-    if (currentStep === 6) {
-      // Step 7 is subscription validation check!
+
+    // Step jumping if proctoring is skipped
+    if (!isProctorMode && currentStep === 5) {
+      // Skip proctoring (Step 6) and go straight to entitlement check (Step 7)
+      validateSubscription();
+      setCurrentStep(7);
+      return;
+    }
+
+    if (isProctorMode && currentStep === 6) {
       validateSubscription();
     }
+
     setCurrentStep((prev) => Math.min(8, prev + 1));
   }
 
   function prevStep() {
     setErrorMsg("");
+    if (!isProctorMode && currentStep === 7) {
+      // Step backwards from entitlement directly to enrollment
+      setCurrentStep(5);
+      return;
+    }
     setCurrentStep((prev) => Math.max(1, prev - 1));
   }
 
-  // Step 7: Entitlement Validation Check
+  // Subscription Entitlement Verification
   const orgPlan = entitlements?.plan_id || "free";
   const proctoringAllowed = entitlements?.entitlements?.proctoring_enabled ?? false;
   const maxCandidatesAllowed = entitlements?.entitlements?.max_candidates ?? 25;
@@ -240,50 +337,68 @@ export default function ExamCreationWizard({
 
   function validateSubscription() {
     if (proctoringRestricted) {
-      setErrorMsg("Proctored CBT mode is only available on the Institution tier. Please upgrade or choose Standard Quiz mode.");
+      setErrorMsg("Proctored CBT mode requires an active Institution Tier subscription. Please upgrade or choose Standard Quiz mode.");
     } else if (candidateExceeded) {
-      setErrorMsg(`Your plan allows up to ${maxCandidatesAllowed} candidates (requested: ${effectiveCandidateCount}). Please reduce candidate count or upgrade to Creator Pro / Institution.`);
+      setErrorMsg(`Your plan allows up to ${maxCandidatesAllowed} candidates (requested: ${effectiveCandidateCount}). Please adjust candidate count or upgrade.`);
     }
   }
 
-  // Step 8: Final Publish
+  // Publish Immutable Exam
   async function handlePublishExam() {
     setLoading(true);
     setErrorMsg("");
     try {
-      // 1. Create Exam
       const effectiveMode = isCustomMode && customExamType.trim() ? customExamType.trim().toLowerCase().replace(/\s+/g, '_') : mode;
+      const effectivePerQ = mode === "quick_quiz"
+        ? perQuestionSeconds
+        : (timingModel === "pic_only" || timingModel === "dual" ? perQuestionSeconds : (picStrictCap ? picStrictCapSeconds : perQuestionSeconds));
+
       const examRes = await api.createExam({
         organization_id: organizationId,
         title,
         description,
         mode: effectiveMode,
         duration_minutes: durationMinutes,
+        per_question_time_seconds: effectivePerQ,
+        speed_scoring: mode === "quick_quiz" ? speedScoring : false,
+        timing_model: mode === "quick_quiz" ? "pic_only" : timingModel,
+        question_times: questionTimes,
         question_ids: selectedQuestionIds,
         settings: {
           category,
           language,
           instructions,
           exam_type_label: isCustomMode && customExamType.trim() ? customExamType.trim() : mode,
+          timing_model: mode === "quick_quiz" ? "pic_only" : timingModel,
+          per_question_time_seconds: effectivePerQ,
+          pic_auto_advance: picAutoAdvance,
+          pic_strict_cap: picStrictCap,
+          speed_scoring: mode === "quick_quiz" ? speedScoring : false,
+          podium_reveal_cadence: podiumRevealCadence,
+          allow_guest_nicknames: allowGuestNicknames,
+          auto_advance_rounds: autoAdvanceRounds,
+          navigation_policy: navigationPolicy,
+          result_release_policy: resultReleasePolicy,
+          allow_retries: allowRetries,
+          show_instant_explanation: showInstantExplanation,
+          watermark_overlay: watermarkOverlay,
+          mandatory_preflight: mandatoryPreflight,
           negative_marking: negativeMarking,
           shuffle_questions: shuffleQuestions,
           sections,
           pass_percentage: passPercentage,
-          proctoring_checks: Object.keys(proctoringChecks).filter((k) => proctoringChecks[k]),
+          proctoring_checks: mode === "proctored_cbt" ? Object.keys(proctoringChecks).filter((k) => proctoringChecks[k]) : [],
           retention_days: retentionDays,
           classroom_course_id: enrollmentType === "classroom" ? selectedClassroomCourse : null
         }
       });
 
-      // 2. Publish immutable version
+      // Publish version
       await api.publishExam(examRes.id);
 
-      // 3. Generate candidate enrollments
+      // Generate enrollments
       if (enrollmentType === "classroom" && selectedClassroomCourse) {
-        // Automatically stuff students from Google Classroom into the exam
         await api.importClassroomStudents(selectedClassroomCourse, examRes.id, classroomStudents);
-
-        // If auto-publish to Classroom is checked, push quiz + candidate credentials PDF directly to stream
         if (classroomAutoPublish) {
           try {
             await api.publishToClassroom({
@@ -316,7 +431,7 @@ export default function ExamCreationWizard({
         });
       }
 
-      // 4. Automatically download candidate login credentials PDF sheet
+      // Download candidate credentials sheet
       try {
         await api.downloadExamCredentialsPdf(examRes.id, examRes.room_code || "ROOM");
       } catch (pdfErr) {
@@ -331,17 +446,6 @@ export default function ExamCreationWizard({
       setLoading(false);
     }
   }
-
-  const stepsList = [
-    "Basic Details",
-    "Exam Mode",
-    "Questions",
-    "Rules & Marking",
-    "Enrollment",
-    "Proctoring",
-    "Entitlement Check",
-    "Preview & Publish"
-  ];
 
   return (
     <div style={{
@@ -358,7 +462,7 @@ export default function ExamCreationWizard({
       zIndex: 100
     }}>
       <div className="dash-card" style={{
-        width: "900px",
+        width: "920px",
         maxHeight: "92vh",
         display: "flex",
         flexDirection: "column",
@@ -378,8 +482,8 @@ export default function ExamCreationWizard({
             <h2 style={{ fontSize: "18px", fontWeight: "800", color: "var(--text-primary)" }}>
               Exam Creation Wizard
             </h2>
-            <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-              Step {currentStep} of 8 • {stepsList[currentStep - 1]}
+            <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>
+              {mode === "quick_quiz" ? "⚡ Quick Quiz Arena" : mode === "standard_quiz" ? "📝 Standard Quiz" : "🛡️ AI Proctored CBT"} • Step {currentStep <= 5 ? currentStep : (isProctorMode ? currentStep : currentStep - 1)} of {totalSteps}
             </div>
           </div>
           <button
@@ -387,13 +491,14 @@ export default function ExamCreationWizard({
             onClick={onClose}
             style={{
               background: "none",
+              border: "none",
               fontSize: "18px",
               color: "var(--text-muted)",
               cursor: "pointer",
-              padding: "4px"
+              padding: "4px 8px"
             }}
           >
-            
+            ✕
           </button>
         </div>
 
@@ -401,19 +506,19 @@ export default function ExamCreationWizard({
         <div style={{
           display: "flex",
           borderBottom: "1px solid var(--border-subtle)",
-          background: "var(--bg-secondary)",
+          background: "#f8fafc",
           overflowX: "auto"
         }}>
-          {stepsList.map((stepName, idx) => {
-            const stepNum = idx + 1;
-            const isCompleted = stepNum < currentStep;
-            const isCurrent = stepNum === currentStep;
+          {stepDefinitions.map((step) => {
+            const actualNum = step.num;
+            const isCompleted = actualNum < currentStep;
+            const isCurrent = actualNum === currentStep;
             return (
               <div
-                key={stepName}
+                key={step.key}
                 style={{
-                  padding: "10px 14px",
-                  fontSize: "11px",
+                  padding: "10px 16px",
+                  fontSize: "12px",
                   fontWeight: isCurrent ? "700" : "500",
                   color: isCurrent ? "var(--accent-blue)" : isCompleted ? "#059669" : "var(--text-muted)",
                   borderBottom: isCurrent ? "2px solid var(--accent-blue)" : "2px solid transparent",
@@ -423,30 +528,42 @@ export default function ExamCreationWizard({
                   gap: "6px"
                 }}
               >
-                <span>{isCompleted ? "" : `${stepNum}.`}</span>
-                <span>{stepName}</span>
+                <span style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "18px",
+                  height: "18px",
+                  borderRadius: "50%",
+                  fontSize: "11px",
+                  background: isCurrent ? "var(--accent-blue)" : isCompleted ? "#059669" : "#e2e8f0",
+                  color: (isCurrent || isCompleted) ? "#ffffff" : "#64748b"
+                }}>
+                  {actualNum}
+                </span>
+                {step.label}
               </div>
             );
           })}
         </div>
 
-        {/* Error Banner */}
-        {errorMsg && (
-          <div style={{
-            margin: "16px 28px 0",
-            padding: "10px 14px",
-            background: "var(--accent-rose-subtle)",
-            color: "var(--accent-rose)",
-            borderRadius: "6px",
-            fontSize: "13px",
-            fontWeight: "600"
-          }}>
-            Warning: {errorMsg}
-          </div>
-        )}
+        {/* Wizard Scrollable Body */}
+        <div style={{ padding: "24px 28px", overflowY: "auto", flex: 1 }}>
+          {errorMsg && (
+            <div style={{
+              padding: "12px 16px",
+              background: "#fff1f2",
+              border: "1px solid #fecdd3",
+              borderRadius: "8px",
+              color: "#be123c",
+              fontSize: "13px",
+              marginBottom: "16px",
+              fontWeight: "600"
+            }}>
+              ⚠️ {errorMsg}
+            </div>
+          )}
 
-        {/* Wizard Body Content */}
-        <div style={{ flex: 1, padding: "24px 28px", overflowY: "auto" }}>
           {/* STEP 1: Basic Details */}
           {currentStep === 1 && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -457,23 +574,23 @@ export default function ExamCreationWizard({
                 <input
                   type="text"
                   className="lunaris-input"
+                  placeholder="e.g. Data Structures Midterm Quiz 2026, JEE Full CBT Mock #4"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Comprehensive Midterm Assessment 2026 (Paper 1)"
-                  required
+                  autoFocus
                 />
               </div>
 
               <div>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
-                  Description & Objective
+                  Description / Syllabus
                 </label>
                 <textarea
                   className="lunaris-input"
                   rows={2}
+                  placeholder="Short summary of chapters, topics, or eligibility requirements..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Comprehensive evaluation covering standard institutional syllabus and learning objectives..."
                 />
               </div>
 
@@ -532,66 +649,100 @@ export default function ExamCreationWizard({
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
+                {/* Standard Quiz */}
                 <div
-                  onClick={() => {
-                    setMode("standard_quiz");
-                    setIsCustomMode(false);
-                  }}
+                  onClick={() => handleSelectMode("standard_quiz")}
                   style={{
                     padding: "18px",
                     borderRadius: "10px",
                     border: (!isCustomMode && mode === "standard_quiz") ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
                     background: (!isCustomMode && mode === "standard_quiz") ? "var(--accent-blue-subtle)" : "#ffffff",
-                    cursor: "pointer"
+                    cursor: "pointer",
+                    transition: "all 0.15s ease"
                   }}
                 >
-                  <div style={{ fontSize: "24px", marginBottom: "8px" }}></div>
-                  <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Standard Assessment</h4>
+                  <div style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "8px",
+                    background: "#eff6ff",
+                    color: "#2563eb",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: "12px"
+                  }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                  </div>
+                  <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Standard Quiz</h4>
                   <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
-                    Self-paced test with instant scorecards, custom sections, and timer.
+                    Self-paced homework or practice quiz with customizable PIC timers, instant scorecards, and solution reviews.
                   </p>
                 </div>
 
+                {/* Quick Quiz Arena */}
                 <div
-                  onClick={() => {
-                    setMode("quick_quiz");
-                    setIsCustomMode(false);
-                  }}
+                  onClick={() => handleSelectMode("quick_quiz")}
                   style={{
                     padding: "18px",
                     borderRadius: "10px",
                     border: (!isCustomMode && mode === "quick_quiz") ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
                     background: (!isCustomMode && mode === "quick_quiz") ? "var(--accent-blue-subtle)" : "#ffffff",
-                    cursor: "pointer"
+                    cursor: "pointer",
+                    transition: "all 0.15s ease"
                   }}
                 >
-                  <div style={{ fontSize: "24px", marginBottom: "8px" }}></div>
+                  <div style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "8px",
+                    background: "#fef3c7",
+                    color: "#d97706",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: "12px"
+                  }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  </div>
                   <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Quick Quiz Arena</h4>
                   <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
-                    Live classroom speed quiz with room codes and leaderboard scoring.
+                    Multiplayer speed challenge with room codes, rapid per-question countdowns, and real-time bonus podium reveals.
                   </p>
                 </div>
 
+                {/* AI Proctored CBT */}
                 <div
-                  onClick={() => {
-                    setMode("proctored_cbt");
-                    setIsCustomMode(false);
-                  }}
+                  onClick={() => handleSelectMode("proctored_cbt")}
                   style={{
                     padding: "18px",
                     borderRadius: "10px",
                     border: (!isCustomMode && mode === "proctored_cbt") ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
                     background: (!isCustomMode && mode === "proctored_cbt") ? "var(--accent-blue-subtle)" : "#ffffff",
-                    cursor: "pointer"
+                    cursor: "pointer",
+                    transition: "all 0.15s ease"
                   }}
                 >
-                  <div style={{ fontSize: "24px", marginBottom: "8px" }}></div>
-                  <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>AI Proctored Exam</h4>
+                  <div style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "8px",
+                    background: "#f0fdf4",
+                    color: "#16a34a",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: "12px"
+                  }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  </div>
+                  <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>AI Proctored CBT</h4>
                   <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
-                    Secure CBT exam with MediaPipe face, audio, and browser lockdown telemetry.
+                    High-stakes examination with on-device MediaPipe webcam presence, strict tab lockdown, and anti-cheating watermark.
                   </p>
                 </div>
 
+                {/* Custom Exam Type */}
                 <div
                   onClick={() => {
                     setMode("custom");
@@ -602,13 +753,26 @@ export default function ExamCreationWizard({
                     borderRadius: "10px",
                     border: isCustomMode ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
                     background: isCustomMode ? "var(--accent-blue-subtle)" : "#ffffff",
-                    cursor: "pointer"
+                    cursor: "pointer",
+                    transition: "all 0.15s ease"
                   }}
                 >
-                  <div style={{ fontSize: "24px", marginBottom: "8px" }}></div>
-                  <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Custom Exam Type</h4>
+                  <div style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "8px",
+                    background: "#f3e8ff",
+                    color: "#9333ea",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: "12px"
+                  }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                  </div>
+                  <h4 style={{ fontSize: "15px", fontWeight: "700", marginBottom: "4px" }}>Custom Format</h4>
                   <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
-                    Define any bespoke assessment format (Midterms, Certifications, Bar Mocks, Coding Screens).
+                    Define any custom assessment format (Midterms, Certifications, Bar Mocks, Coding Screens).
                   </p>
                 </div>
               </div>
@@ -621,15 +785,12 @@ export default function ExamCreationWizard({
                   <input
                     type="text"
                     className="lunaris-input"
-                    placeholder="e.g. Semester Midterm, Corporate Tech Screening, Law Bar Mock, USMLE Step 1"
+                    placeholder="e.g. Semester Midterm, Corporate Tech Screening, Law Bar Mock"
                     value={customExamType}
                     onChange={(e) => setCustomExamType(e.target.value)}
                     style={{ maxWidth: "460px", background: "#ffffff" }}
                     autoFocus
                   />
-                  <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
-                    This custom type will be labeled on student portals, scorecards, and certificates.
-                  </div>
                 </div>
               )}
 
@@ -648,7 +809,7 @@ export default function ExamCreationWizard({
                 }}>
                   <div>
                     <div style={{ fontSize: "13px", fontWeight: "800", color: "#9f1239" }}>
-                       Proctored CBT Mode Requires Institution Tier (₹1,999/mo)
+                      Proctored CBT Mode Requires Institution Tier (₹1,999/mo)
                     </div>
                     <div style={{ fontSize: "12px", color: "#be123c", marginTop: "2px" }}>
                       Your current plan does not include on-device webcam & tab-lockdown telemetry.
@@ -668,25 +829,94 @@ export default function ExamCreationWizard({
                       borderRadius: "6px",
                       fontSize: "12px",
                       fontWeight: "800",
-                      cursor: "pointer",
-                      boxShadow: "0 2px 6px rgba(225, 29, 72, 0.3)"
+                      cursor: "pointer"
                     }}
                   >
-                     Pay ₹1,999 via UPI to Enable →
+                    Pay ₹1,999 via UPI to Enable →
                   </button>
                 </div>
               )}
             </div>
           )}
 
-          {/* STEP 3: Questions */}
+          {/* STEP 3: Questions & PIC Time Allocation */}
           {currentStep === 3 && (
             <div>
+              {/* PIC (Per-Item Clock) Global Configuration Card */}
+              <div style={{
+                padding: "16px 20px",
+                background: "#f8fafc",
+                border: "1.5px solid #e2e8f0",
+                borderRadius: "10px",
+                marginBottom: "20px"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: "800", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      Default Per-Item Clock (PIC) per Question
+                    </div>
+                    <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px" }}>
+                      Sets how much time is given for questions in this exam. You can also customize time for individual questions below.
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                    {[15, 20, 30, 45, 60, 90, 120].map((sec) => (
+                      <button
+                        key={sec}
+                        type="button"
+                        onClick={() => {
+                          setPerQuestionSeconds(sec);
+                          setDefaultPerQuestionSeconds(sec);
+                        }}
+                        style={{
+                          padding: "5px 10px",
+                          borderRadius: "6px",
+                          fontSize: "12px",
+                          fontWeight: perQuestionSeconds === sec ? "700" : "500",
+                          background: perQuestionSeconds === sec ? "var(--accent-blue)" : "#ffffff",
+                          color: perQuestionSeconds === sec ? "#ffffff" : "var(--text-primary)",
+                          border: `1px solid ${perQuestionSeconds === sec ? "var(--accent-blue)" : "var(--border-subtle)"}`,
+                          cursor: "pointer"
+                        }}
+                      >
+                        {sec}s
+                      </button>
+                    ))}
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px", background: "#ffffff", padding: "2px 8px", borderRadius: "6px", border: "1px solid var(--border-subtle)" }}>
+                      <input
+                        type="number"
+                        min={5}
+                        max={600}
+                        value={perQuestionSeconds}
+                        onChange={(e) => {
+                          const val = Math.max(5, Number(e.target.value));
+                          setPerQuestionSeconds(val);
+                          setDefaultPerQuestionSeconds(val);
+                        }}
+                        style={{
+                          width: "55px",
+                          border: "none",
+                          textAlign: "center",
+                          fontWeight: "bold",
+                          fontSize: "13px"
+                        }}
+                      />
+                      <span style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "600" }}>sec</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Question Selection Header */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                 <div>
-                  <h3 style={{ fontSize: "15px", fontWeight: "700" }}>Select Questions ({selectedQuestionIds.length} Selected)</h3>
+                  <h3 style={{ fontSize: "15px", fontWeight: "700" }}>
+                    Select Questions ({selectedQuestionIds.length} Selected)
+                  </h3>
                   <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                    Choose from Question Bank, generate AI drafts, or import document.
+                    Configure per-question time limits (PIC) for individual questions where needed.
                   </span>
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
@@ -709,54 +939,106 @@ export default function ExamCreationWizard({
                 </div>
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "320px", overflowY: "auto" }}>
-                {availableQuestions.map((q) => {
+              {/* Questions List */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "330px", overflowY: "auto" }}>
+                {availableQuestions.map((q, idx) => {
                   const isChecked = selectedQuestionIds.includes(q.id);
                   let parsedContent = {};
                   try {
                     parsedContent = JSON.parse(q.content_json);
                   } catch (e) {}
 
+                  const itemTime = questionTimes[q.id] || perQuestionSeconds;
+                  const isEditingThis = editingQuestionId === q.id;
+
                   return (
                     <div
                       key={q.id}
-                      onClick={() => handleToggleQuestion(q.id)}
                       style={{
                         padding: "12px 16px",
                         borderRadius: "8px",
                         border: isChecked ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
                         background: isChecked ? "var(--accent-blue-subtle)" : "#ffffff",
-                        cursor: "pointer",
                         display: "flex",
-                        alignItems: "flex-start",
+                        alignItems: "center",
                         gap: "12px"
                       }}
                     >
                       <input
                         type="checkbox"
                         checked={isChecked}
-                        onChange={() => {}}
-                        style={{ marginTop: "4px" }}
+                        onChange={() => handleToggleQuestion(q.id)}
+                        style={{ cursor: "pointer" }}
                       />
-                      <div style={{ flex: 1 }}>
+                      <div
+                        onClick={() => handleToggleQuestion(q.id)}
+                        style={{ flex: 1, cursor: "pointer" }}
+                      >
                         <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "4px" }}>
                           <span style={{
                             fontSize: "11px",
                             fontWeight: "700",
                             padding: "2px 6px",
                             borderRadius: "4px",
-                            background: "var(--bg-secondary)",
-                            color: "var(--text-secondary)"
+                            background: "#e2e8f0",
+                            color: "#334155"
                           }}>
                             {q.subject}
                           </span>
                           <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                            Type: {q.question_type}
+                            Q{idx + 1} • {q.question_type}
                           </span>
                         </div>
                         <div style={{ fontSize: "13px", color: "var(--text-primary)" }}>
                           {parsedContent.text || "Question content"}
                         </div>
+                      </div>
+
+                      {/* Per-Question Time Allocation (PIC) Widget */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        {isEditingThis ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: "4px", background: "#ffffff", padding: "4px 8px", borderRadius: "6px", border: "1px solid var(--accent-blue)" }}>
+                            <input
+                              type="number"
+                              min={5}
+                              max={600}
+                              value={itemTime}
+                              onChange={(e) => handleSetCustomQuestionTime(q.id, e.target.value)}
+                              style={{ width: "50px", border: "none", fontSize: "12px", textAlign: "center", fontWeight: "bold" }}
+                              autoFocus
+                            />
+                            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>s</span>
+                            <button
+                              type="button"
+                              onClick={() => setEditingQuestionId(null)}
+                              style={{ border: "none", background: "none", cursor: "pointer", fontSize: "11px", color: "#16a34a", fontWeight: "bold" }}
+                            >
+                              ✓
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setEditingQuestionId(q.id)}
+                            title="Click to set custom PIC seconds for this question"
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: "6px",
+                              fontSize: "11px",
+                              fontWeight: "600",
+                              background: questionTimes[q.id] ? "#e0f2fe" : "#f1f5f9",
+                              color: questionTimes[q.id] ? "#0369a1" : "#475569",
+                              border: `1px solid ${questionTimes[q.id] ? "#7dd3fc" : "#cbd5e1"}`,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px"
+                            }}
+                          >
+                            ⏱️ {itemTime}s
+                            <span style={{ fontSize: "10px", opacity: 0.7 }}>✎</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -765,107 +1047,519 @@ export default function ExamCreationWizard({
             </div>
           )}
 
-          {/* STEP 4: Rules & Sections */}
+          {/* STEP 4: MODE-SPECIFIC CONFIGURATION MENUS */}
           {currentStep === 4 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-                <div>
-                  <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
-                    Duration (Minutes)
-                  </label>
-                  <input
-                    type="number"
-                    className="lunaris-input"
-                    value={durationMinutes}
-                    onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                    min={5}
-                    max={360}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
-                    Pass Criteria (% Marks)
-                  </label>
-                  <input
-                    type="number"
-                    className="lunaris-input"
-                    value={passPercentage}
-                    onChange={(e) => setPassPercentage(Number(e.target.value))}
-                    min={0}
-                    max={100}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "8px" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={negativeMarking}
-                    onChange={(e) => setNegativeMarking(e.target.checked)}
-                  />
-                  <span>Enable Negative Marking (+4 for correct, -1 for incorrect)</span>
-                </label>
-
-                <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={shuffleQuestions}
-                    onChange={(e) => setShuffleQuestions(e.target.checked)}
-                  />
-                  <span>Shuffle question and option sequence for each candidate</span>
-                </label>
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "6px" }}>
-                  Curriculum Subject Sections ({sections.length})
-                </label>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                  {sections.map((sec, i) => (
-                    <span
-                      key={sec + i}
-                      style={{
-                        padding: "5px 12px",
-                        background: "var(--accent-blue-subtle)",
-                        color: "var(--accent-blue)",
-                        borderRadius: "6px",
-                        fontSize: "12px",
-                        fontWeight: "600",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px"
-                      }}
-                    >
-                      {sec}
-                      <button
-                        type="button"
-                        onClick={() => setSections(sections.filter((_, idx) => idx !== i))}
-                        style={{ background: "none", border: "none", color: "var(--accent-blue)", cursor: "pointer", padding: 0, fontWeight: "bold" }}
-                      >×</button>
+            <div>
+              {/* MENU 1: QUICK QUIZ ARENA MENU */}
+              {mode === "quick_quiz" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+                  <div style={{
+                    padding: "16px 20px",
+                    background: "#fef3c7",
+                    borderRadius: "10px",
+                    border: "1px solid #fde68a",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: "12px"
+                  }}>
+                    <div>
+                      <div style={{ fontSize: "15px", fontWeight: "800", color: "#92400e" }}>
+                        ⚡ Quick Quiz Live Arena Menu
+                      </div>
+                      <div style={{ fontSize: "12px", color: "#b45309", marginTop: "2px" }}>
+                        Multiplayer live arena with room codes, speed clocks, and real-time bonus podium reveals.
+                      </div>
+                    </div>
+                    <span style={{ padding: "4px 12px", background: "#fef9c3", color: "#854d0e", borderRadius: "6px", fontSize: "11px", fontWeight: "700" }}>
+                      LIVE MULTIPLAYER
                     </span>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const name = prompt("Enter section name (e.g. Data Structures, Constitutional Law, Pathology):");
-                      if (name && name.trim()) setSections([...sections, name.trim()]);
-                    }}
-                    style={{
-                      padding: "5px 12px",
-                      background: "none",
-                      border: "1px dashed var(--border-subtle)",
-                      borderRadius: "6px",
-                      fontSize: "12px",
-                      cursor: "pointer",
-                      color: "var(--text-muted)"
-                    }}
-                  >
-                    + Add Section
-                  </button>
+                  </div>
+
+                  {/* Arena PIC Speed Clock */}
+                  <div style={{ padding: "16px", background: "#f8fafc", borderRadius: "10px", border: "1px solid var(--border-subtle)" }}>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: "700", marginBottom: "6px" }}>
+                      ⏱️ Arena Per-Question Speed Countdown (PIC)
+                    </label>
+                    <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "12px" }}>
+                      All players synchronously race against this per-question countdown. Answers lock when time expires.
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                      {[10, 15, 20, 30, 45, 60].map((sec) => (
+                        <button
+                          key={sec}
+                          type="button"
+                          onClick={() => setPerQuestionSeconds(sec)}
+                          style={{
+                            padding: "8px 16px",
+                            borderRadius: "8px",
+                            fontSize: "13px",
+                            fontWeight: perQuestionSeconds === sec ? "700" : "500",
+                            background: perQuestionSeconds === sec ? "#d97706" : "#ffffff",
+                            color: perQuestionSeconds === sec ? "#ffffff" : "#92400e",
+                            border: `1.5px solid ${perQuestionSeconds === sec ? "#d97706" : "#fde68a"}`,
+                            cursor: "pointer"
+                          }}
+                        >
+                          {sec}s {sec <= 15 ? "(Blitz)" : sec <= 30 ? "(Standard)" : "(Deep)"}
+                        </button>
+                      ))}
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px", background: "#ffffff", padding: "6px 10px", borderRadius: "8px", border: "1px solid #fde68a" }}>
+                        <input
+                          type="number"
+                          min={5}
+                          max={120}
+                          value={perQuestionSeconds}
+                          onChange={(e) => setPerQuestionSeconds(Math.max(5, Number(e.target.value)))}
+                          style={{ width: "50px", border: "none", fontSize: "13px", fontWeight: "bold", textAlign: "center" }}
+                        />
+                        <span style={{ fontSize: "12px", color: "#92400e", fontWeight: "600" }}>sec</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Speed Scoring & Room Code Settings */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                    <div style={{ padding: "16px", background: "#ffffff", borderRadius: "10px", border: "1px solid var(--border-subtle)" }}>
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={speedScoring}
+                          onChange={(e) => setSpeedScoring(e.target.checked)}
+                          style={{ marginTop: "3px" }}
+                        />
+                        <div>
+                          <strong style={{ fontSize: "13px", color: "var(--text-primary)", display: "block" }}>
+                            Speed-Bonus Scoring System
+                          </strong>
+                          <span style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.4", display: "block", marginTop: "2px" }}>
+                            Award up to 1,000 points per round based on how fast candidates submit the correct answer.
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+
+                    <div style={{ padding: "16px", background: "#ffffff", borderRadius: "10px", border: "1px solid var(--border-subtle)" }}>
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={allowGuestNicknames}
+                          onChange={(e) => setAllowGuestNicknames(e.target.checked)}
+                          style={{ marginTop: "3px" }}
+                        />
+                        <div>
+                          <strong style={{ fontSize: "13px", color: "var(--text-primary)", display: "block" }}>
+                            Allow Guest Nicknames
+                          </strong>
+                          <span style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.4", display: "block", marginTop: "2px" }}>
+                            Students can join with just their nickname using the room code (no login credentials required).
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Live Podium & Reveal Cadence */}
+                  <div style={{ padding: "16px", background: "#ffffff", borderRadius: "10px", border: "1px solid var(--border-subtle)" }}>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: "700", marginBottom: "8px" }}>
+                      Podium & Leaderboard Reveal Cadence
+                    </label>
+                    <div style={{ display: "flex", gap: "16px" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="podium"
+                          checked={podiumRevealCadence === "after_round"}
+                          onChange={() => setPodiumRevealCadence("after_round")}
+                        />
+                        <span>Reveal leaderboard after every question (Live suspense)</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="podium"
+                          checked={podiumRevealCadence === "final_only"}
+                          onChange={() => setPodiumRevealCadence("final_only")}
+                        />
+                        <span>Final podium reveal only</span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* MENU 2: STANDARD QUIZ CONFIGURATION MENU */}
+              {mode === "standard_quiz" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+                  <div style={{
+                    padding: "16px 20px",
+                    background: "#eff6ff",
+                    borderRadius: "10px",
+                    border: "1px solid #bfdbfe",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: "12px"
+                  }}>
+                    <div>
+                      <div style={{ fontSize: "15px", fontWeight: "800", color: "#1e40af" }}>
+                        📝 Standard Quiz Configuration Menu
+                      </div>
+                      <div style={{ fontSize: "12px", color: "#2563eb", marginTop: "2px" }}>
+                        Configure timing architectures, PIC countdown rules, navigation models, and scorecard release.
+                      </div>
+                    </div>
+                    <span style={{ padding: "4px 12px", background: "#dbeafe", color: "#1e3a8a", borderRadius: "6px", fontSize: "11px", fontWeight: "700" }}>
+                      SELF-PACED & CLASSROOM
+                    </span>
+                  </div>
+
+                  {/* Timing Model Architecture Selection */}
+                  <div style={{ padding: "16px", background: "#f8fafc", borderRadius: "10px", border: "1px solid var(--border-subtle)" }}>
+                    <label style={{ display: "block", fontSize: "13px", fontWeight: "700", marginBottom: "8px" }}>
+                      ⏱️ Timing & PIC Architecture
+                    </label>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "16px" }}>
+                      <div
+                        onClick={() => setTimingModel("total_duration")}
+                        style={{
+                          padding: "12px",
+                          borderRadius: "8px",
+                          border: timingModel === "total_duration" ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
+                          background: timingModel === "total_duration" ? "#ffffff" : "#f1f5f9",
+                          cursor: "pointer"
+                        }}
+                      >
+                        <strong style={{ fontSize: "12px", display: "block", color: "var(--text-primary)" }}>Total Duration Only</strong>
+                        <span style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px", display: "block" }}>
+                          Traditional timer for the whole quiz (e.g. 45 min).
+                        </span>
+                      </div>
+
+                      <div
+                        onClick={() => setTimingModel("pic_only")}
+                        style={{
+                          padding: "12px",
+                          borderRadius: "8px",
+                          border: timingModel === "pic_only" ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
+                          background: timingModel === "pic_only" ? "#ffffff" : "#f1f5f9",
+                          cursor: "pointer"
+                        }}
+                      >
+                        <strong style={{ fontSize: "12px", display: "block", color: "var(--text-primary)" }}>Strict PIC Only</strong>
+                        <span style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px", display: "block" }}>
+                          Per-question clock only. Auto-advances when time expires.
+                        </span>
+                      </div>
+
+                      <div
+                        onClick={() => setTimingModel("dual")}
+                        style={{
+                          padding: "12px",
+                          borderRadius: "8px",
+                          border: timingModel === "dual" ? "2px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
+                          background: timingModel === "dual" ? "#ffffff" : "#f1f5f9",
+                          cursor: "pointer"
+                        }}
+                      >
+                        <strong style={{ fontSize: "12px", display: "block", color: "var(--text-primary)" }}>Dual Clock (Total + PIC)</strong>
+                        <span style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px", display: "block" }}>
+                          Total time cap plus per-question limit to keep pace.
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Inputs depending on model */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                      {(timingModel === "total_duration" || timingModel === "dual") && (
+                        <div>
+                          <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
+                            Total Quiz Duration (Minutes)
+                          </label>
+                          <input
+                            type="number"
+                            className="lunaris-input"
+                            value={durationMinutes}
+                            onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                            min={5}
+                            max={360}
+                          />
+                        </div>
+                      )}
+
+                      {(timingModel === "pic_only" || timingModel === "dual") && (
+                        <div>
+                          <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
+                            Per-Item Clock (PIC) Seconds per Question
+                          </label>
+                          <input
+                            type="number"
+                            className="lunaris-input"
+                            value={perQuestionSeconds}
+                            onChange={(e) => setPerQuestionSeconds(Number(e.target.value))}
+                            min={10}
+                            max={600}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {(timingModel === "pic_only" || timingModel === "dual") && (
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", marginTop: "10px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={picAutoAdvance}
+                          onChange={(e) => setPicAutoAdvance(e.target.checked)}
+                        />
+                        <span>Auto-advance to next question immediately when per-item clock expires</span>
+                      </label>
+                    )}
+                  </div>
+
+                  {/* Navigation & Scorecard Release Policies */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                    <div style={{ padding: "16px", background: "#ffffff", borderRadius: "10px", border: "1px solid var(--border-subtle)" }}>
+                      <label style={{ display: "block", fontSize: "13px", fontWeight: "700", marginBottom: "8px" }}>
+                        Question Navigation Policy
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", marginBottom: "8px", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="navPolicy"
+                          checked={navigationPolicy === "free"}
+                          onChange={() => setNavigationPolicy("free")}
+                        />
+                        <span>Free Navigation (jump, flag & review)</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="navPolicy"
+                          checked={navigationPolicy === "forward_only"}
+                          onChange={() => setNavigationPolicy("forward_only")}
+                        />
+                        <span>Strict Forward-Only (cannot go back)</span>
+                      </label>
+                    </div>
+
+                    <div style={{ padding: "16px", background: "#ffffff", borderRadius: "10px", border: "1px solid var(--border-subtle)" }}>
+                      <label style={{ display: "block", fontSize: "13px", fontWeight: "700", marginBottom: "8px" }}>
+                        Scorecard & Solution Release
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", marginBottom: "8px", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="releasePolicy"
+                          checked={resultReleasePolicy === "instant"}
+                          onChange={() => setResultReleasePolicy("instant")}
+                        />
+                        <span>Instant Scorecard & Solutions</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="releasePolicy"
+                          checked={resultReleasePolicy === "manual"}
+                          onChange={() => setResultReleasePolicy("manual")}
+                        />
+                        <span>Withhold results until educator approval</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Grading & Shuffling */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
+                        Pass Criteria (% Marks)
+                      </label>
+                      <input
+                        type="number"
+                        className="lunaris-input"
+                        value={passPercentage}
+                        onChange={(e) => setPassPercentage(Number(e.target.value))}
+                        min={0}
+                        max={100}
+                      />
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px", justifyContent: "center" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={negativeMarking}
+                          onChange={(e) => setNegativeMarking(e.target.checked)}
+                        />
+                        <span>Negative Marking (+4 / -1)</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={shuffleQuestions}
+                          onChange={(e) => setShuffleQuestions(e.target.checked)}
+                        />
+                        <span>Shuffle question and option sequence</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* MENU 3: AI PROCTORED CBT CONFIGURATION MENU */}
+              {(mode === "proctored_cbt" || mode === "custom") && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+                  <div style={{
+                    padding: "16px 20px",
+                    background: "#f0fdf4",
+                    borderRadius: "10px",
+                    border: "1px solid #bbf7d0",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: "12px"
+                  }}>
+                    <div>
+                      <div style={{ fontSize: "15px", fontWeight: "800", color: "#166534" }}>
+                        🛡️ AI Proctored CBT Configuration Menu
+                      </div>
+                      <div style={{ fontSize: "12px", color: "#15803d", marginTop: "2px" }}>
+                        Configure enterprise exam lockdown, PIC question caps, MediaPipe telemetry, and security watermarks.
+                      </div>
+                    </div>
+                    <span style={{ padding: "4px 12px", background: "#dcfce7", color: "#14532d", borderRadius: "6px", fontSize: "11px", fontWeight: "700" }}>
+                      ENTERPRISE SECURE CBT
+                    </span>
+                  </div>
+
+                  {/* Total Duration & PIC Anti-Collusion Question Cap */}
+                  <div style={{ padding: "16px", background: "#f8fafc", borderRadius: "10px", border: "1px solid var(--border-subtle)" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "14px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
+                          Total Examination Duration (Minutes)
+                        </label>
+                        <input
+                          type="number"
+                          className="lunaris-input"
+                          value={durationMinutes}
+                          onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                          min={10}
+                          max={360}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
+                          Passing Threshold (% Marks)
+                        </label>
+                        <input
+                          type="number"
+                          className="lunaris-input"
+                          value={passPercentage}
+                          onChange={(e) => setPassPercentage(Number(e.target.value))}
+                          min={0}
+                          max={100}
+                        />
+                      </div>
+                    </div>
+
+                    {/* PIC Strict Question Cap */}
+                    <div style={{ padding: "12px 14px", background: "#ffffff", borderRadius: "8px", border: "1px solid var(--border-subtle)" }}>
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={picStrictCap}
+                          onChange={(e) => setPicStrictCap(e.target.checked)}
+                          style={{ marginTop: "3px" }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <strong style={{ fontSize: "13px", color: "var(--text-primary)" }}>
+                            Enable PIC Question Cap (Anti-Collusion Timer)
+                          </strong>
+                          <span style={{ fontSize: "12px", color: "var(--text-secondary)", display: "block", marginTop: "2px" }}>
+                            Limits the maximum time a candidate may spend on any single question to prevent camera leaks or external assistance.
+                          </span>
+                          {picStrictCap && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px" }}>
+                              <span style={{ fontSize: "12px", fontWeight: "600" }}>Max seconds allowed per question:</span>
+                              <input
+                                type="number"
+                                min={30}
+                                max={600}
+                                value={picStrictCapSeconds}
+                                onChange={(e) => setPicStrictCapSeconds(Number(e.target.value))}
+                                style={{ width: "70px", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border-subtle)" }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Anti-Cheating Watermark & Preflight Protocols */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                    <div style={{ padding: "16px", background: "#ffffff", borderRadius: "10px", border: "1px solid var(--border-subtle)" }}>
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={watermarkOverlay}
+                          onChange={(e) => setWatermarkOverlay(e.target.checked)}
+                          style={{ marginTop: "3px" }}
+                        />
+                        <div>
+                          <strong style={{ fontSize: "13px", color: "var(--text-primary)", display: "block" }}>
+                            Dynamic Candidate Screen Watermark
+                          </strong>
+                          <span style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.4", display: "block", marginTop: "2px" }}>
+                            Renders candidate UID and IP dynamically across the screen to deter camera screen capture.
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+
+                    <div style={{ padding: "16px", background: "#ffffff", borderRadius: "10px", border: "1px solid var(--border-subtle)" }}>
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={mandatoryPreflight}
+                          onChange={(e) => setMandatoryPreflight(e.target.checked)}
+                          style={{ marginTop: "3px" }}
+                        />
+                        <div>
+                          <strong style={{ fontSize: "13px", color: "var(--text-primary)", display: "block" }}>
+                            Mandatory Hardware Preflight Check
+                          </strong>
+                          <span style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.4", display: "block", marginTop: "2px" }}>
+                            Candidate must verify webcam, microphone, and fullscreen permissions before question paper opens.
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Negative Marking & Sections */}
+                  <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={negativeMarking}
+                        onChange={(e) => setNegativeMarking(e.target.checked)}
+                      />
+                      <span>Strict Negative Marking (+4 Correct / -1 Incorrect)</span>
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={shuffleQuestions}
+                        onChange={(e) => setShuffleQuestions(e.target.checked)}
+                      />
+                      <span>Shuffle Question Order</span>
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -884,13 +1578,10 @@ export default function ExamCreationWizard({
                     background: enrollmentType === "classroom" ? "var(--accent-blue-subtle)" : "var(--bg-secondary)",
                     color: enrollmentType === "classroom" ? "var(--accent-blue)" : "var(--text-secondary)",
                     border: enrollmentType === "classroom" ? "1.5px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px"
+                    cursor: "pointer"
                   }}
                 >
-                   Google Classroom (Import Students & Sync)
+                  Google Classroom (Import Students & Sync)
                 </button>
                 <button
                   type="button"
@@ -903,13 +1594,10 @@ export default function ExamCreationWizard({
                     background: enrollmentType === "uid_batch" ? "var(--accent-blue-subtle)" : "var(--bg-secondary)",
                     color: enrollmentType === "uid_batch" ? "var(--accent-blue)" : "var(--text-secondary)",
                     border: enrollmentType === "uid_batch" ? "1.5px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px"
+                    cursor: "pointer"
                   }}
                 >
-                   Auto-Generate Batch UIDs & PINs
+                  Auto-Generate Batch UIDs & PINs
                 </button>
                 <button
                   type="button"
@@ -922,13 +1610,10 @@ export default function ExamCreationWizard({
                     background: enrollmentType === "csv_import" ? "var(--accent-blue-subtle)" : "var(--bg-secondary)",
                     color: enrollmentType === "csv_import" ? "var(--accent-blue)" : "var(--text-secondary)",
                     border: enrollmentType === "csv_import" ? "1.5px solid var(--accent-blue)" : "1px solid var(--border-subtle)",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px"
+                    cursor: "pointer"
                   }}
                 >
-                   CSV Candidate Import
+                  CSV Candidate Import
                 </button>
               </div>
 
@@ -940,22 +1625,6 @@ export default function ExamCreationWizard({
                         <label style={{ fontSize: "13px", fontWeight: "700", color: "var(--text-primary)" }}>
                           Select Google Classroom Course
                         </label>
-                        <button
-                          type="button"
-                          onClick={() => loadInitial()}
-                          disabled={classroomLoading}
-                          style={{
-                            fontSize: "11px",
-                            padding: "4px 8px",
-                            background: "transparent",
-                            border: "1px solid var(--border-subtle)",
-                            borderRadius: "4px",
-                            cursor: "pointer",
-                            color: "var(--text-secondary)"
-                          }}
-                        >
-                          Refresh Courses
-                        </button>
                       </div>
 
                       {classroomCourses.length > 0 ? (
@@ -990,51 +1659,41 @@ export default function ExamCreationWizard({
                             Classroom Student Roster ({classroomStudents.length} Students)
                           </span>
                           <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: "600" }}>
-                             Will be auto-enrolled with login UIDs & PINs
+                            Will be auto-enrolled with login UIDs & PINs
                           </span>
                         </div>
 
                         {classroomLoading ? (
                           <div style={{ padding: "16px", textAlign: "center", fontSize: "12px", color: "var(--text-muted)" }}>
-                            Loading real students from Google Classroom...
+                            Loading students from Google Classroom...
                           </div>
                         ) : classroomStudents.length > 0 ? (
-                          <div style={{ maxHeight: "170px", overflowY: "auto", border: "1px solid var(--border-subtle)", borderRadius: "6px", background: "#ffffff" }}>
-                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
-                              <thead>
-                                <tr style={{ background: "#f1f5f9", textAlign: "left" }}>
-                                  <th style={{ padding: "6px 10px" }}>Student Name</th>
-                                  <th style={{ padding: "6px 10px" }}>Classroom Identifier</th>
-                                  <th style={{ padding: "6px 10px", textAlign: "right" }}>Status</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {classroomStudents.map((s, idx) => (
-                                  <tr key={s.userId || idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                                    <td style={{ padding: "6px 10px", fontWeight: "600" }}>{s.name}</td>
-                                    <td style={{ padding: "6px 10px", fontFamily: "monospace", color: "var(--text-secondary)" }}>
-                                      {s.email || `${(s.name || "student").toLowerCase().replace(/[^a-z0-9]/g, '.')}@classroom.google.com`}
-                                    </td>
-                                    <td style={{ padding: "6px 10px", textAlign: "right" }}>
-                                      <span style={{ padding: "2px 6px", borderRadius: "8px", fontSize: "10px", fontWeight: "700", background: "#dcfce7", color: "#15803d" }}>
-                                        Ready to Enroll
-                                      </span>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                          <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "6px" }}>
+                            {classroomStudents.map((st) => (
+                              <div key={st.userId} style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                fontSize: "12px",
+                                padding: "6px 10px",
+                                background: "#ffffff",
+                                borderRadius: "6px",
+                                border: "1px solid var(--border-subtle)"
+                              }}>
+                                <strong style={{ color: "var(--text-primary)" }}>{st.name}</strong>
+                                <span style={{ color: "var(--text-muted)" }}>{st.email}</span>
+                              </div>
+                            ))}
                           </div>
                         ) : (
-                          <div style={{ fontSize: "12px", color: "var(--text-muted)", textAlign: "center", padding: "10px" }}>
-                            No students currently found in this course.
+                          <div style={{ padding: "12px", textAlign: "center", fontSize: "12px", color: "var(--text-muted)" }}>
+                            No enrolled students found in this course.
                           </div>
                         )}
                       </div>
 
-                      {/* Auto Push Checkbox */}
+                      {/* Auto-publish checkbox */}
                       <div style={{
-                        padding: "14px",
+                        padding: "14px 18px",
                         background: "#f0fdf4",
                         borderRadius: "8px",
                         border: "1px solid #bbf7d0"
@@ -1044,14 +1703,14 @@ export default function ExamCreationWizard({
                             type="checkbox"
                             checked={classroomAutoPublish}
                             onChange={(e) => setClassroomAutoPublish(e.target.checked)}
-                            style={{ width: "18px", height: "18px", accentColor: "#16a34a", marginTop: "2px" }}
+                            style={{ marginTop: "3px" }}
                           />
                           <div>
                             <div style={{ fontSize: "13px", fontWeight: "700", color: "#166534" }}>
-                               Automatically publish Quiz & Candidate Credentials PDF to Google Classroom stream
+                              Automatically publish Quiz & Candidate Credentials PDF to Google Classroom stream
                             </div>
                             <div style={{ fontSize: "12px", color: "#15803d", marginTop: "2px" }}>
-                              Creates an official assignment in Google Classroom with the candidate exam portal link and attaches the printable Candidate Credentials PDF roster (UIDs & PINs) in one single step!
+                              Creates an official assignment in Google Classroom with candidate credentials roster attached.
                             </div>
                           </div>
                         </label>
@@ -1065,12 +1724,11 @@ export default function ExamCreationWizard({
                       border: "1px dashed #cbd5e1",
                       textAlign: "center"
                     }}>
-                      <div style={{ fontSize: "28px", marginBottom: "8px" }}></div>
                       <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "4px" }}>
                         Connect Google Classroom
                       </div>
                       <div style={{ fontSize: "12px", color: "var(--text-muted)", maxWidth: "420px", margin: "0 auto 16px", lineHeight: "1.5" }}>
-                        Connect your Google account to automatically import your course student roster into this exam and publish the quiz with candidate credentials in one seamless step.
+                        Connect your Google account to automatically import students into this exam.
                       </div>
                       <button
                         type="button"
@@ -1084,13 +1742,10 @@ export default function ExamCreationWizard({
                           borderRadius: "8px",
                           fontSize: "13px",
                           fontWeight: "700",
-                          cursor: "pointer",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "6px"
+                          cursor: "pointer"
                         }}
                       >
-                        {classroomLoading ? "Connecting..." : " Connect Google Classroom"}
+                        {classroomLoading ? "Connecting..." : "Connect Google Classroom"}
                       </button>
                     </div>
                   )}
@@ -1110,7 +1765,7 @@ export default function ExamCreationWizard({
                     style={{ maxWidth: "200px" }}
                   />
                   <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "6px" }}>
-                    Each candidate will receive a unique UID (e.g. LUN-491029) and a 4-digit PIN. No permanent account needed!
+                    Each candidate will receive a unique UID (e.g. LUN-491029) and a PIN.
                   </div>
                 </div>
               ) : (
@@ -1144,8 +1799,8 @@ export default function ExamCreationWizard({
             </div>
           )}
 
-          {/* STEP 6: Proctoring Permitted Checks */}
-          {currentStep === 6 && (
+          {/* STEP 6: Proctoring Permitted Checks (ONLY for Proctored CBT) */}
+          {currentStep === 6 && isProctorMode && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
                 Configure permitted on-device computer vision and browser integrity checks:
@@ -1212,7 +1867,7 @@ export default function ExamCreationWizard({
                 Subscription Entitlement Validation
               </h3>
               <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "20px" }}>
-                Verifying your organization's subscription entitlements and remaining quotas:
+                Verifying your organization&#39;s subscription entitlements and remaining quotas:
               </p>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "20px" }}>
@@ -1224,7 +1879,7 @@ export default function ExamCreationWizard({
                 }}>
                   <span style={{ fontSize: "12px", color: "var(--text-muted)", display: "block" }}>Candidate Quota</span>
                   <strong style={{ fontSize: "16px", color: candidateExceeded ? "#dc2626" : "#059669" }}>
-                    {candidateCount} requested / {maxCandidatesAllowed} allowed
+                    {effectiveCandidateCount} requested / {maxCandidatesAllowed} allowed
                   </strong>
                   {candidateExceeded && (
                     <div style={{ fontSize: "11px", color: "#dc2626", marginTop: "4px" }}>
@@ -1241,7 +1896,7 @@ export default function ExamCreationWizard({
                 }}>
                   <span style={{ fontSize: "12px", color: "var(--text-muted)", display: "block" }}>Proctoring Feature</span>
                   <strong style={{ fontSize: "16px", color: proctoringRestricted ? "#dc2626" : "#059669" }}>
-                    {proctoringAllowed ? "Entitlement Verified" : "Restricted on Free Tier"}
+                    {!isProctorMode ? "Not Required for Quiz Mode" : proctoringAllowed ? "Entitlement Verified" : "Restricted on Free Tier"}
                   </strong>
                   {proctoringRestricted && (
                     <div style={{ fontSize: "11px", color: "#dc2626", marginTop: "4px" }}>
@@ -1277,14 +1932,10 @@ export default function ExamCreationWizard({
                       border: "none",
                       borderRadius: "8px",
                       fontWeight: "800",
-                      cursor: "pointer",
-                      boxShadow: "0 2px 8px rgba(16, 185, 129, 0.35)",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px"
+                      cursor: "pointer"
                     }}
                   >
-                     Open UPI Checkout & Upgrade Plan →
+                    Open UPI Checkout & Upgrade Plan →
                   </button>
                 </div>
               ) : (
@@ -1296,7 +1947,7 @@ export default function ExamCreationWizard({
                   fontWeight: "600",
                   fontSize: "13px"
                 }}>
-                   All plan entitlements verified. You have sufficient quota to publish this exam.
+                  ✓ All plan entitlements verified. You have sufficient quota to publish this exam.
                 </div>
               )}
             </div>
@@ -1315,7 +1966,9 @@ export default function ExamCreationWizard({
                 <div style={{ display: "flex", gap: "14px", fontSize: "12px", color: "var(--text-secondary)", marginBottom: "12px", flexWrap: "wrap" }}>
                   <span>Mode: <strong>{mode.toUpperCase()}</strong></span>
                   <span>•</span>
-                  <span>Duration: <strong>{durationMinutes} Min</strong></span>
+                  <span>Duration: <strong>{mode === "quick_quiz" ? `~${Math.ceil((selectedQuestionIds.length * perQuestionSeconds + 30) / 60)} Min` : `${durationMinutes} Min`}</strong></span>
+                  <span>•</span>
+                  <span>PIC Time: <strong>{perQuestionSeconds}s per question</strong></span>
                   <span>•</span>
                   <span>Questions: <strong>{selectedQuestionIds.length}</strong></span>
                   <span>•</span>
@@ -1326,14 +1979,6 @@ export default function ExamCreationWizard({
                       ? `${candidateCount} Auto-Generated UIDs`
                       : "CSV Import"}
                   </strong></span>
-                  {enrollmentType === "classroom" && (
-                    <>
-                      <span>•</span>
-                      <span style={{ color: classroomAutoPublish ? "#16a34a" : "var(--text-muted)", fontWeight: "700" }}>
-                        {classroomAutoPublish ? " Auto-Push Quiz & Credentials PDF to Classroom: ON" : "Classroom Stream Push: OFF"}
-                      </span>
-                    </>
-                  )}
                 </div>
                 <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                   Instructions: {instructions}
@@ -1349,9 +1994,7 @@ export default function ExamCreationWizard({
                 color: "var(--accent-blue)",
                 lineHeight: "1.5"
               }}>
-                ℹ️ Publishing creates an immutable exam snapshot version. Edits to the question bank
-                after publishing will not alter this candidate version. Candidate enrollment UIDs and PINs
-                will be generated automatically.
+                Publishing creates an immutable exam snapshot version. Candidate enrollment credentials (UIDs & PINs) will be generated automatically.
               </div>
             </div>
           )}
@@ -1395,7 +2038,7 @@ export default function ExamCreationWizard({
                 disabled={loading || candidateExceeded || proctoringRestricted}
                 style={{ fontSize: "13px", padding: "8px 24px", background: "#16a34a" }}
               >
-                {loading ? "Publishing Exam..." : "Publish Immutable Exam Version "}
+                {loading ? "Publishing Exam..." : "Publish Immutable Exam Version ✓"}
               </button>
             )}
           </div>

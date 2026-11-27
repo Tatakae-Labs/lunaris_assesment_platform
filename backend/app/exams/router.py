@@ -17,6 +17,10 @@ class CreateExamRequest(BaseModel):
     description: Optional[str] = None
     mode: Optional[str] = "proctored_cbt"  # proctored_cbt, quick_quiz, standard_quiz
     duration_minutes: int = 180  # Default standard 3 hours
+    per_question_time_seconds: Optional[int] = 30
+    speed_scoring: Optional[bool] = False
+    timing_model: Optional[str] = "total_duration"  # total_duration, pic_only, dual
+    question_times: Optional[Dict[str, int]] = None
     question_ids: List[str]
     settings: Optional[Dict[str, Any]] = None
 
@@ -90,11 +94,33 @@ def create_exam(
         "sections": ["General"]
     }
 
+    # Per-question time (PIC) and speed scoring
+    per_q_seconds = req.per_question_time_seconds
+    if per_q_seconds is None and req.settings:
+        per_q_seconds = req.settings.get("per_question_time_seconds", 30)
+
+    speed_sc = req.speed_scoring
+    if speed_sc is None and req.settings:
+        speed_sc = req.settings.get("speed_scoring", False)
+
+    room_code = None
+    if req.mode == "quick_quiz" or (req.settings and req.settings.get("generate_room_code")):
+        import string
+        room_code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+
+    if req.timing_model:
+        settings["timing_model"] = req.timing_model
+    if req.question_times:
+        settings["question_times"] = req.question_times
+
     exam = Exam(
         organization_id=org.id,
         title=req.title,
         description=req.description,
         mode=req.mode or "proctored_cbt",
+        room_code=room_code,
+        per_question_time_seconds=per_q_seconds or 30,
+        speed_scoring=bool(speed_sc),
         duration_minutes=req.duration_minutes,
         created_by=current_user.id,
         settings_json=json.dumps(settings)
@@ -107,6 +133,9 @@ def create_exam(
         "id": exam.id,
         "title": exam.title,
         "mode": exam.mode,
+        "room_code": exam.room_code,
+        "per_question_time_seconds": exam.per_question_time_seconds,
+        "speed_scoring": exam.speed_scoring,
         "duration_minutes": exam.duration_minutes,
         "status": exam.status
     }
@@ -155,6 +184,8 @@ def get_exam_details(
         "description": exam.description or "",
         "mode": exam.mode,
         "room_code": exam.room_code,
+        "per_question_time_seconds": exam.per_question_time_seconds,
+        "speed_scoring": exam.speed_scoring,
         "duration_minutes": exam.duration_minutes,
         "status": exam.status,
         "settings": json.loads(exam.settings_json) if exam.settings_json else {},
@@ -453,14 +484,18 @@ def publish_exam(
 
     # Snapshot questions with points
     snapshot_questions = []
+    exam_settings = json.loads(exam.settings_json) if exam.settings_json else {}
+    q_times = exam_settings.get("question_times", {})
     for q in questions:
         content = json.loads(q.content_json)
+        q_time = q_times.get(q.id) or exam.per_question_time_seconds or 30
         snapshot_questions.append({
             "id": q.id,
             "subject": q.subject,
             "type": q.question_type,
             "points_positive": 4.0,
             "points_negative": -1.0,
+            "per_question_time_seconds": q_time,
             "content": content
         })
 
@@ -471,6 +506,10 @@ def publish_exam(
         exam_id=exam.id,
         version_number=new_version_num,
         title=exam.title,
+        mode=exam.mode,
+        room_code=exam.room_code,
+        per_question_time_seconds=exam.per_question_time_seconds or 30,
+        speed_scoring=exam.speed_scoring or False,
         duration_minutes=exam.duration_minutes,
         settings_json=exam.settings_json or "{}",
         snapshot_json=json.dumps(snapshot_questions)

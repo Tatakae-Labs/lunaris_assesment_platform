@@ -280,7 +280,19 @@ def start_candidate_attempt(
     ).first()
 
     if not attempt:
-        deadline = now + timedelta(minutes=version.duration_minutes)
+        dur_mins = version.duration_minutes or 60
+        try:
+            ver_settings = json.loads(version.settings_json) if version.settings_json else {}
+            if ver_settings.get("timing_model") == "pic_only":
+                q_list = json.loads(version.snapshot_json) if version.snapshot_json else []
+                total_pic_secs = sum(
+                    (q.get("per_question_time_seconds") or version.per_question_time_seconds or 30)
+                    for q in q_list
+                )
+                dur_mins = max(1, int((total_pic_secs + 120) / 60))
+        except Exception:
+            pass
+        deadline = now + timedelta(minutes=dur_mins)
         attempt = ExamAttempt(
             enrollment_id=enrollment.id,
             exam_version_id=version.id,
@@ -376,6 +388,7 @@ def get_candidate_paper(
             "type": q.get("type", "single_mcq"),
             "points_positive": q.get("points_positive", 4.0),
             "points_negative": q.get("points_negative", -1.0),
+            "per_question_time_seconds": q.get("per_question_time_seconds") or version.per_question_time_seconds or exam.per_question_time_seconds or 30,
             "content": safe_content
         })
 
@@ -389,11 +402,18 @@ def get_candidate_paper(
             except Exception:
                 pass
 
+    exam_settings = json.loads(exam.settings_json) if exam.settings_json else {}
     return {
         "title": version.title,
         "duration_minutes": version.duration_minutes,
         "mode": exam.mode,
         "proctoring_enabled": exam.mode == "proctored_cbt",
+        "per_question_time_seconds": version.per_question_time_seconds or exam.per_question_time_seconds or 30,
+        "speed_scoring": version.speed_scoring or exam.speed_scoring or False,
+        "timing_model": exam_settings.get("timing_model", "total_duration"),
+        "pic_auto_advance": exam_settings.get("pic_auto_advance", True),
+        "pic_strict_cap": exam_settings.get("pic_strict_cap", False),
+        "settings": exam_settings,
         "total_questions": len(sanitized),
         "questions": sanitized,
         "saved_answers": saved_answers

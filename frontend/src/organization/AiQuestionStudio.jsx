@@ -696,7 +696,7 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
                   gap: "4px"
                 }}
               >
-                {showNotesInput ? "▼ Hide Lecture Notes / Syllabus Excerpt" : "▶ + Ground generation on Lecture Notes / Text Excerpt (RAG)"}
+                {showNotesInput ? "[-] Hide Lecture Notes / Syllabus Excerpt" : "[+] Ground generation on Lecture Notes / Text Excerpt (RAG)"}
               </button>
               {showNotesInput && (
                 <textarea
@@ -1046,7 +1046,7 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
                         {draft.type?.toUpperCase()}
                       </span>
                       <span style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "600" }}>
-                        {draft.subject} • {draft.topic}
+                        {draft.subject} | {draft.topic}
                       </span>
                       {content.source_file && (
                         <span style={{ fontSize: "11px", color: "#166534", background: "#dcfce7", padding: "1px 6px", borderRadius: "4px" }}>
@@ -1070,7 +1070,7 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
                           cursor: "pointer"
                         }}
                       >
-                        ✓ Approve to Q-Bank
+                        Approve to Q-Bank
                       </button>
                       <button
                         type="button"
@@ -1113,7 +1113,7 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
                               fontWeight: isCorrect ? "700" : "400"
                             }}
                           >
-                            {isCorrect && "✓ "} {opt.text}
+                            {isCorrect && "[Correct] "} {opt.text}
                           </div>
                         );
                       })}
@@ -1123,7 +1123,7 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
                   {/* Numerical Answer */}
                   {draft.type === "numerical" && (
                     <div style={{ fontSize: "12px", color: "#0891b2", background: "#ecfeff", padding: "6px 10px", borderRadius: "4px", marginBottom: "10px", fontWeight: "600" }}>
-                      Answer: {content.numerical_answer} (Tolerance: ±{content.tolerance || 0.1})
+                      Answer: {content.numerical_answer} (Tolerance: +/- {content.tolerance || 0.1})
                     </div>
                   )}
 
@@ -1180,7 +1180,7 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
                       cursor: draftPage <= 1 ? "not-allowed" : "pointer"
                     }}
                   >
-                    ← Previous
+                    Previous
                   </button>
                   {Array.from({ length: totalDraftPages }, (_, i) => i + 1).map((num) => {
                     if (totalDraftPages > 7 && Math.abs(num - draftPage) > 2 && num !== 1 && num !== totalDraftPages) {
@@ -1225,7 +1225,7 @@ export default function AiQuestionStudio({ organizationId, onQuestionApproved })
                       cursor: draftPage >= totalDraftPages ? "not-allowed" : "pointer"
                     }}
                   >
-                    Next →
+                    Next
                   </button>
                 </div>
               </div>

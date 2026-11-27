@@ -170,7 +170,7 @@ def generate_ai_questions(
         "Physics": [
             {
                 "type": "single_mcq",
-                "text": f"In the context of {req.topic}, consider a body executing motion under conservative forces. If potential energy is U(x) = ax² - bx, find the equilibrium position x₀.",
+                "text": f"In the context of {req.topic}, consider a body executing motion under conservative forces. If potential energy is U(x) = ax^2 - bx, find the equilibrium position x_0.",
                 "options": [
                     {"id": "opt_1", "text": "b / (2a)"},
                     {"id": "opt_2", "text": "2a / b"},
@@ -189,21 +189,21 @@ def generate_ai_questions(
             },
             {
                 "type": "single_mcq",
-                "text": f"A capacitor of capacitance C is connected across an AC voltage source V = V₀ sin(ωt) regarding {req.topic}. The displacement current through the plates is:",
+                "text": f"A capacitor of capacitance C is connected across an AC voltage source V = V_0 sin(w*t) regarding {req.topic}. The displacement current through the plates is:",
                 "options": [
-                    {"id": "opt_1", "text": "ω C V₀ cos(ωt)"},
-                    {"id": "opt_2", "text": "V₀ / (ω C) sin(ωt)"},
-                    {"id": "opt_3", "text": "-ω C V₀ sin(ωt)"},
+                    {"id": "opt_1", "text": "w C V_0 cos(w*t)"},
+                    {"id": "opt_2", "text": "V_0 / (w C) sin(w*t)"},
+                    {"id": "opt_3", "text": "-w C V_0 sin(w*t)"},
                     {"id": "opt_4", "text": "Zero"}
                 ],
                 "correct_option_id": "opt_1",
-                "explanation": "Id = C dV/dt = C (ω V₀ cos(ωt))."
+                "explanation": "Id = C dV/dt = C (w V_0 cos(w*t))."
             }
         ],
         "Chemistry": [
             {
                 "type": "single_mcq",
-                "text": f"For the equilibrium reaction involving {req.topic}: N₂O₄(g) ⇌ 2NO₂(g), if total pressure is doubled at constant temperature, the degree of dissociation α will:",
+                "text": f"For the equilibrium reaction involving {req.topic}: N2O4(g) <=> 2NO2(g), if total pressure is doubled at constant temperature, the degree of dissociation alpha will:",
                 "options": [
                     {"id": "opt_1", "text": "Decrease"},
                     {"id": "opt_2", "text": "Increase"},
@@ -211,11 +211,11 @@ def generate_ai_questions(
                     {"id": "opt_4", "text": "Become zero"}
                 ],
                 "correct_option_id": "opt_1",
-                "explanation": "Increasing pressure shifts equilibrium toward fewer gas moles (left), decreasing α."
+                "explanation": "Increasing pressure shifts equilibrium toward fewer gas moles (left), decreasing alpha."
             },
             {
                 "type": "numerical",
-                "text": f"Calculate the oxidation number of chromium in potassium dichromate (K₂Cr₂O₇) related to {req.topic}.",
+                "text": f"Calculate the oxidation number of chromium in potassium dichromate (K2Cr2O7) related to {req.topic}.",
                 "numerical_answer": 6.0,
                 "tolerance": 0.01,
                 "explanation": "2(+1) + 2(Cr) + 7(-2) = 0 => 2Cr = +12 => Cr = +6."
@@ -224,22 +224,22 @@ def generate_ai_questions(
         "Mathematics": [
             {
                 "type": "single_mcq",
-                "text": f"Evaluate the integral ∫ [x / (x² + 4)] dx related to {req.topic}:",
+                "text": f"Evaluate the integral [x / (x^2 + 4)] dx related to {req.topic}:",
                 "options": [
-                    {"id": "opt_1", "text": "(1/2) ln(x² + 4) + C"},
-                    {"id": "opt_2", "text": "ln(x² + 4) + C"},
+                    {"id": "opt_1", "text": "(1/2) ln(x^2 + 4) + C"},
+                    {"id": "opt_2", "text": "ln(x^2 + 4) + C"},
                     {"id": "opt_3", "text": "(1/4) arctan(x/2) + C"},
-                    {"id": "opt_4", "text": "2 ln(x² + 4) + C"}
+                    {"id": "opt_4", "text": "2 ln(x^2 + 4) + C"}
                 ],
                 "correct_option_id": "opt_1",
-                "explanation": "Substitute u = x² + 4, du = 2x dx => (1/2) ∫ (1/u) du = (1/2) ln(x² + 4) + C."
+                "explanation": "Substitute u = x^2 + 4, du = 2x dx => (1/2) integral (1/u) du = (1/2) ln(x^2 + 4) + C."
             },
             {
                 "type": "numerical",
-                "text": f"Find the number of real roots of the equation x⁴ + 4x² + 3 = 0 relating to {req.topic}.",
+                "text": f"Find the number of real roots of the equation x^4 + 4x^2 + 3 = 0 relating to {req.topic}.",
                 "numerical_answer": 0.0,
                 "tolerance": 0.01,
-                "explanation": "(x² + 1)(x² + 3) = 0 has no real roots since x² >= 0 for all real x."
+                "explanation": "(x^2 + 1)(x^2 + 3) = 0 has no real roots since x^2 >= 0 for all real x."
             }
         ]
     }
@@ -311,7 +311,7 @@ def generate_ai_questions(
                     content["numerical_answer"] = 0.0
 
                 try:
-                    raw_tol = str(item.get("tolerance", "0.01")).replace("±", "").replace(",", "").strip()
+                    raw_tol = str(item.get("tolerance", "0.01")).replace("\u00b1", "").replace("+/-", "").replace(",", "").strip()
                     content["tolerance"] = max(0.0, float(raw_tol))
                 except (ValueError, TypeError):
                     content["tolerance"] = 0.01
@@ -571,30 +571,64 @@ def extract_file_text(filename: str, file_bytes: bytes) -> str:
     text = ""
     if ext == ".pdf":
         import io
+        # 1. Primary: pdfplumber
         try:
             import pdfplumber
             with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
                 extracted = []
-                for p in pdf.pages[:40]:
+                for p in pdf.pages[:100]:
                     t = p.extract_text()
-                    if t: extracted.append(t)
+                    if t:
+                        extracted.append(t)
                 text = "\n\n".join(extracted)
         except Exception:
+            text = ""
+
+        # 2. Secondary: pypdf
+        if not text or len(text.strip()) < 10:
             try:
                 import pypdf
                 reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-                pages = [p.extract_text() for p in reader.pages[:40] if p.extract_text()]
+                pages = [p.extract_text() for p in reader.pages[:100] if p.extract_text()]
                 text = "\n\n".join(pages)
             except Exception:
                 text = ""
-    else:
-        try:
-            text = file_bytes.decode("utf-8")
-        except UnicodeDecodeError:
+
+        # 3. Tertiary: pypdfium2
+        if not text or len(text.strip()) < 10:
             try:
-                text = file_bytes.decode("latin-1")
+                import pypdfium2
+                pdf = pypdfium2.PdfDocument(file_bytes)
+                pages = []
+                for page in pdf:
+                    text_page = page.get_textpage()
+                    pages.append(text_page.get_text_range())
+                text = "\n\n".join([p for p in pages if p])
             except Exception:
                 text = ""
+
+    elif ext in (".docx", ".doc"):
+        import io
+        try:
+            import docx
+            doc = docx.Document(io.BytesIO(file_bytes))
+            text = "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+        except Exception:
+            text = ""
+    else:
+        for enc in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
+            try:
+                text = file_bytes.decode(enc)
+                break
+            except Exception:
+                continue
+
+    if text:
+        import re
+        # Clean ReportLab / PDF glyphs like (cid:127) to normal dashes
+        text = re.sub(r'\(cid:\d+\)', '-', text)
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+
     return text.strip()
 
 
@@ -641,7 +675,7 @@ Return ONLY a JSON object strictly matching:
         }
         for model in ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "openai/gpt-oss-120b"]:
             try:
-                with httpx.Client(timeout=8.0) as client:
+                with httpx.Client(timeout=45.0) as client:
                     resp = client.post(
                         "https://api.groq.com/openai/v1/chat/completions",
                         headers=headers,
@@ -669,26 +703,46 @@ Return ONLY a JSON object strictly matching:
     import re
     questions = []
     # Split by common question delimiters: "Q1.", "Question 1", "1.", etc.
-    blocks = re.split(r'\n(?=(?:Q(?:uestion)?\.?\s*\d+|\b\d{1,3}\b[\.\)]))\s*', doc_text)
+    q_split_pattern = r'(?:\n|^)(?=(?:Q(?:uestion)?\.?\s*\d+|\b\d{1,3}\b[\.\)]))\s*'
+    blocks = re.split(q_split_pattern, doc_text)
+
     for b in blocks:
         b = b.strip()
-        if len(b) < 25:
+        if not b or len(b) < 15:
             continue
-        
-        # Check for options A), B), C), D) or (A), (B), (C), (D)
-        opt_matches = re.findall(r'(?:[\(\s]|^)([A-Da-d])[\)\.]\s*([^\n]+)', b)
-        q_lines = b.split('\n')
-        q_title = q_lines[0][:160]
 
-        if len(opt_matches) >= 3:
-            # It's an MCQ!
+        # Match question number and body
+        m = re.match(r'^(?:Q(?:uestion)?\.?\s*(\d+)[\.\)]?|\b(\d{1,3})\b[\.\)])\s*([\s\S]+)', b)
+        if not m:
+            # Header, section banner, or non-question preamble
+            continue
+
+        q_num = m.group(1) or m.group(2)
+        raw_body = m.group(3).strip()
+
+        # Tokenize options: (A), (B), (C), (D) or A., B., C., D.
+        opt_split = re.split(r'(?:\(([A-Da-d])\)|(?:\b|^)([A-Da-d])[\.\)])\s*', raw_body)
+
+        if len(opt_split) >= 4:
+            # Multiple Choice Question
+            stem = opt_split[0].strip()
+            # Clean marks indicator like [4M] or [4 Marks]
+            stem = re.sub(r'\s*\[\s*\d+\.?\d*\s*[Mm](?:arks)?\s*\]\s*$', '', stem).strip()
+
             opts = []
-            for idx, (letter, opt_text) in enumerate(opt_matches[:4]):
-                opts.append({"id": f"opt_{idx+1}", "text": f"({letter.upper()}) {opt_text.strip()}"})
-            
-            # Find answer key if indicated
+            i = 1
+            while i < len(opt_split):
+                letter = opt_split[i] or opt_split[i+1]
+                t_val = opt_split[i+2].strip() if i+2 < len(opt_split) else ''
+                t_val = re.sub(r'\n+', ' ', t_val).strip()
+                t_val = re.sub(r'\s*SECTION\s+[A-Z0-9\b].*', '', t_val, flags=re.IGNORECASE).strip()
+                if letter and t_val:
+                    opts.append({"id": f"opt_{len(opts)+1}", "text": f"({letter.upper()}) {t_val}"})
+                i += 3
+
+            # Search for answer key marker in the body or options
             ans_match = re.search(r'(?:Ans(?:wer)?|Key|Correct)[\s\:\-]+([A-Da-d])', b, re.IGNORECASE)
-            corr_id = "opt_1"
+            corr_id = opts[0]["id"] if opts else "opt_1"
             if ans_match:
                 letter_idx = ord(ans_match.group(1).upper()) - ord('A')
                 if 0 <= letter_idx < len(opts):
@@ -696,7 +750,7 @@ Return ONLY a JSON object strictly matching:
 
             questions.append({
                 "type": "single_mcq",
-                "text": b[:400].strip(),
+                "text": stem if stem else raw_body[:300].strip(),
                 "options": opts,
                 "correct_option_id": corr_id,
                 "explanation": "Extracted from examination paper.",
@@ -706,21 +760,25 @@ Return ONLY a JSON object strictly matching:
                 "tags": ["PYQ", "Document Import"]
             })
         else:
-            # Numerical or Subjective question
-            num_match = re.search(r'(?:Ans(?:wer)?|Value)[\s\:\-]+([\d\.]+)', b, re.IGNORECASE)
+            # Non-MCQ: numerical, fill-in-the-blank, or subjective
+            stem = raw_body
+            # Clean answer placeholder prompts from stem
+            stem = re.sub(r'Answer:\s*\[[\s_]*\].*', '', stem, flags=re.IGNORECASE).strip()
+            stem = re.sub(r'Answer:\s*_+.*', '', stem, flags=re.IGNORECASE).strip()
+            # Clean trailing marks tags
+            stem = re.sub(r'\s*\[\s*\d+\.?\d*\s*[Mm](?:arks)?\s*\]\s*$', '', stem).strip()
+
+            num_match = re.search(r'(?:Ans(?:wer)?|Value)[\s\:\-\[]*([\d\.]+)', raw_body, re.IGNORECASE)
+            is_numerical = bool(num_match) or any(w in raw_body.lower() for w in ["calculate", "compute", "evaluate", "numerical", "determine the magnitude"])
             num_val = float(num_match.group(1)) if num_match else 0.0
+
             questions.append({
-                "type": "numerical" if num_match else "single_mcq",
-                "text": b[:400].strip(),
-                "numerical_answer": num_val,
-                "tolerance": 0.1,
-                "options": [
-                    {"id": "opt_1", "text": "Statement 1 is theoretically consistent"},
-                    {"id": "opt_2", "text": "Statement 2 is invalid"},
-                    {"id": "opt_3", "text": "Both statements are mutually exclusive"},
-                    {"id": "opt_4", "text": "Empirical validation required"}
-                ] if not num_match else None,
-                "correct_option_id": "opt_1" if not num_match else None,
+                "type": "numerical" if is_numerical else "subjective",
+                "text": stem if stem else raw_body[:300].strip(),
+                "numerical_answer": num_val if is_numerical else None,
+                "tolerance": 0.1 if is_numerical else None,
+                "options": None,
+                "correct_option_id": None,
                 "explanation": "Extracted from examination document.",
                 "subject": subject,
                 "topic": "Curriculum Review",
@@ -729,7 +787,6 @@ Return ONLY a JSON object strictly matching:
             })
 
     return questions
-
 
 @router.post("/ingest-file")
 async def ingest_question_file(

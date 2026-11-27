@@ -524,8 +524,8 @@ export default function PublicWebsite({
             <div style={{ fontSize: "18px", fontWeight: "800", letterSpacing: "0.5px", lineHeight: "1" }}>
               LUNARIS
             </div>
-            <div style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "500" }}>
-              Assessment SaaS Platform
+            <div style={{ fontSize: "11px", color: "var(--accent-blue)", fontWeight: "600", letterSpacing: "0.2px" }}>
+              Assessment Platform
             </div>
           </div>
         </div>
@@ -782,7 +782,7 @@ export default function PublicWebsite({
               marginBottom: "16px",
               border: "1px solid rgba(37, 99, 235, 0.15)"
             }}>
-              ASSESSMENT PLATFORM
+              LUNARIS ASSESSMENT PLATFORM
             </div>
 
             {/* Taste Skill v2 Headline: Max two lines on desktop */}
@@ -1931,7 +1931,7 @@ export default function PublicWebsite({
             alt="Lunaris"
             style={{ width: "24px", height: "24px", objectFit: "contain", borderRadius: "50%" }}
           />
-          <span>© 2026 Lunaris Assessment Systems. Pure white-theme SaaS architecture.</span>
+          <span>© 2026 Lunaris Assessment Platform. All rights reserved.</span>
         </div>
         <div style={{ display: "flex", gap: "20px", alignItems: "center" }}>
           <button

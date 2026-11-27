@@ -236,7 +236,7 @@ export default function StageshowHeroDemo() {
 
       {/* The Master Stage Window */}
       <StageWindow
-        title="Lunaris Assessment Engine"
+        title="Lunaris Assessment Platform"
         url={step >= 3 ? "lunaris.app/exam/midterm-assessment?uid=LUN-981240" : "lunaris.app/dashboard/exams"}
         type={step >= 3 ? "app" : "browser"}
         satellite={renderSatellite()}

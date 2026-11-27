@@ -21,7 +21,10 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
   const [questionStates, setQuestionStates] = useState({});
   const [revisions, setRevisions] = useState({});
 
-  // Server Timer
+  // Server Timer & PIC (Per-Item Clock)
+  const [paperMeta, setPaperMeta] = useState(null);
+  const [picSecondsRemaining, setPicSecondsRemaining] = useState(null);
+  const [picTotalSeconds, setPicTotalSeconds] = useState(null);
   const [secondsRemaining, setSecondsRemaining] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState(null);
@@ -44,7 +47,16 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
 
         // Fetch Sanitized Paper
         const paperRes = await api.getPaper(attRes.attempt_id);
+        setPaperMeta(paperRes);
         setQuestions(paperRes.questions);
+
+        // Initialize PIC (Per-Item Clock)
+        const hasPicConfig = paperRes.timing_model === "pic_only" || paperRes.timing_model === "dual" || Boolean(paperRes.per_question_time_seconds);
+        if (hasPicConfig && paperRes.questions.length > 0) {
+          const firstQTime = paperRes.questions[0].per_question_time_seconds || paperRes.per_question_time_seconds || 30;
+          setPicTotalSeconds(firstQTime);
+          setPicSecondsRemaining(firstQTime);
+        }
 
         // Restore any previously saved answers (reconnect tolerance)
         const initialStates = {};
@@ -101,6 +113,37 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
 
     return () => clearInterval(timer);
   }, [preflightDone, secondsRemaining, submitResult]);
+
+  // Synchronized PIC (Per-Item Clock) Timer
+  useEffect(() => {
+    if (!preflightDone || submitResult || picSecondsRemaining === null) return;
+
+    if (picSecondsRemaining <= 0) {
+      const shouldAutoAdvance = paperMeta?.pic_auto_advance !== false;
+      if (shouldAutoAdvance) {
+        if (currentIndex < questions.length - 1) {
+          triggerAdvisoryAlert(`Question ${currentIndex + 1} time expired. Moving to next question.`, "warning");
+          handleSaveAndNext();
+        } else {
+          triggerAdvisoryAlert("Question time expired on the final question. Auto-submitting assessment.", "warning");
+          handleFinalSubmit();
+        }
+      }
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setPicSecondsRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [preflightDone, submitResult, picSecondsRemaining, currentIndex, paperMeta, questions]);
 
   // Browser Security Listeners (Visibility API & Fullscreen)
   const isStandardQuiz = attempt?.mode === "standard_quiz";
@@ -278,9 +321,20 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
   }
 
   function selectQuestionIndex(idx) {
+    if (idx < 0 || idx >= questions.length) return;
+    const isForwardOnly = paperMeta?.settings?.navigation_policy === "forward_only";
+    if (isForwardOnly && idx < currentIndex) {
+      triggerAdvisoryAlert("Strict Forward-Only mode active. Navigating backwards is not permitted.", "warning");
+      return;
+    }
     setCurrentIndex(idx);
     const targetQ = questions[idx];
     if (targetQ) {
+      // Reset PIC timer for new question
+      const qSeconds = targetQ.per_question_time_seconds || paperMeta?.per_question_time_seconds || 30;
+      setPicTotalSeconds(qSeconds);
+      setPicSecondsRemaining(qSeconds);
+
       setActiveSubject(targetQ.subject);
       setQuestionStates((prev) => {
         if (!prev[targetQ.id] || prev[targetQ.id] === "unvisited") {
@@ -477,13 +531,13 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
             background: "linear-gradient(135deg, #2563eb 0%, #06b6d4 100%)",
             color: "#fff",
             fontWeight: "800",
-            fontSize: "15px",
+            fontSize: "13px",
             padding: "4px 10px",
             borderRadius: "6px",
             fontFamily: "var(--font-display)",
             letterSpacing: "0.5px"
           }}>
-            LUNARIS CBT
+            LUNARIS ASSESSMENT PLATFORM
           </div>
           <span style={{ fontSize: "14px", fontWeight: "600", color: "#e2e8f0" }}>
             {attempt?.title || "Computer-Based Examination"}
@@ -589,18 +643,53 @@ export default function JeeExamPortal({ inviteToken, onExit }) {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#0a0f1d", overflowY: "auto" }}>
           {currentQ ? (
             <div style={{ padding: "28px", display: "flex", flexDirection: "column", flex: 1 }}>
-              {/* Question Header & Marking Weights */}
+              {/* Question Header & Marking Weights with PIC Clock */}
               <div style={{
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
                 paddingBottom: "14px",
                 borderBottom: "1px solid #1e293b",
-                marginBottom: "20px"
+                marginBottom: "20px",
+                flexWrap: "wrap",
+                gap: "10px"
               }}>
-                <span style={{ fontSize: "16px", fontWeight: "bold", color: "#f8fafc" }}>
-                  Question {currentIndex + 1} ({currentQ.subject} - {currentQ.type === "numerical" ? "Section B (NVQ)" : "Section A (MCQ)"})
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ fontSize: "16px", fontWeight: "bold", color: "#f8fafc" }}>
+                    Question {currentIndex + 1} ({currentQ.subject} - {currentQ.type === "numerical" ? "Section B (NVQ)" : "Section A (MCQ)"})
+                  </span>
+                  {picSecondsRemaining !== null && (
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "4px 12px",
+                      background: picSecondsRemaining <= 10 ? "rgba(239, 68, 68, 0.15)" : "rgba(56, 189, 248, 0.12)",
+                      border: `1px solid ${picSecondsRemaining <= 10 ? "rgba(239, 68, 68, 0.4)" : "rgba(56, 189, 248, 0.3)"}`,
+                      borderRadius: "6px"
+                    }}>
+                      <span style={{ fontSize: "11px", fontWeight: "700", color: picSecondsRemaining <= 10 ? "#f87171" : "#38bdf8" }}>
+                        PIC CLOCK:
+                      </span>
+                      <span style={{
+                        fontSize: "14px",
+                        fontWeight: "bold",
+                        fontFamily: "var(--font-mono)",
+                        color: picSecondsRemaining <= 10 ? "#ef4444" : "#38bdf8"
+                      }}>
+                        {formatTime(picSecondsRemaining)}
+                      </span>
+                      <div style={{ width: "50px", height: "4px", background: "#1e293b", borderRadius: "2px", overflow: "hidden" }}>
+                        <div style={{
+                          width: `${Math.max(0, Math.min(100, (picSecondsRemaining / (picTotalSeconds || 30)) * 100))}%`,
+                          height: "100%",
+                          background: picSecondsRemaining <= 10 ? "#ef4444" : "#38bdf8",
+                          transition: "width 1s linear"
+                        }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <span style={{ fontSize: "12px", background: "#1e293b", color: "#38bdf8", padding: "4px 10px", borderRadius: "4px" }}>
                   Marking Scheme: +{currentQ.points_positive} / {currentQ.points_negative}
                 </span>

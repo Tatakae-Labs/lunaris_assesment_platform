@@ -14,13 +14,27 @@ router = APIRouter(prefix="/questions", tags=["Question Bank"])
 
 class CreateQuestionRequest(BaseModel):
     organization_id: str
-    subject: str  # Physics, Chemistry, Mathematics
-    question_type: str  # single_mcq, multi_mcq, numerical
-    content: Dict[str, Any]  # text, options: [{id, text}], correct_option_id or numerical_answer
+    subject: str  # Physics, Chemistry, Mathematics, etc.
+    chapter: Optional[str] = None
+    topic: Optional[str] = None
+    difficulty: Optional[str] = "medium"  # easy, medium, hard
+    question_type: str  # single_mcq, multi_mcq, numerical, fill_in_blanks, true_false, subjective
+    marks: Optional[float] = 4.0
+    negative_marks: Optional[float] = 1.0
+    source: Optional[str] = "manual"  # manual, csv_import, ai_generated, template_builder
+    approval_status: Optional[str] = "approved"
+    content: Dict[str, Any]  # text, options, answer keys, explanations, rubrics
 
 class UpdateQuestionRequest(BaseModel):
     subject: Optional[str] = None
+    chapter: Optional[str] = None
+    topic: Optional[str] = None
+    difficulty: Optional[str] = None
     question_type: Optional[str] = None
+    marks: Optional[float] = None
+    negative_marks: Optional[float] = None
+    source: Optional[str] = None
+    approval_status: Optional[str] = None
     content: Optional[Dict[str, Any]] = None
     change_summary: Optional[str] = "Question content updated"
 
@@ -59,7 +73,14 @@ def create_question(
     question = Question(
         organization_id=org.id,
         subject=req.subject,
+        chapter=req.chapter,
+        topic=req.topic,
+        difficulty=req.difficulty or "medium",
         question_type=req.question_type,
+        marks=req.marks if req.marks is not None else 4.0,
+        negative_marks=req.negative_marks if req.negative_marks is not None else 1.0,
+        source=req.source or "manual",
+        approval_status=req.approval_status or "approved",
         content_json=json.dumps(content),
         version=1
     )
@@ -70,7 +91,14 @@ def create_question(
     return {
         "id": question.id,
         "subject": question.subject,
+        "chapter": question.chapter,
+        "topic": question.topic,
+        "difficulty": question.difficulty or "medium",
         "question_type": question.question_type,
+        "marks": question.marks or 4.0,
+        "negative_marks": question.negative_marks or 1.0,
+        "source": question.source or "manual",
+        "approval_status": question.approval_status or "approved",
         "version": question.version,
         "content": json.loads(question.content_json)
     }
@@ -79,21 +107,56 @@ def create_question(
 def list_questions(
     organization_id: str,
     subject: Optional[str] = None,
+    chapter: Optional[str] = None,
+    topic: Optional[str] = None,
+    difficulty: Optional[str] = None,
+    question_type: Optional[str] = None,
+    source: Optional[str] = None,
+    approval_status: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     org = check_org_author_permission(db, current_user.id, organization_id)
 
     query = db.query(Question).filter(Question.organization_id == org.id)
-    if subject:
-        query = query.filter(Question.subject == subject)
+    if subject and subject.strip():
+        query = query.filter(Question.subject == subject.strip())
+    if chapter and chapter.strip():
+        query = query.filter(Question.chapter == chapter.strip())
+    if topic and topic.strip():
+        query = query.filter(Question.topic == topic.strip())
+    if difficulty and difficulty.strip():
+        query = query.filter(Question.difficulty == difficulty.strip().lower())
+    if question_type and question_type.strip():
+        query = query.filter(Question.question_type == question_type.strip())
+    if source and source.strip():
+        query = query.filter(Question.source == source.strip())
+    if approval_status and approval_status.strip():
+        query = query.filter(Question.approval_status == approval_status.strip())
 
-    questions = query.order_by(Question.created_at.desc()).all()
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter((Question.content_json.ilike(term)) | (Question.subject.ilike(term)) | (Question.topic.ilike(term)))
+
+    query = query.order_by(Question.created_at.desc())
+    if limit and limit > 0:
+        query = query.limit(limit)
+
+    questions = query.all()
     return [
         {
             "id": q.id,
             "subject": q.subject,
+            "chapter": q.chapter,
+            "topic": q.topic,
+            "difficulty": q.difficulty or "medium",
             "question_type": q.question_type,
+            "marks": q.marks or 4.0,
+            "negative_marks": q.negative_marks or 1.0,
+            "source": q.source or "manual",
+            "approval_status": q.approval_status or "approved",
             "version": q.version or 1,
             "content": json.loads(q.content_json),
             "created_at": q.created_at.isoformat()
@@ -171,6 +234,20 @@ def update_question(
 
     if req.subject:
         question.subject = req.subject
+    if req.chapter is not None:
+        question.chapter = req.chapter
+    if req.topic is not None:
+        question.topic = req.topic
+    if req.difficulty:
+        question.difficulty = req.difficulty
+    if req.marks is not None:
+        question.marks = req.marks
+    if req.negative_marks is not None:
+        question.negative_marks = req.negative_marks
+    if req.source:
+        question.source = req.source
+    if req.approval_status:
+        question.approval_status = req.approval_status
     if req.question_type:
         question.question_type = req.question_type
     if req.content:
@@ -315,3 +392,59 @@ def export_questions_csv(
         writer.writerow([q.id, q.subject, q.question_type, text, opt_texts[0], opt_texts[1], opt_texts[2], opt_texts[3], correct])
 
     return PlainTextResponse(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=lunaris_questions_{org.slug}.csv"})
+
+class CheckDuplicatesRequest(BaseModel):
+    organization_id: str
+    text: str
+    threshold: Optional[float] = 0.70
+
+def _tokenize_text(text: str) -> set:
+    import re
+    words = re.findall(r'\w+', text.lower())
+    # remove short words
+    return set(w for w in words if len(w) > 2)
+
+@router.post("/check-duplicates")
+def check_duplicate_questions(
+    req: CheckDuplicatesRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Checks if a question text is duplicate or highly similar to existing questions in the Question Bank."""
+    org = check_org_author_permission(db, current_user.id, req.organization_id)
+    target_tokens = _tokenize_text(req.text)
+    if not target_tokens:
+        return {"is_duplicate": False, "matches": []}
+
+    all_questions = db.query(Question).filter(Question.organization_id == org.id).all()
+    matches = []
+    
+    for q in all_questions:
+        try:
+            content = json.loads(q.content_json)
+            q_text = content.get("text", "")
+            q_tokens = _tokenize_text(q_text)
+            if not q_tokens:
+                continue
+            
+            # Jaccard index
+            intersection = target_tokens.intersection(q_tokens)
+            union = target_tokens.union(q_tokens)
+            similarity = len(intersection) / len(union) if union else 0.0
+
+            if similarity >= req.threshold:
+                matches.append({
+                    "id": q.id,
+                    "subject": q.subject,
+                    "similarity": round(similarity, 3),
+                    "text": q_text[:140] + ("..." if len(q_text) > 140 else ""),
+                    "question_type": q.question_type
+                })
+        except Exception:
+            continue
+
+    matches.sort(key=lambda x: x["similarity"], reverse=True)
+    return {
+        "is_duplicate": len(matches) > 0,
+        "matches": matches[:5]
+    }

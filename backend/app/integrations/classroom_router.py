@@ -913,8 +913,8 @@ def upload_classroom_content(
             if not exam.room_code:
                 exam.room_code = f"LUN{random.randint(100, 999)}"
                 db.commit()
-            backend_base = "http://localhost:5173"
-            exam_link = f"{backend_base}/candidate-login?room={exam.room_code}"
+            frontend_base = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+            exam_link = f"{frontend_base}/candidate-login?room={exam.room_code}"
             materials.append({
                 "link": {
                     "url": exam_link,

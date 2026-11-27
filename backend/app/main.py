@@ -20,6 +20,8 @@ from app.candidate.router import router as candidate_router
 from app.platform.router import router as platform_router, ensure_superadmin_seeded
 from app.coding.router import router as coding_router
 from app.integrations.classroom_router import router as classroom_router
+from app.templates.router import router as templates_router
+from app.paper_studio.router import router as paper_studio_router
 
 # Initialize tables and auto-migrate schema
 Base.metadata.create_all(bind=engine)
@@ -47,8 +49,8 @@ except Exception as _sync_exc:
     print(f"MongoDB startup bulk sync warning: {_sync_exc}")
 
 app = FastAPI(
-    title="Lunaris Specialized Assessment Platform API",
-    description="Multi-Tenant Specialized Computer-Based Assessment & Proctored Examination Platform API",
+    title="Lunaris Assessment Platform API",
+    description="Multi-Tenant Computer-Based Assessment & Proctored Examination Platform API",
     version="1.0.0"
 )
 
@@ -62,7 +64,7 @@ app.add_middleware(
         "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
     ],
-    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*(rugveddev\.tech|localhost|127\.0\.0\.1)(:[0-9]+)?$",
+    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*(rugveddev\.tech|vercel\.app|localhost|127\.0\.0\.1)(:[0-9]+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -84,11 +86,13 @@ app.include_router(candidate_router, prefix="/api/v1")
 app.include_router(platform_router, prefix="/api/v1")
 app.include_router(coding_router, prefix="/api/v1")
 app.include_router(classroom_router, prefix="/api/v1")
+app.include_router(templates_router, prefix="/api/v1")
+app.include_router(paper_studio_router, prefix="/api/v1")
 
 @app.get("/")
 def root():
     return {
-        "service": "Lunaris Assessment API",
+        "service": "Lunaris Assessment Platform API",
         "version": "1.0.0",
         "status": "online",
     }
