@@ -520,9 +520,19 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                       <span>Proctored CBT Lockdown: <strong>{p.entitlements?.proctoring_enabled ? "Included" : "Disabled"}</strong></span>
                     </li>
                     <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
-                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}></span>
-                      <span>Direct UPI Payment Gateway Instant Checkout</span>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span>{p.entitlements?.ads_enabled === false ? "Ad-Free Workspace Experience" : "Includes Sponsored Workspace Ads"}</span>
                     </li>
+                    <li style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
+                      <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>✓</span>
+                      <span>Razorpay &amp; Direct UPI Instant Checkout</span>
+                    </li>
+                    {(p.entitlements?.custom_features || []).map((feat, idx) => (
+                      <li key={idx} style={{ display: "flex", alignItems: "flex-start", gap: "8px", color: "var(--text-secondary)" }}>
+                        <span style={{ color: "var(--accent-blue)", fontWeight: "bold" }}>✓</span>
+                        <span>{feat}</span>
+                      </li>
+                    ))}
                   </ul>
                 </div>
               </div>

@@ -198,9 +198,12 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
       max_exams: "5",
       ai_questions: "50",
       proctoring_enabled: "true",
-      pdf_import: "true"
+      pdf_import: "true",
+      ads_enabled: "false",
+      custom_features: []
     }
   });
+  const [editCustomFeatureInput, setEditCustomFeatureInput] = useState("");
 
   const [showCreatePlanModal, setShowCreatePlanModal] = useState(false);
   const [newPlanForm, setNewPlanForm] = useState({
@@ -214,9 +217,12 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
       max_exams: "25",
       ai_questions: "500",
       proctoring_enabled: "true",
-      pdf_import: "true"
+      pdf_import: "true",
+      ads_enabled: "false",
+      custom_features: []
     }
   });
+  const [createCustomFeatureInput, setCreateCustomFeatureInput] = useState("");
 
   const [savingPayments, setSavingPayments] = useState(false);
   const [publicSiteSettings, setPublicSiteSettings] = useState({
@@ -570,9 +576,23 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
     }
   }
 
+  function parseCustomFeatures(raw) {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === "string" && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return raw.split("\n").map((s) => s.trim()).filter(Boolean);
+      }
+    }
+    return [];
+  }
+
   // Plan Management Handlers
   function openEditPlan(plan) {
     setEditingPlan(plan);
+    setEditCustomFeatureInput("");
     setPlanFormData({
       name: plan.name,
       price_inr: plan.price_inr,
@@ -584,7 +604,9 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
         ai_questions: String(plan.entitlements?.ai_questions ?? "50"),
         proctoring_enabled: String(plan.entitlements?.proctoring_enabled ?? "true"),
         proctoring_quota: String(plan.entitlements?.proctoring_quota ?? "50"),
-        pdf_import: String(plan.entitlements?.pdf_import ?? "true")
+        pdf_import: String(plan.entitlements?.pdf_import ?? "true"),
+        ads_enabled: String(plan.entitlements?.ads_enabled ?? (plan.id === "free" ? "true" : "false")),
+        custom_features: parseCustomFeatures(plan.entitlements?.custom_features)
       }
     });
   }
@@ -1769,6 +1791,22 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                     <div>AI Question Credits: <strong>{p.entitlements?.ai_questions ?? "N/A"}</strong></div>
                     <div>Proctoring Module: <strong>{p.entitlements?.proctoring_enabled === "true" ? "Allowed" : "Disabled"}</strong></div>
                     <div>PDF Direct Import: <strong>{p.entitlements?.pdf_import === "true" ? "Allowed" : "Restricted"}</strong></div>
+                    <div>
+                      Dashboard Ads:{" "}
+                      <strong style={{ color: (p.entitlements?.ads_enabled ?? (p.id === "free" ? "true" : "false")) === "true" ? "#b45309" : "#059669" }}>
+                        {(p.entitlements?.ads_enabled ?? (p.id === "free" ? "true" : "false")) === "true" ? "Enabled (Shown)" : "Ad-Free"}
+                      </strong>
+                    </div>
+                    {parseCustomFeatures(p.entitlements?.custom_features).length > 0 && (
+                      <div style={{ marginTop: "4px", paddingTop: "6px", borderTop: "1px dashed #e2e8f0" }}>
+                        <span style={{ color: "#64748b", fontWeight: "700", fontSize: "11px" }}>Custom Features:</span>
+                        <ul style={{ margin: "4px 0 0 14px", padding: 0, color: "#334155", fontSize: "11px" }}>
+                          {parseCustomFeatures(p.entitlements?.custom_features).map((f, idx) => (
+                            <li key={idx}>{f}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
 
                   <button
@@ -3282,7 +3320,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
           zIndex: 100,
           padding: "20px"
         }}>
-          <div style={{ background: "#ffffff", borderRadius: "12px", width: "100%", maxWidth: "560px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
+          <div style={{ background: "#ffffff", borderRadius: "12px", width: "100%", maxWidth: "600px", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
             <div style={{ padding: "18px 22px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h3 style={{ fontSize: "16px", fontWeight: "800", margin: 0 }}>
                 Edit Plan &amp; Entitlement Quotas: {editingPlan.name}
@@ -3405,6 +3443,117 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                 </div>
               </div>
 
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: "700", marginBottom: "4px" }}>Dashboard Ads Control</label>
+                <select
+                  value={planFormData.entitlements.ads_enabled}
+                  onChange={(e) => setPlanFormData({
+                    ...planFormData,
+                    entitlements: { ...planFormData.entitlements, ads_enabled: e.target.value }
+                  })}
+                  style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+                >
+                  <option value="true">Show Ads on Dashboard (Ad-Supported)</option>
+                  <option value="false">Ad-Free Dashboard (No Ads)</option>
+                </select>
+              </div>
+
+              {/* Custom Features Builder */}
+              <div style={{ marginBottom: "20px", padding: "12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: "800", marginBottom: "6px", color: "#0f172a" }}>
+                  Custom Features (Shown in Pricing &amp; Billing)
+                </label>
+                <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
+                  <input
+                    type="text"
+                    value={editCustomFeatureInput}
+                    onChange={(e) => setEditCustomFeatureInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const val = editCustomFeatureInput.trim();
+                        if (!val) return;
+                        setPlanFormData({
+                          ...planFormData,
+                          entitlements: {
+                            ...planFormData.entitlements,
+                            custom_features: [...(planFormData.entitlements.custom_features || []), val]
+                          }
+                        });
+                        setEditCustomFeatureInput("");
+                      }
+                    }}
+                    placeholder="e.g. Dedicated Priority WhatsApp Support"
+                    style={{ flex: 1, padding: "7px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const val = editCustomFeatureInput.trim();
+                      if (!val) return;
+                      setPlanFormData({
+                        ...planFormData,
+                        entitlements: {
+                          ...planFormData.entitlements,
+                          custom_features: [...(planFormData.entitlements.custom_features || []), val]
+                        }
+                      });
+                      setEditCustomFeatureInput("");
+                    }}
+                    style={{
+                      padding: "7px 12px",
+                      background: "#2563eb",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      cursor: "pointer"
+                    }}
+                  >
+                    + Add Feature
+                  </button>
+                </div>
+                {(planFormData.entitlements.custom_features || []).length === 0 ? (
+                  <div style={{ fontSize: "11px", color: "#94a3b8" }}>No custom features added yet.</div>
+                ) : (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                    {(planFormData.entitlements.custom_features || []).map((feat, idx) => (
+                      <span
+                        key={idx}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          background: "#ffffff",
+                          border: "1px solid #cbd5e1",
+                          borderRadius: "6px",
+                          padding: "4px 8px",
+                          fontSize: "11px",
+                          fontWeight: "600",
+                          color: "#334155"
+                        }}
+                      >
+                        {feat}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = (planFormData.entitlements.custom_features || []).filter((_, i) => i !== idx);
+                            setPlanFormData({
+                              ...planFormData,
+                              entitlements: { ...planFormData.entitlements, custom_features: updated }
+                            });
+                          }}
+                          style={{ background: "none", border: "none", color: "#ef4444", fontWeight: "800", cursor: "pointer", padding: 0, fontSize: "13px" }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
                 <button type="button" className="btn-secondary" onClick={() => setEditingPlan(null)}>Cancel</button>
                 <button type="submit" className="btn-primary">Update Plan</button>
@@ -3429,7 +3578,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
           zIndex: 100,
           padding: "20px"
         }}>
-          <div style={{ background: "#ffffff", borderRadius: "12px", width: "100%", maxWidth: "560px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
+          <div style={{ background: "#ffffff", borderRadius: "12px", width: "100%", maxWidth: "600px", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
             <div style={{ padding: "18px 22px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h3 style={{ fontSize: "16px", fontWeight: "800", margin: 0 }}>Provision New Subscription Tier</h3>
               <button type="button" onClick={() => setShowCreatePlanModal(false)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer" }}><XIcon size={18} /></button>
@@ -3485,7 +3634,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                 </div>
               </div>
 
-              <div style={{ marginBottom: "20px" }}>
+              <div style={{ marginBottom: "14px" }}>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>Description</label>
                 <input
                   type="text"
@@ -3494,6 +3643,111 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                   placeholder="e.g. Dedicated proctoring capacity with unlimited AI synthesis"
                   style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px" }}
                 />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "14px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "700", marginBottom: "4px" }}>Max Candidates</label>
+                  <input
+                    type="text"
+                    value={newPlanForm.entitlements.max_candidates}
+                    onChange={(e) => setNewPlanForm({ ...newPlanForm, entitlements: { ...newPlanForm.entitlements, max_candidates: e.target.value } })}
+                    style={{ width: "100%", padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "700", marginBottom: "4px" }}>Max Exams</label>
+                  <input
+                    type="text"
+                    value={newPlanForm.entitlements.max_exams}
+                    onChange={(e) => setNewPlanForm({ ...newPlanForm, entitlements: { ...newPlanForm.entitlements, max_exams: e.target.value } })}
+                    style={{ width: "100%", padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "700", marginBottom: "4px" }}>Dashboard Ads</label>
+                  <select
+                    value={newPlanForm.entitlements.ads_enabled}
+                    onChange={(e) => setNewPlanForm({ ...newPlanForm, entitlements: { ...newPlanForm.entitlements, ads_enabled: e.target.value } })}
+                    style={{ width: "100%", padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+                  >
+                    <option value="false">Ad-Free</option>
+                    <option value="true">Show Ads</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "18px", padding: "12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: "800", marginBottom: "6px", color: "#0f172a" }}>
+                  Custom Features (Shown in Pricing &amp; Billing)
+                </label>
+                <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
+                  <input
+                    type="text"
+                    value={createCustomFeatureInput}
+                    onChange={(e) => setCreateCustomFeatureInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const val = createCustomFeatureInput.trim();
+                        if (!val) return;
+                        setNewPlanForm({
+                          ...newPlanForm,
+                          entitlements: {
+                            ...newPlanForm.entitlements,
+                            custom_features: [...(newPlanForm.entitlements.custom_features || []), val]
+                          }
+                        });
+                        setCreateCustomFeatureInput("");
+                      }
+                    }}
+                    placeholder="e.g. Custom Branded Domain"
+                    style={{ flex: 1, padding: "7px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const val = createCustomFeatureInput.trim();
+                      if (!val) return;
+                      setNewPlanForm({
+                        ...newPlanForm,
+                        entitlements: {
+                          ...newPlanForm.entitlements,
+                          custom_features: [...(newPlanForm.entitlements.custom_features || []), val]
+                        }
+                      });
+                      setCreateCustomFeatureInput("");
+                    }}
+                    style={{ padding: "7px 12px", background: "#2563eb", color: "#ffffff", border: "none", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
+                  >
+                    + Add Feature
+                  </button>
+                </div>
+                {(newPlanForm.entitlements.custom_features || []).length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                    {(newPlanForm.entitlements.custom_features || []).map((feat, idx) => (
+                      <span
+                        key={idx}
+                        style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "6px", padding: "4px 8px", fontSize: "11px", fontWeight: "600", color: "#334155" }}
+                      >
+                        {feat}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = (newPlanForm.entitlements.custom_features || []).filter((_, i) => i !== idx);
+                            setNewPlanForm({
+                              ...newPlanForm,
+                              entitlements: { ...newPlanForm.entitlements, custom_features: updated }
+                            });
+                          }}
+                          style={{ background: "none", border: "none", color: "#ef4444", fontWeight: "800", cursor: "pointer", padding: 0, fontSize: "13px" }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>

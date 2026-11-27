@@ -456,12 +456,25 @@ def get_organization_usage(
     
     max_candidates = properties.get("custom_max_candidates") or properties.get("candidate_capacity") or limits.get("max_candidates", 30)
 
+    # Check live PlanEntitlement for ads_enabled (fallback to free/starter => True)
+    from app.models import Plan, PlanEntitlement
+    active_plan_id = org.plan_id or "free"
+    ads_ent = db.query(PlanEntitlement).filter(
+        PlanEntitlement.plan_id == active_plan_id,
+        PlanEntitlement.key == "ads_enabled"
+    ).first()
+    if ads_ent is not None:
+        ads_enabled = ads_ent.value.lower() == "true"
+    else:
+        ads_enabled = active_plan_id.lower() in ("free", "starter")
+
     return {
         "organization_id": org.id,
         "organization_name": org.name,
         "organization_slug": org.slug,
-        "plan_id": org.plan_id or "free",
+        "plan_id": active_plan_id,
         "plan_name": limits.get("name", "Free Starter"),
+        "ads_enabled": ads_enabled,
         "candidates_count": candidates_count,
         "max_candidates": int(max_candidates),
         "exams_count": exams_count,

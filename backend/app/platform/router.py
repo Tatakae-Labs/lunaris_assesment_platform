@@ -1303,7 +1303,8 @@ def create_plan_superadmin(
 
     if req.entitlements:
         for k, v in req.entitlements.items():
-            db.add(PlanEntitlement(plan_id=plan.id, key=k, value=str(v)))
+            serialized = json.dumps(v) if isinstance(v, (list, dict)) else str(v)
+            db.add(PlanEntitlement(plan_id=plan.id, key=k, value=serialized))
 
     audit = AuditEvent(
         organization_id=None,
@@ -1340,14 +1341,15 @@ def update_plan_superadmin(
 
     if req.entitlements is not None:
         for k, v in req.entitlements.items():
+            serialized = json.dumps(v) if isinstance(v, (list, dict)) else str(v)
             existing_ent = db.query(PlanEntitlement).filter(
                 PlanEntitlement.plan_id == plan.id,
                 PlanEntitlement.key == k
             ).first()
             if existing_ent:
-                existing_ent.value = str(v)
+                existing_ent.value = serialized
             else:
-                db.add(PlanEntitlement(plan_id=plan.id, key=k, value=str(v)))
+                db.add(PlanEntitlement(plan_id=plan.id, key=k, value=serialized))
 
     # Sync to all organizations currently subscribed to this plan!
     synced_count = sync_plan_to_organizations(db, plan.id)

@@ -1062,7 +1062,11 @@ export default function PublicWebsite({
                     <li style={{ display: "flex", alignItems: "center", gap: "8px" }}><CheckIcon size={14} color="#16a34a" /> {p.entitlements?.ai_questions ?? 20} AI Question Credits</li>
                     <li>{p.entitlements?.proctoring_enabled ? "Full Proctoring Engine & Live Video" : " Full proctoring module"}</li>
                     <li>{p.entitlements?.pdf_import ? "PDF Document Import" : "PDF document import"}</li>
-                    {p.entitlements?.team_members && <li style={{ display: "flex", alignItems: "center", gap: "8px" }}><CheckIcon size={14} color="#16a34a" /> {p.entitlements.team_members} Faculty & Author seats</li>}
+                    {p.entitlements?.team_members && <li style={{ display: "flex", alignItems: "center", gap: "8px" }}><CheckIcon size={14} color="#16a34a" /> {p.entitlements.team_members} Faculty &amp; Author seats</li>}
+                    <li style={{ display: "flex", alignItems: "center", gap: "8px" }}><CheckIcon size={14} color="#16a34a" /> {p.entitlements?.ads_enabled === false ? "Ad-Free Workspace" : "Ad-Supported Starter"}</li>
+                    {(p.entitlements?.custom_features || []).map((feat, idx) => (
+                      <li key={idx} style={{ display: "flex", alignItems: "center", gap: "8px" }}><CheckIcon size={14} color="#2563eb" /> {feat}</li>
+                    ))}
                   </ul>
                   <button
                     type="button"

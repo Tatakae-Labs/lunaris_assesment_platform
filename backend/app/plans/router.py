@@ -22,7 +22,9 @@ DEFAULT_PLANS = [
             "ai_questions": 30,
             "proctoring_enabled": "true",
             "pdf_import": "false",
-            "team_members": 2
+            "team_members": 2,
+            "ads_enabled": "true",
+            "custom_features": "[]"
         }
     },
     {
@@ -37,7 +39,9 @@ DEFAULT_PLANS = [
             "ai_questions": 500,
             "proctoring_enabled": "false",
             "pdf_import": "true",
-            "team_members": 3
+            "team_members": 3,
+            "ads_enabled": "false",
+            "custom_features": "[]"
         }
     },
     {
@@ -52,7 +56,9 @@ DEFAULT_PLANS = [
             "ai_questions": 2000,
             "proctoring_enabled": "true",
             "pdf_import": "true",
-            "team_members": 15
+            "team_members": 15,
+            "ads_enabled": "false",
+            "custom_features": "[]"
         }
     }
 ]
@@ -122,6 +128,19 @@ def get_organization_entitlements(db: Session, organization_id: str) -> Dict[str
         "proctoring_attempts_quota": org.proctoring_attempts_quota
     }
 
+def _parse_custom_features(raw_val: Any) -> List[str]:
+    if isinstance(raw_val, list):
+        return [str(x).strip() for x in raw_val if str(x).strip()]
+    if isinstance(raw_val, str) and raw_val.strip():
+        try:
+            parsed = json.loads(raw_val)
+            if isinstance(parsed, list):
+                return [str(x).strip() for x in parsed if str(x).strip()]
+        except Exception:
+            return [line.strip() for line in raw_val.splitlines() if line.strip()]
+    return []
+
+
 @router.get("")
 def list_plans(db: Session = Depends(get_db)):
     ensure_plans_seeded(db)
@@ -129,6 +148,7 @@ def list_plans(db: Session = Depends(get_db)):
     results = []
     for p in plans:
         ents = {e.key: e.value for e in p.entitlements}
+        default_ads = "true" if p.id == "free" else "false"
         results.append({
             "code": p.id,
             "id": p.id,
@@ -142,7 +162,9 @@ def list_plans(db: Session = Depends(get_db)):
                 "ai_questions": int(ents.get("ai_questions", 20)),
                 "proctoring_enabled": ents.get("proctoring_enabled") == "true",
                 "pdf_import": ents.get("pdf_import") == "true",
-                "team_members": int(ents.get("team_members", 1))
+                "team_members": int(ents.get("team_members", 1)),
+                "ads_enabled": ents.get("ads_enabled", default_ads).lower() == "true",
+                "custom_features": _parse_custom_features(ents.get("custom_features", "[]"))
             }
         })
     return results

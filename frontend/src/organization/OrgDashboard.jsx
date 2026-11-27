@@ -1370,11 +1370,11 @@ export default function OrgDashboard({
             </button>
           )}
 
-          {/* Free-Tier Sidebar Banner (160x300) */}
+          {/* Free-Tier / Ad-Enabled Sidebar Banner (160x300) */}
           {!sidebarCollapsed && (
             <AdSlot
               placement="160x300_1"
-              show={(orgUsage?.plan_id || currentPlan || "free").toLowerCase() === "free" && !currentUser?.is_superadmin}
+              show={(orgUsage?.ads_enabled !== undefined ? orgUsage.ads_enabled : (orgUsage?.plan_id || currentPlan || "free").toLowerCase() === "free") && !currentUser?.is_superadmin}
               onUpgradeClick={() => setActiveTab("billing")}
               style={{ margin: "8px auto 12px" }}
             />
@@ -1546,10 +1546,10 @@ export default function OrgDashboard({
         <main style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "clamp(16px, 2vw, 28px)", width: "100%" }}>
           <div style={{ maxWidth: "1600px", width: "100%", margin: "0 auto" }}>
 
-          {/* Free-Tier Only Ads (never rendered for paid plans or SuperAdmins) */}
+          {/* Plan-Controlled Dashboard Ads (never rendered for ad-free plans or SuperAdmins) */}
           <AdSlot
             placement="468x60_1"
-            show={(orgUsage?.plan_id || currentPlan || "free").toLowerCase() === "free" && !currentUser?.is_superadmin}
+            show={(orgUsage?.ads_enabled !== undefined ? orgUsage.ads_enabled : (orgUsage?.plan_id || currentPlan || "free").toLowerCase() === "free") && !currentUser?.is_superadmin}
             onUpgradeClick={() => setActiveTab("billing")}
             style={{ marginBottom: "18px", marginTop: "0" }}
           />
