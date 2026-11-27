@@ -158,6 +158,12 @@ def _make_get_current_user(require_active: bool = True):
 
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
+            try:
+                from app.core.mongo_sync import hydrate_user_context_from_mongodb
+                user = hydrate_user_context_from_mongodb(db, user_id)
+            except Exception:
+                user = None
+        if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         if require_active and user.status != "active":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is not active")

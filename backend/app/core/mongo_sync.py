@@ -54,8 +54,13 @@ def model_to_dict(instance: Any) -> Dict[str, Any]:
     return data
 
 
+_listeners_attached = False
+_hydrating_from_mongo = False
+
 def _sync_insert_handler(mapper, connection, target):
     """Event hook executed after a model instance is inserted."""
+    if _hydrating_from_mongo:
+        return
     try:
         table_name = getattr(target, "__tablename__", None)
         doc_id = getattr(target, "id", None)
@@ -68,6 +73,8 @@ def _sync_insert_handler(mapper, connection, target):
 
 def _sync_update_handler(mapper, connection, target):
     """Event hook executed after a model instance is updated."""
+    if _hydrating_from_mongo:
+        return
     try:
         table_name = getattr(target, "__tablename__", None)
         doc_id = getattr(target, "id", None)
@@ -80,6 +87,8 @@ def _sync_update_handler(mapper, connection, target):
 
 def _sync_delete_handler(mapper, connection, target):
     """Event hook executed after a model instance is deleted."""
+    if _hydrating_from_mongo:
+        return
     try:
         table_name = getattr(target, "__tablename__", None)
         doc_id = getattr(target, "id", None)
@@ -88,8 +97,6 @@ def _sync_delete_handler(mapper, connection, target):
     except Exception as exc:
         print(f"MongoDB real-time delete sync error for {target}: {exc}")
 
-
-_listeners_attached = False
 
 def attach_mongodb_sync_listeners():
     """Attaches after_insert, after_update, and after_delete hooks to all SQLAlchemy models."""
@@ -205,3 +212,129 @@ def bulk_sync_sqlite_to_mongodb(db: Session) -> Dict[str, int]:
 
 # Backwards compatibility alias
 bulk_sync_sql_to_mongodb = bulk_sync_sqlite_to_mongodb
+
+
+def _deserialize_doc_for_model(model_cls: Any, doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Extracts and converts MongoDB document fields matching the SQLAlchemy model columns."""
+    from sqlalchemy import DateTime
+    mapper = inspect(model_cls).mapper
+    kwargs = {}
+    for col in mapper.columns:
+        key = col.key
+        if key not in doc:
+            continue
+        val = doc[key]
+        if isinstance(col.type, DateTime) and isinstance(val, str):
+            try:
+                val = datetime.fromisoformat(val)
+            except Exception:
+                val = None
+        kwargs[key] = val
+    return kwargs
+
+
+def hydrate_sqlite_from_mongodb(db: Session) -> Dict[str, int]:
+    """
+    Pulls persisted documents from MongoDB into local SQLite on serverless cold start
+    so stateless containers share all users, organizations, exams, and payments.
+    """
+    global _hydrating_from_mongo
+    db_mongo = get_mongodb()
+    if db_mongo is None:
+        return {}
+
+    entities = [
+        (models.Plan, "plans"),
+        (models.Organization, "organizations"),
+        (models.User, "users"),
+        (models.OrganizationMember, "organization_members"),
+        (models.Subscription, "subscriptions"),
+        (models.QuestionBank, "question_banks"),
+        (models.Question, "questions"),
+        (models.QuestionRevision, "question_revisions"),
+        (models.Exam, "exams"),
+        (models.ExamVersion, "exam_versions"),
+        (models.ExamAssignment, "exam_assignments"),
+        (models.ExamEnrollment, "exam_enrollments"),
+        (models.CandidateSession, "candidate_sessions"),
+        (models.ExamAttempt, "exam_attempts"),
+        (models.AttemptAnswer, "attempt_answers"),
+        (models.ProctorSession, "proctor_sessions"),
+        (models.ProctorEvent, "proctor_events"),
+        (models.EvidenceAsset, "evidence_assets"),
+        (models.ReviewDecision, "review_decisions"),
+        (models.AuditEvent, "audit_logs"),
+        (models.QuizRoom, "quiz_rooms"),
+        (models.QuizParticipant, "quiz_participants"),
+    ]
+
+    summary = {}
+    _hydrating_from_mongo = True
+    try:
+        for model_cls, coll_name in entities:
+            try:
+                coll = db_mongo[coll_name]
+                docs = list(coll.find({}))
+                count = 0
+                for doc in docs:
+                    kwargs = _deserialize_doc_for_model(model_cls, doc)
+                    if kwargs.get("id"):
+                        db.merge(model_cls(**kwargs))
+                        count += 1
+                if count:
+                    db.commit()
+                summary[coll_name] = count
+            except Exception as exc:
+                db.rollback()
+                summary[coll_name] = f"error: {exc}"
+    finally:
+        _hydrating_from_mongo = False
+
+    print(f"[OK] Hydrated local DB from MongoDB: {summary}")
+    return summary
+
+
+def hydrate_user_context_from_mongodb(db: Session, user_id: str):
+    """
+    On-demand fallback when a warm serverless container receives a valid JWT
+    for a user created on another container: fetches the user & their orgs from MongoDB.
+    """
+    global _hydrating_from_mongo
+    db_mongo = get_mongodb()
+    if db_mongo is None:
+        return None
+
+    _hydrating_from_mongo = True
+    try:
+        user_doc = db_mongo.users.find_one({"_id": str(user_id)}) or db_mongo.users.find_one({"id": str(user_id)})
+        if not user_doc:
+            return None
+
+        user_kwargs = _deserialize_doc_for_model(models.User, user_doc)
+        user_obj = db.merge(models.User(**user_kwargs))
+
+        # Pull memberships & organizations for this user
+        memberships = list(db_mongo.organization_members.find({"user_id": str(user_id)}))
+        org_ids = []
+        for m_doc in memberships:
+            m_kwargs = _deserialize_doc_for_model(models.OrganizationMember, m_doc)
+            if m_kwargs.get("id"):
+                db.merge(models.OrganizationMember(**m_kwargs))
+            if m_kwargs.get("organization_id"):
+                org_ids.append(m_kwargs["organization_id"])
+
+        for oid in set(org_ids):
+            org_doc = db_mongo.organizations.find_one({"_id": str(oid)}) or db_mongo.organizations.find_one({"id": str(oid)})
+            if org_doc:
+                db.merge(models.Organization(**_deserialize_doc_for_model(models.Organization, org_doc)))
+            for sub_doc in db_mongo.subscriptions.find({"organization_id": str(oid)}):
+                db.merge(models.Subscription(**_deserialize_doc_for_model(models.Subscription, sub_doc)))
+
+        db.commit()
+        return user_obj
+    except Exception as exc:
+        db.rollback()
+        print(f"On-demand MongoDB user hydration error: {exc}")
+        return None
+    finally:
+        _hydrating_from_mongo = False

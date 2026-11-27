@@ -102,11 +102,13 @@ class Settings(BaseSettings):
     def warn_insecure_secret(self) -> "Settings":
         os.environ.setdefault("FRONTEND_URL", self.FRONTEND_URL)
         if self.SECRET_KEY == _INSECURE_DEFAULT_KEY:
-            # Generate a secure fallback key so serverless cold starts never throw a fatal ValueError
-            self.SECRET_KEY = secrets.token_urlsafe(64)
+            # Derive a deterministic fallback key across serverless containers so JWTs remain valid across instances
+            import hashlib
+            seed = f"{self.MONGODB_URL}:{os.environ.get('VERCEL_PROJECT_ID', 'lunaris')}"
+            self.SECRET_KEY = hashlib.sha256(seed.encode("utf-8")).hexdigest()
             import warnings
             warnings.warn(
-                "SECRET_KEY was not explicitly provided in environment. Automatically generated an ephemeral 64-char key.",
+                "SECRET_KEY was not explicitly provided in environment. Using deterministic fallback key.",
                 stacklevel=2
             )
         return self

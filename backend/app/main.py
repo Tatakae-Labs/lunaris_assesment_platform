@@ -42,8 +42,19 @@ except Exception as _seed_exc:
 
 # Initialize MongoDB Engine, Collections, Indexes, and Real-Time CDC Replication
 from app.core.mongodb import init_mongodb_indexes
-from app.core.mongo_sync import attach_mongodb_sync_listeners, bulk_sync_sqlite_to_mongodb
+from app.core.mongo_sync import (
+    attach_mongodb_sync_listeners,
+    bulk_sync_sqlite_to_mongodb,
+    hydrate_sqlite_from_mongodb,
+)
 init_mongodb_indexes()
+
+try:
+    with SessionLocal() as _db_sync:
+        hydrate_sqlite_from_mongodb(_db_sync)
+except Exception as _hydrate_exc:
+    print(f"MongoDB startup hydration warning: {_hydrate_exc}")
+
 attach_mongodb_sync_listeners()
 
 try:
