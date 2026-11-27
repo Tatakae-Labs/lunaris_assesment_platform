@@ -26,7 +26,18 @@ class Settings(BaseSettings):
     MONGODB_URL: str = "mongodb://localhost:27017"
     MONGODB_DB_NAME: str = "lunaris"
     MONGODB_ENABLED: bool = True
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://lunarisedu.tatakaelabs.tech",
+        "https://tatakaelabs.tech",
+        "https://lunaris-assesment-platform.vercel.app",
+    ]
+    FRONTEND_URL: str = (
+        "https://lunarisedu.tatakaelabs.tech"
+        if os.environ.get("VERCEL")
+        else "http://localhost:5173"
+    )
 
     STORAGE_BACKEND: str = "local"
     LOCAL_STORAGE_DIR: str = "./storage_assets"
@@ -88,6 +99,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def warn_insecure_secret(self) -> "Settings":
+        os.environ.setdefault("FRONTEND_URL", self.FRONTEND_URL)
         if self.SECRET_KEY == _INSECURE_DEFAULT_KEY:
             # Generate a secure fallback key so serverless cold starts never throw a fatal ValueError
             self.SECRET_KEY = secrets.token_urlsafe(64)
