@@ -955,6 +955,8 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
           </div>
         </header>
 
+        {/* Scrollable Content Body (keeps sidebar & top header fixed) */}
+        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0 }}>
         {/* Action Notice Toast */}
         {actionNotice && (
           <div style={{
@@ -3085,6 +3087,7 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* ─────────────────────────────────────────────────────────────────── */}
