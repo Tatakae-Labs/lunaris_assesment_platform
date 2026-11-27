@@ -342,3 +342,111 @@ def hydrate_user_context_from_mongodb(db: Session, user_id: str):
         return None
     finally:
         _hydrating_from_mongo = False
+
+
+def hydrate_candidate_session_from_mongodb(db: Session, token: str):
+    """
+    On-demand fallback when a warm serverless container receives a valid candidate
+    session_token created on another container: pulls CandidateSession, Enrollment,
+    Exam, Versions, Questions, and Attempts from MongoDB.
+    """
+    global _hydrating_from_mongo
+    db_mongo = get_mongodb()
+    if db_mongo is None:
+        return None
+
+    _hydrating_from_mongo = True
+    try:
+        sess_doc = db_mongo.candidate_sessions.find_one({"session_token": str(token), "is_active": True})
+        if not sess_doc:
+            return None
+
+        sess_obj = db.merge(models.CandidateSession(**_deserialize_doc_for_model(models.CandidateSession, sess_doc)))
+
+        enrollment_id = sess_doc.get("enrollment_id")
+        if enrollment_id:
+            enr_doc = db_mongo.exam_enrollments.find_one({"_id": str(enrollment_id)}) or db_mongo.exam_enrollments.find_one({"id": str(enrollment_id)})
+            if enr_doc:
+                db.merge(models.ExamEnrollment(**_deserialize_doc_for_model(models.ExamEnrollment, enr_doc)))
+                exam_id = enr_doc.get("exam_id")
+                org_id = enr_doc.get("organization_id")
+                if exam_id:
+                    exam_doc = db_mongo.exams.find_one({"_id": str(exam_id)}) or db_mongo.exams.find_one({"id": str(exam_id)})
+                    if exam_doc:
+                        db.merge(models.Exam(**_deserialize_doc_for_model(models.Exam, exam_doc)))
+                        org_id = org_id or exam_doc.get("organization_id")
+                    for ver_doc in db_mongo.exam_versions.find({"exam_id": str(exam_id)}):
+                        db.merge(models.ExamVersion(**_deserialize_doc_for_model(models.ExamVersion, ver_doc)))
+                if org_id:
+                    org_doc = db_mongo.organizations.find_one({"_id": str(org_id)}) or db_mongo.organizations.find_one({"id": str(org_id)})
+                    if org_doc:
+                        db.merge(models.Organization(**_deserialize_doc_for_model(models.Organization, org_doc)))
+                    for q_doc in db_mongo.questions.find({"organization_id": str(org_id)}):
+                        db.merge(models.Question(**_deserialize_doc_for_model(models.Question, q_doc)))
+                for att_doc in db_mongo.exam_attempts.find({"enrollment_id": str(enrollment_id)}):
+                    db.merge(models.ExamAttempt(**_deserialize_doc_for_model(models.ExamAttempt, att_doc)))
+                    att_id = att_doc.get("id") or att_doc.get("_id")
+                    if att_id:
+                        for ans_doc in db_mongo.attempt_answers.find({"attempt_id": str(att_id)}):
+                            db.merge(models.AttemptAnswer(**_deserialize_doc_for_model(models.AttemptAnswer, ans_doc)))
+
+        db.commit()
+        return sess_obj
+    except Exception as exc:
+        db.rollback()
+        print(f"On-demand MongoDB candidate session hydration error: {exc}")
+        return None
+    finally:
+        _hydrating_from_mongo = False
+
+
+def hydrate_exam_access_from_mongodb(db: Session, exam_slug: str, candidate_uid: str):
+    """
+    Pulls matching Exam, ExamVersion, and ExamEnrollment from MongoDB when a student
+    verifies access on a different serverless container than the instructor used.
+    """
+    global _hydrating_from_mongo
+    db_mongo = get_mongodb()
+    if db_mongo is None:
+        return
+
+    _hydrating_from_mongo = True
+    try:
+        uid_clean = (candidate_uid or "").strip().upper()
+        enr_docs = list(db_mongo.exam_enrollments.find({"candidate_uid": uid_clean}))
+        exam_ids = set()
+        org_ids = set()
+        for enr_doc in enr_docs:
+            db.merge(models.ExamEnrollment(**_deserialize_doc_for_model(models.ExamEnrollment, enr_doc)))
+            if enr_doc.get("exam_id"):
+                exam_ids.add(enr_doc["exam_id"])
+            if enr_doc.get("organization_id"):
+                org_ids.add(enr_doc["organization_id"])
+
+        slug_str = (exam_slug or "").strip()
+        for exam_doc in db_mongo.exams.find({"$or": [{"_id": slug_str}, {"id": slug_str}, {"room_code": slug_str}]}):
+            db.merge(models.Exam(**_deserialize_doc_for_model(models.Exam, exam_doc)))
+            eid = exam_doc.get("id") or exam_doc.get("_id")
+            if eid:
+                exam_ids.add(eid)
+            if exam_doc.get("organization_id"):
+                org_ids.add(exam_doc["organization_id"])
+
+        for eid in exam_ids:
+            exam_doc = db_mongo.exams.find_one({"_id": str(eid)}) or db_mongo.exams.find_one({"id": str(eid)})
+            if exam_doc:
+                db.merge(models.Exam(**_deserialize_doc_for_model(models.Exam, exam_doc)))
+            for ver_doc in db_mongo.exam_versions.find({"exam_id": str(eid)}):
+                db.merge(models.ExamVersion(**_deserialize_doc_for_model(models.ExamVersion, ver_doc)))
+
+        for oid in org_ids:
+            org_doc = db_mongo.organizations.find_one({"_id": str(oid)}) or db_mongo.organizations.find_one({"id": str(oid)})
+            if org_doc:
+                db.merge(models.Organization(**_deserialize_doc_for_model(models.Organization, org_doc)))
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        print(f"On-demand MongoDB exam access hydration error: {exc}")
+    finally:
+        _hydrating_from_mongo = False

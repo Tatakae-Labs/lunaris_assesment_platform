@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     # Generate with: python -c "import secrets; print(secrets.token_urlsafe(64))"
     SECRET_KEY: str = _INSECURE_DEFAULT_KEY
     ALGORITHM: str = "HS256"
-    # Staff JWT session expiry (minutes)
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
+    # Staff JWT session expiry (minutes) — 7 days default with sliding refresh
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080
     # Candidate exam session expiry (minutes) — scoped and short-lived
     CANDIDATE_SESSION_EXPIRE_MINUTES: int = 300
 

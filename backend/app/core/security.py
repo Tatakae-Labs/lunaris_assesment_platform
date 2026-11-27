@@ -142,6 +142,14 @@ def _make_get_current_user(require_active: bool = True):
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Session expired. Please log in again.",
                 )
+            # Sliding session extension: refresh expires_at when less than half the window remains
+            half_window = timedelta(minutes=max(1, settings.ACCESS_TOKEN_EXPIRE_MINUTES // 2))
+            if exp - datetime.now(timezone.utc) < half_window:
+                try:
+                    session.expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+                    db.commit()
+                except Exception:
+                    db.rollback()
         else:
             try:
                 new_session = UserSession(

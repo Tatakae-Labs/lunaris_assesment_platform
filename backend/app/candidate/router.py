@@ -66,6 +66,13 @@ def get_candidate_session(
     ).first()
 
     if not session:
+        try:
+            from app.core.mongo_sync import hydrate_candidate_session_from_mongodb
+            session = hydrate_candidate_session_from_mongodb(db, token)
+        except Exception:
+            session = None
+
+    if not session:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session has expired or is invalid. Please re-enter your exam UID."
@@ -96,6 +103,15 @@ def verify_candidate_access(
     """
     # 1. Look up exam by ID, room_code or title slug
     clean_slug = req.exam_slug.strip().lower()
+    uid_clean = req.candidate_uid.strip().upper()
+
+    # On serverless/multi-container, ensure latest exam & enrollment are hydrated from MongoDB
+    try:
+        from app.core.mongo_sync import hydrate_exam_access_from_mongodb
+        hydrate_exam_access_from_mongodb(db, req.exam_slug, uid_clean)
+    except Exception:
+        pass
+
     exam = db.query(Exam).filter(
         (Exam.id == req.exam_slug) | 
         (Exam.room_code == req.exam_slug) |
@@ -119,7 +135,6 @@ def verify_candidate_access(
         )
 
     # 2. Look up candidate enrollment
-    uid_clean = req.candidate_uid.strip().upper()
     enrollment = db.query(ExamEnrollment).filter(
         ExamEnrollment.exam_id == exam.id,
         ExamEnrollment.candidate_uid == uid_clean

@@ -21,16 +21,6 @@ export async function request(endpoint, options = {}) {
   try {
     const res = await fetch(url, { ...options, headers });
     if (!res.ok) {
-      if (
-        res.status === 401 &&
-        !endpoint.startsWith("/auth/login") &&
-        !endpoint.startsWith("/auth/register") &&
-        typeof window !== "undefined"
-      ) {
-        localStorage.removeItem("lunaris_token");
-        localStorage.removeItem("lunaris_user");
-        window.dispatchEvent(new CustomEvent("lunaris:unauthorized"));
-      }
       const errData = await res.json().catch(() => ({ detail: res.statusText }));
       let errMsg = "Request failed";
       if (typeof errData.detail === "string") {
@@ -43,6 +33,36 @@ export async function request(endpoint, options = {}) {
         errMsg = JSON.stringify(errData.detail);
       } else if (errData.message) {
         errMsg = errData.message;
+      }
+
+      // Only trigger auto-logout when the Lunaris session/JWT itself is invalid or expired
+      // (never on third-party 401s like Razorpay, Google Classroom, or AI provider keys)
+      const isThirdPartyOrAuthRoute =
+        endpoint.startsWith("/auth/login") ||
+        endpoint.startsWith("/auth/register") ||
+        endpoint.startsWith("/auth/google") ||
+        endpoint.startsWith("/candidate/") ||
+        endpoint.startsWith("/plans/razorpay") ||
+        endpoint.startsWith("/integrations/") ||
+        endpoint.startsWith("/ai/");
+      const lowerMsg = errMsg.toLowerCase();
+      const isSessionExpiredMsg =
+        lowerMsg.includes("session") ||
+        lowerMsg.includes("validate credentials") ||
+        lowerMsg.includes("authentication required") ||
+        lowerMsg.includes("invalid token") ||
+        lowerMsg.includes("user not found");
+
+      if (
+        res.status === 401 &&
+        token &&
+        !isThirdPartyOrAuthRoute &&
+        isSessionExpiredMsg &&
+        typeof window !== "undefined"
+      ) {
+        localStorage.removeItem("lunaris_token");
+        localStorage.removeItem("lunaris_user");
+        window.dispatchEvent(new CustomEvent("lunaris:unauthorized"));
       }
       throw new Error(errMsg);
     }
@@ -66,6 +86,7 @@ export const api = {
   googleAuth: (data) => request("/auth/google", { method: "POST", body: JSON.stringify(data) }),
   getGoogleConfig: () => request("/auth/google-config"),
   getProfile: () => request("/auth/me"),
+  refreshToken: () => request("/auth/refresh", { method: "POST" }),
 
   // Organizations & Workspace
   createOrganization: (name) => request("/organizations", { method: "POST", body: JSON.stringify({ name }) }),

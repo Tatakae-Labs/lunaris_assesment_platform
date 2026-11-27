@@ -833,6 +833,23 @@ def logout(
     return {"message": "Logged out successfully"}
 
 
+@router.post("/refresh")
+def refresh_session_token(
+    current_user: User = Depends(get_current_user),
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
+    """Silently renews the staff JWT and extends UserSession expiry without interrupting the user."""
+    new_token = create_access_token(data={"sub": current_user.id, "email": current_user.email})
+    if token:
+        sess = db.query(UserSession).filter(UserSession.session_token == token).first()
+        if sess:
+            sess.session_token = new_token
+            sess.expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+            db.commit()
+    return {"access_token": new_token, "token_type": "bearer"}
+
+
 @router.get("/me", response_model=UserProfileResponse)
 def get_profile(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     memberships = (

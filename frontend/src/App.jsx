@@ -15,6 +15,7 @@ import QuickQuizPortal from "./candidate/QuickQuizPortal";
 import LiveProctorDashboard from "./proctor-console/LiveProctorDashboard";
 import { ToastContainer, toast } from "./shared/toast";
 import { WebsiteInitialLoader, LoginSuccessOverlay } from "./shared/BrandTransition";
+import { api } from "./shared/api";
 
 function AppRoutes() {
   const navigate = useNavigate();
@@ -74,6 +75,25 @@ function AppRoutes() {
     window.addEventListener("lunaris:unauthorized", handleUnauthorized);
     return () => window.removeEventListener("lunaris:unauthorized", handleUnauthorized);
   }, [navigate]);
+
+  // Silent sliding session refresh so active users are never unexpectedly logged out
+  useEffect(() => {
+    if (!currentUser) return;
+    const silentRefresh = async () => {
+      const tok = localStorage.getItem("lunaris_token");
+      if (!tok) return;
+      try {
+        const res = await api.refreshToken();
+        if (res?.access_token) {
+          localStorage.setItem("lunaris_token", res.access_token);
+        }
+      } catch {
+        // Ignore transient network errors during background refresh
+      }
+    };
+    const interval = setInterval(silentRefresh, 30 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
 
   function handleLoginSuccess(userData) {
     setCurrentUser(userData);
