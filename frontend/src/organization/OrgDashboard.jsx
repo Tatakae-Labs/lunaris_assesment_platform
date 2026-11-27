@@ -18,6 +18,7 @@ import ExamAnalyticsModal from "./ExamAnalyticsModal";
 import AiQuestionStudio from "./AiQuestionStudio";
 import PlansBillingView from "./PlansBillingView";
 import ExamCreationWizard from "./ExamCreationWizard";
+import AdSlot from "../shared/AdSlot";
 import EnrollmentManagerModal from "./EnrollmentManagerModal";
 import LiveProctorDashboard from "../proctor-console/LiveProctorDashboard";
 import CandidateCapacityModal from "./CandidateCapacityModal";
@@ -1369,6 +1370,16 @@ export default function OrgDashboard({
             </button>
           )}
 
+          {/* Free-Tier Sidebar Banner (160x300) */}
+          {!sidebarCollapsed && (
+            <AdSlot
+              placement="160x300_1"
+              show={(orgUsage?.plan_id || currentPlan || "free").toLowerCase() === "free" && !currentUser?.is_superadmin}
+              onUpgradeClick={() => setActiveTab("billing")}
+              style={{ margin: "8px auto 12px" }}
+            />
+          )}
+
           {/* User Identity Chip */}
           <div style={{
             display: "flex",
@@ -1534,6 +1545,22 @@ export default function OrgDashboard({
         {/* Main Content Body */}
         <main style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "clamp(16px, 2vw, 28px)", width: "100%" }}>
           <div style={{ maxWidth: "1600px", width: "100%", margin: "0 auto" }}>
+
+          {/* Free-Tier Only Ads (never rendered for paid plans or SuperAdmins) */}
+          <AdSlot
+            placement="Popunder_1"
+            show={(orgUsage?.plan_id || currentPlan || "free").toLowerCase() === "free" && !currentUser?.is_superadmin}
+          />
+          <AdSlot
+            placement="SocialBar_1"
+            show={(orgUsage?.plan_id || currentPlan || "free").toLowerCase() === "free" && !currentUser?.is_superadmin}
+          />
+          <AdSlot
+            placement="468x60_1"
+            show={(orgUsage?.plan_id || currentPlan || "free").toLowerCase() === "free" && !currentUser?.is_superadmin}
+            onUpgradeClick={() => setActiveTab("billing")}
+            style={{ marginBottom: "18px", marginTop: "0" }}
+          />
 
           {/* ── UNIFIED ACADEMY OVERVIEW & QUOTA RIBBON ───────────────────────── */}
           <div style={{

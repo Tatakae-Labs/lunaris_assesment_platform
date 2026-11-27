@@ -14,6 +14,7 @@ import {
 import StageshowHeroDemo from "../stageshow/StageshowHeroDemo";
 import StageshowBentoGrid from "../stageshow/StageshowBentoGrid";
 import InteractiveModeDemos from "../stageshow/InteractiveModeDemos";
+import AdSlot from "../shared/AdSlot";
 
 export default function PublicWebsite({
   initialTab = "home",
@@ -840,6 +841,9 @@ export default function PublicWebsite({
             <div style={{ marginTop: "6px", marginBottom: "20px" }}>
               <StageshowHeroDemo />
             </div>
+
+            {/* Landing Page Display Banner (468x60) */}
+            <AdSlot placement="468x60_1" show={true} style={{ marginTop: "24px" }} />
           </section>
 
           {/* Stageshow Bento Grid: Balanced 5-Tile Architecture */}
@@ -1304,6 +1308,9 @@ export default function PublicWebsite({
               </span>
             </div>
           </div>
+
+          {/* Login Page Display Banner (300x250) */}
+          <AdSlot placement="300x250_1" show={true} style={{ marginTop: "24px" }} />
         </section>
       )}
 
@@ -1907,6 +1914,15 @@ export default function PublicWebsite({
             </div>
           </div>
         </section>
+      )}
+
+      {/* Landing Page Native Banner + Global Popunder/SocialBar */}
+      <AdSlot placement="Popunder_1" show={activeTab === "home" || activeTab === "login"} />
+      <AdSlot placement="SocialBar_1" show={activeTab === "home" || activeTab === "login"} />
+      {activeTab === "home" && (
+        <div style={{ maxWidth: "1120px", margin: "0 auto", padding: "12px 24px 28px" }}>
+          <AdSlot placement="NativeBanner_1" show={true} />
+        </div>
       )}
 
       {/* Clean Public Footer */}
