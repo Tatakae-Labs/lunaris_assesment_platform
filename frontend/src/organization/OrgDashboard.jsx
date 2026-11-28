@@ -327,6 +327,7 @@ export default function OrgDashboard({
   const [sendingInvitesExamId, setSendingInvitesExamId] = useState(null);
   const [brandingForm, setBrandingForm] = useState({ brand_logo_url: "", brand_primary_color: "#2563eb", brand_tagline: "" });
   const [savingBranding, setSavingBranding] = useState(false);
+  const [brandingLogoError, setBrandingLogoError] = useState(false);
 
   function handleCopyExamLink(examId) {
     const url = `${window.location.origin}/exam/${examId}`;
@@ -1170,8 +1171,13 @@ export default function OrgDashboard({
               }}>
                 {(brandingForm.brand_logo_url || brandingForm.brand_tagline) && (
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px", paddingBottom: "6px", borderBottom: "1px solid #e2e8f0" }}>
-                    {brandingForm.brand_logo_url && (
-                      <img src={brandingForm.brand_logo_url} alt="Logo" style={{ width: "22px", height: "22px", objectFit: "contain", borderRadius: "4px" }} />
+                    {brandingForm.brand_logo_url && !brandingLogoError && (
+                      <img
+                        src={brandingForm.brand_logo_url}
+                        alt="Logo"
+                        onError={() => setBrandingLogoError(true)}
+                        style={{ width: "22px", height: "22px", objectFit: "contain", borderRadius: "4px" }}
+                      />
                     )}
                     {brandingForm.brand_tagline && (
                       <span style={{ fontSize: "11px", fontWeight: "700", color: brandingForm.brand_primary_color || "#2563eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -3091,16 +3097,53 @@ export default function OrgDashboard({
                 <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "14px" }}>
                   Customize your institution logo, accent color, and tagline displayed on the Candidate Exam Portal and Scorecards.
                 </p>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 1fr auto", gap: "12px", alignItems: "end" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 140px 1fr auto", gap: "12px", alignItems: "end" }}>
                   <div>
-                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>Logo URL</label>
-                    <input
-                      type="url"
-                      value={brandingForm.brand_logo_url}
-                      onChange={(e) => setBrandingForm((b) => ({ ...b, brand_logo_url: e.target.value }))}
-                      placeholder="https://your-academy.edu/logo.png"
-                      style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid var(--border-subtle)", fontSize: "13px" }}
-                    />
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                      Logo URL or Upload Image
+                    </label>
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                      <input
+                        type="text"
+                        value={brandingForm.brand_logo_url}
+                        onChange={(e) => {
+                          setBrandingLogoError(false);
+                          setBrandingForm((b) => ({ ...b, brand_logo_url: e.target.value }));
+                        }}
+                        placeholder="https://.../logo.png or upload image"
+                        style={{ flex: 1, padding: "8px 10px", borderRadius: "6px", border: "1px solid var(--border-subtle)", fontSize: "13px" }}
+                      />
+                      <label
+                        style={{
+                          padding: "8px 12px",
+                          background: "#f1f5f9",
+                          color: "#0f172a",
+                          border: "1px solid #cbd5e1",
+                          borderRadius: "6px",
+                          fontSize: "12px",
+                          fontWeight: "700",
+                          cursor: "pointer",
+                          whiteSpace: "nowrap"
+                        }}
+                      >
+                        Upload
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: "none" }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              setBrandingLogoError(false);
+                              setBrandingForm((b) => ({ ...b, brand_logo_url: String(reader.result || "") }));
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                      </label>
+                    </div>
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>Primary Color</label>
@@ -3149,6 +3192,28 @@ export default function OrgDashboard({
                     {savingBranding ? "Saving..." : "Save Branding"}
                   </button>
                 </div>
+                {(brandingForm.brand_logo_url || brandingForm.brand_tagline) && (
+                  <div style={{ marginTop: "12px", padding: "10px 12px", background: "#f8fafc", borderRadius: "8px", border: `1px solid ${brandingForm.brand_primary_color || "#e2e8f0"}`, display: "flex", alignItems: "center", gap: "12px" }}>
+                    {brandingForm.brand_logo_url && !brandingLogoError && (
+                      <img
+                        src={brandingForm.brand_logo_url}
+                        alt="Institution Logo Preview"
+                        onError={() => setBrandingLogoError(true)}
+                        style={{ width: "36px", height: "36px", objectFit: "contain", borderRadius: "6px", background: "#ffffff", border: "1px solid #e2e8f0" }}
+                      />
+                    )}
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: "700", color: brandingForm.brand_primary_color || "#0f172a" }}>
+                        {brandingForm.brand_tagline || orgName}
+                      </div>
+                      {brandingLogoError && (
+                        <div style={{ fontSize: "11px", color: "#dc2626", fontWeight: "600", marginTop: "2px" }}>
+                          Logo URL failed to load as an image. Page links (like kommodo.ai/i/...) are HTML pages — use a direct image URL (.png/.jpg/.svg) or click Upload.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
