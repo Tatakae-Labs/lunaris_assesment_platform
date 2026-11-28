@@ -645,11 +645,13 @@ def get_candidate_proctor_warnings(
 
 class CandidateStreamFrameRequest(BaseModel):
     frame_base64: str
+    attempt_id: Optional[str] = None
 
 @router.post("/stream-frame")
 def upload_candidate_stream_frame(
     req: CandidateStreamFrameRequest,
-    session: CandidateSession = Depends(get_candidate_session)
+    session: CandidateSession = Depends(get_candidate_session),
+    db: Session = Depends(get_db)
 ):
     """Real-time live video frame streaming from candidate webcam to CCTV surveillance wall."""
     try:
@@ -657,9 +659,18 @@ def upload_candidate_stream_frame(
         if "," in raw_b64:
             raw_b64 = raw_b64.split(",")[1]
         frame_bytes = base64.b64decode(raw_b64)
+
+        resolved_attempt_id = req.attempt_id or session.attempt_id
+        if not resolved_attempt_id and session.enrollment_id:
+            att = db.query(ExamAttempt).filter(
+                ExamAttempt.enrollment_id == session.enrollment_id
+            ).order_by(ExamAttempt.started_at.desc()).first()
+            if att:
+                resolved_attempt_id = att.id
+
         from app.proctoring.stream_hub import stream_hub
-        if session.attempt_id:
-            stream_hub.update_frame(session.attempt_id, frame_bytes)
+        if resolved_attempt_id:
+            stream_hub.update_frame(resolved_attempt_id, frame_bytes)
         if session.session_token:
             stream_hub.update_frame(session.session_token, frame_bytes)
 
@@ -668,18 +679,17 @@ def upload_candidate_stream_frame(
             import time as _time
             from app.core.mongodb import get_collection
             live_coll = get_collection("live_frames")
-            if live_coll is not None:
+            if live_coll is not None and resolved_attempt_id:
                 now_ts = _time.time()
-                if session.attempt_id:
-                    live_coll.replace_one(
-                        {"_id": str(session.attempt_id)},
-                        {"_id": str(session.attempt_id), "frame_b64": raw_b64, "updated_at": now_ts},
-                        upsert=True
-                    )
+                live_coll.replace_one(
+                    {"_id": str(resolved_attempt_id)},
+                    {"_id": str(resolved_attempt_id), "frame_b64": raw_b64, "updated_at": now_ts},
+                    upsert=True
+                )
         except Exception:
             pass
 
-        return {"status": "streamed"}
+        return {"status": "streamed", "attempt_id": resolved_attempt_id}
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 

@@ -446,3 +446,101 @@ def hydrate_exam_access_from_mongodb(db: Session, exam_slug: str, candidate_uid:
         print(f"On-demand MongoDB exam access hydration error: {exc}")
     finally:
         _hydrating_from_mongo = False
+
+
+_proctor_org_sync_ts: Dict[str, float] = {}
+
+
+def hydrate_proctor_org_from_mongodb(db: Session, org_id: str, ttl_sec: float = 3.0):
+    """
+    Pulls latest ExamAttempt, ProctorEvent, EvidenceAsset, and ReviewDecision
+    records for an organization from MongoDB into local SQLite (rate-limited by ttl_sec).
+    """
+    import time as _time
+    global _hydrating_from_mongo
+    now_ts = _time.time()
+    if now_ts - _proctor_org_sync_ts.get(str(org_id), 0.0) < ttl_sec:
+        return
+
+    db_mongo = get_mongodb()
+    if db_mongo is None:
+        return
+
+    _hydrating_from_mongo = True
+    try:
+        attempt_ids = []
+        for att_doc in db_mongo.exam_attempts.find({"organization_id": str(org_id)}):
+            kwargs = _deserialize_doc_for_model(models.ExamAttempt, att_doc)
+            if kwargs.get("id"):
+                db.merge(models.ExamAttempt(**kwargs))
+                attempt_ids.append(kwargs["id"])
+
+        for exam_doc in db_mongo.exams.find({"organization_id": str(org_id)}):
+            kwargs = _deserialize_doc_for_model(models.Exam, exam_doc)
+            if kwargs.get("id"):
+                db.merge(models.Exam(**kwargs))
+
+        if attempt_ids:
+            event_ids = []
+            for ev_doc in db_mongo.proctor_events.find({"attempt_id": {"$in": attempt_ids}}):
+                kwargs = _deserialize_doc_for_model(models.ProctorEvent, ev_doc)
+                if kwargs.get("id"):
+                    db.merge(models.ProctorEvent(**kwargs))
+                    event_ids.append(kwargs["id"])
+            if event_ids:
+                for asset_doc in db_mongo.evidence_assets.find({"event_id": {"$in": event_ids}}):
+                    kwargs = _deserialize_doc_for_model(models.EvidenceAsset, asset_doc)
+                    if kwargs.get("id"):
+                        db.merge(models.EvidenceAsset(**kwargs))
+                for rev_doc in db_mongo.review_decisions.find({"event_id": {"$in": event_ids}}):
+                    kwargs = _deserialize_doc_for_model(models.ReviewDecision, rev_doc)
+                    if kwargs.get("id"):
+                        db.merge(models.ReviewDecision(**kwargs))
+
+        db.commit()
+        _proctor_org_sync_ts[str(org_id)] = now_ts
+    except Exception as exc:
+        db.rollback()
+        print(f"On-demand MongoDB proctor org hydration error: {exc}")
+    finally:
+        _hydrating_from_mongo = False
+
+
+def hydrate_attempt_events_from_mongodb(db: Session, attempt_id: str):
+    """Pulls latest ProctorEvent, EvidenceAsset, and ReviewDecision for a specific attempt."""
+    global _hydrating_from_mongo
+    db_mongo = get_mongodb()
+    if db_mongo is None:
+        return
+
+    _hydrating_from_mongo = True
+    try:
+        att_doc = db_mongo.exam_attempts.find_one({"_id": str(attempt_id)}) or db_mongo.exam_attempts.find_one({"id": str(attempt_id)})
+        if att_doc:
+            kwargs = _deserialize_doc_for_model(models.ExamAttempt, att_doc)
+            if kwargs.get("id"):
+                db.merge(models.ExamAttempt(**kwargs))
+
+        event_ids = []
+        for ev_doc in db_mongo.proctor_events.find({"attempt_id": str(attempt_id)}):
+            kwargs = _deserialize_doc_for_model(models.ProctorEvent, ev_doc)
+            if kwargs.get("id"):
+                db.merge(models.ProctorEvent(**kwargs))
+                event_ids.append(kwargs["id"])
+
+        if event_ids:
+            for asset_doc in db_mongo.evidence_assets.find({"event_id": {"$in": event_ids}}):
+                kwargs = _deserialize_doc_for_model(models.EvidenceAsset, asset_doc)
+                if kwargs.get("id"):
+                    db.merge(models.EvidenceAsset(**kwargs))
+            for rev_doc in db_mongo.review_decisions.find({"event_id": {"$in": event_ids}}):
+                kwargs = _deserialize_doc_for_model(models.ReviewDecision, rev_doc)
+                if kwargs.get("id"):
+                    db.merge(models.ReviewDecision(**kwargs))
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        print(f"On-demand MongoDB attempt events hydration error: {exc}")
+    finally:
+        _hydrating_from_mongo = False

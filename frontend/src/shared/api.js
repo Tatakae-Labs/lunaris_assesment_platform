@@ -287,11 +287,11 @@ export const api = {
       headers: { Authorization: `Bearer ${session_token}` },
       body: JSON.stringify(eventData)
     }),
-  sendCandidateStreamFrame: (session_token, frame_base64) =>
+  sendCandidateStreamFrame: (session_token, frame_base64, attempt_id = null) =>
     request("/candidate/stream-frame", {
       method: "POST",
       headers: { Authorization: `Bearer ${session_token}` },
-      body: JSON.stringify({ frame_base64 })
+      body: JSON.stringify({ frame_base64, attempt_id })
     }),
   getCandidateProctorWarnings: (session_token) =>
     request("/candidate/proctor-warnings", {

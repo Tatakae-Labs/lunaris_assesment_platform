@@ -82,6 +82,12 @@ def list_proctor_sessions(
     if not membership:
         raise HTTPException(status_code=403, detail="Insufficient proctoring permissions")
 
+    try:
+        from app.core.mongo_sync import hydrate_proctor_org_from_mongodb
+        hydrate_proctor_org_from_mongodb(db, target_org_id)
+    except Exception:
+        pass
+
     attempts = (
         db.query(ExamAttempt)
         .outerjoin(User, ExamAttempt.candidate_id == User.id)
@@ -388,6 +394,12 @@ def get_attempt_incident_timeline(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    try:
+        from app.core.mongo_sync import hydrate_attempt_events_from_mongodb
+        hydrate_attempt_events_from_mongodb(db, attempt_id)
+    except Exception:
+        pass
+
     attempt = db.query(ExamAttempt).filter(ExamAttempt.id == attempt_id).first()
     if not attempt:
         raise HTTPException(status_code=404, detail="Attempt not found")

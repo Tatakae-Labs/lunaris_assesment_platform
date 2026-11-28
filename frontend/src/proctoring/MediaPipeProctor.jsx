@@ -323,7 +323,7 @@ export default function MediaPipeProctor({
           if (candidateSessionToken && now - lastHttpSend >= httpInterval) {
             lastHttpSend = now;
             const liveFrame = liveCanvas.toDataURL("image/jpeg", 0.45);
-            api.sendCandidateStreamFrame(candidateSessionToken, liveFrame).catch(() => {});
+            api.sendCandidateStreamFrame(candidateSessionToken, liveFrame, attemptId).catch(() => {});
           }
           isEncoding = false;
         }
