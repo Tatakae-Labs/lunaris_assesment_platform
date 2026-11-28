@@ -1,3 +1,4 @@
+import os
 import json
 from fastapi import FastAPI, Depends, Request, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,11 +59,12 @@ except Exception as _hydrate_exc:
 
 attach_mongodb_sync_listeners()
 
-try:
-    with SessionLocal() as _db_sync:
-        bulk_sync_sqlite_to_mongodb(_db_sync)
-except Exception as _sync_exc:
-    print(f"MongoDB startup bulk sync warning: {_sync_exc}")
+if not os.environ.get("VERCEL"):
+    try:
+        with SessionLocal() as _db_sync:
+            bulk_sync_sqlite_to_mongodb(_db_sync)
+    except Exception as _sync_exc:
+        print(f"MongoDB startup bulk sync warning: {_sync_exc}")
 
 app = FastAPI(
     title="Lunaris Assessment Platform API",

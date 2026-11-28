@@ -1,4 +1,6 @@
+import os
 import json
+import time
 import base64
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Response, WebSocket, WebSocketDisconnect
@@ -139,6 +141,17 @@ def list_proctor_sessions(
         if att_id not in latest_evidence_map:
             latest_evidence_map[att_id] = asset
 
+    # Batch check MongoDB live_frames for cross-container live CCTV status
+    mongo_live_map = {}
+    try:
+        from app.core.mongodb import get_collection
+        live_coll = get_collection("live_frames")
+        if live_coll is not None:
+            for doc in live_coll.find({"_id": {"$in": attempt_ids}}, {"_id": 1, "updated_at": 1}):
+                mongo_live_map[doc["_id"]] = doc.get("updated_at", 0)
+    except Exception:
+        pass
+
     results = []
     for att in attempts:
         event_count, high_severity_count = counts_map.get(att.id, (0, 0))
@@ -147,11 +160,15 @@ def list_proctor_sessions(
 
         is_camera_live = False
         latest_frame_time = None
+        mongo_ts = mongo_live_map.get(att.id, 0)
         if stream_hub.is_stream_live(att.id):
             is_camera_live = True
             last_t = stream_hub.get_last_frame_time(att.id)
             if last_t > 0:
                 latest_frame_time = datetime.fromtimestamp(last_t, tz=timezone.utc).isoformat()
+        elif mongo_ts and (time.time() - mongo_ts) < 20:
+            is_camera_live = True
+            latest_frame_time = datetime.fromtimestamp(mongo_ts, tz=timezone.utc).isoformat()
         elif latest_evidence and latest_evidence.created_at:
             latest_frame_time = latest_evidence.created_at.isoformat()
             # If a frame was received within the last 60 seconds and attempt is in progress
@@ -190,6 +207,9 @@ async def stream_candidate_live_video(
     attempt = db.query(ExamAttempt).filter(ExamAttempt.id == attempt_id).first()
     if not attempt:
         raise HTTPException(status_code=404, detail="Attempt not found")
+
+    if os.environ.get("VERCEL"):
+        return get_attempt_latest_frame(attempt_id, db)
 
     return StreamingResponse(
         stream_hub.generate_mjpeg_stream(attempt_id),
@@ -289,6 +309,22 @@ def get_attempt_latest_frame(
             media_type="image/jpeg",
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
         )
+
+    # Next check MongoDB live_frames (for stateless serverless containers)
+    try:
+        from app.core.mongodb import get_collection
+        live_coll = get_collection("live_frames")
+        if live_coll is not None:
+            doc = live_coll.find_one({"_id": attempt_id})
+            if doc and doc.get("frame_b64"):
+                frame_bytes = base64.b64decode(doc["frame_b64"])
+                return Response(
+                    content=frame_bytes,
+                    media_type="image/jpeg",
+                    headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+                )
+    except Exception:
+        pass
 
     latest_evidence = (
         db.query(EvidenceAsset)

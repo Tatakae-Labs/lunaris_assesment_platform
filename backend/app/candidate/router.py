@@ -662,6 +662,23 @@ def upload_candidate_stream_frame(
             stream_hub.update_frame(session.attempt_id, frame_bytes)
         if session.session_token:
             stream_hub.update_frame(session.session_token, frame_bytes)
+
+        # Persist latest frame to MongoDB so stateless Vercel containers share live CCTV frames
+        try:
+            import time as _time
+            from app.core.mongodb import get_collection
+            live_coll = get_collection("live_frames")
+            if live_coll is not None:
+                now_ts = _time.time()
+                if session.attempt_id:
+                    live_coll.replace_one(
+                        {"_id": str(session.attempt_id)},
+                        {"_id": str(session.attempt_id), "frame_b64": raw_b64, "updated_at": now_ts},
+                        upsert=True
+                    )
+        except Exception:
+            pass
+
         return {"status": "streamed"}
     except Exception as e:
         return {"status": "error", "detail": str(e)}

@@ -166,14 +166,22 @@ def _make_get_current_user(require_active: bool = True):
                 db.rollback()
 
         user = db.query(User).filter(User.id == user_id).first()
+        # Rate-limit per-user MongoDB hydration to at most once every 15s per container
         if not user or os.environ.get("VERCEL"):
-            try:
-                from app.core.mongo_sync import hydrate_user_context_from_mongodb
-                hydrated = hydrate_user_context_from_mongodb(db, user_id)
-                if hydrated and not user:
-                    user = hydrated
-            except Exception:
-                pass
+            import time as _time
+            now_ts = _time.time()
+            last_ts = getattr(_make_get_current_user, "_hydrate_cache", {}).get(user_id, 0.0)
+            if not user or (now_ts - last_ts > 15.0):
+                try:
+                    from app.core.mongo_sync import hydrate_user_context_from_mongodb
+                    hydrated = hydrate_user_context_from_mongodb(db, user_id)
+                    if not hasattr(_make_get_current_user, "_hydrate_cache"):
+                        _make_get_current_user._hydrate_cache = {}
+                    _make_get_current_user._hydrate_cache[user_id] = now_ts
+                    if hydrated and not user:
+                        user = hydrated
+                except Exception:
+                    pass
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         if require_active and user.status != "active":

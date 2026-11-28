@@ -266,8 +266,10 @@ export default function MediaPipeProctor({
     let isCancelled = false;
 
     const streamTargetId = attemptId || candidateSessionToken;
+    const isServerless = API_BASE_URL.includes("vercel.app");
+
     function connectWs() {
-      if (!streamTargetId || isCancelled) return;
+      if (!streamTargetId || isCancelled || isServerless) return;
       const wsBase = API_BASE_URL.replace(/^http/, "ws");
       const wsUrl = `${wsBase}/proctor/ws/stream/${streamTargetId}?role=candidate`;
       try {
@@ -315,11 +317,12 @@ export default function MediaPipeProctor({
             0.55
           );
         } else {
-          // Throttled HTTP fallback
+          // Throttled HTTP fallback (1.5s on serverless to avoid function flooding, 400ms locally)
           const now = Date.now();
-          if (candidateSessionToken && now - lastHttpSend >= 400) {
+          const httpInterval = isServerless ? 1500 : 400;
+          if (candidateSessionToken && now - lastHttpSend >= httpInterval) {
             lastHttpSend = now;
-            const liveFrame = liveCanvas.toDataURL("image/jpeg", 0.5);
+            const liveFrame = liveCanvas.toDataURL("image/jpeg", 0.45);
             api.sendCandidateStreamFrame(candidateSessionToken, liveFrame).catch(() => {});
           }
           isEncoding = false;

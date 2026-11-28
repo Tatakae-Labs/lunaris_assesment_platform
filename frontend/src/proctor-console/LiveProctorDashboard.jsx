@@ -258,7 +258,7 @@ export default function LiveProctorDashboard({ organizationId }) {
 
   async function loadAppeals() {
     try {
-      const res = await fetch(`/api/v1/proctor/appeals?organization_id=${organizationId || 'demo'}`, {
+      const res = await fetch(`${API_BASE_URL}/proctor/appeals?organization_id=${organizationId || 'demo'}`, {
         headers: { "Authorization": `Bearer ${localStorage.getItem("lunaris_token")}` }
       });
       if (res.ok) {
@@ -272,7 +272,7 @@ export default function LiveProctorDashboard({ organizationId }) {
 
   async function handleResolveAppeal(appealId, decision) {
     try {
-      const res = await fetch(`/api/v1/proctor/appeals/${appealId}/resolve`, {
+      const res = await fetch(`${API_BASE_URL}/proctor/appeals/${appealId}/resolve`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -754,7 +754,9 @@ export default function LiveProctorDashboard({ organizationId }) {
                     >
                       {s.camera_live ? (
                         <img
-                          src={`${API_BASE_URL}/proctor/attempts/${s.attempt_id}/live-stream`}
+                          src={API_BASE_URL.includes("vercel.app")
+                            ? `${API_BASE_URL}/proctor/attempts/${s.attempt_id}/latest-frame?t=${refreshKey}`
+                            : `${API_BASE_URL}/proctor/attempts/${s.attempt_id}/live-stream`}
                           alt={`Live CCTV Video - ${s.candidate_name}`}
                           onError={(e) => {
                             if (s.latest_snapshot_id) {
@@ -1360,7 +1362,9 @@ export default function LiveProctorDashboard({ organizationId }) {
                 }}>
                   {zoomedCandidate.camera_live ? (
                     <img
-                      src={`${API_BASE_URL}/proctor/attempts/${zoomedCandidate.attempt_id}/live-stream`}
+                      src={API_BASE_URL.includes("vercel.app")
+                        ? `${API_BASE_URL}/proctor/attempts/${zoomedCandidate.attempt_id}/latest-frame?t=${refreshKey}`
+                        : `${API_BASE_URL}/proctor/attempts/${zoomedCandidate.attempt_id}/live-stream`}
                       alt="Enlarged Live CCTV Stream"
                       onError={(e) => {
                         if (zoomedCandidate.latest_snapshot_id) {
