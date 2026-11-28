@@ -35,6 +35,20 @@ def _resolve_room_and_version(db: Session, clean_code: str):
             mongo_sync._hydrating_from_mongo = True
             try:
                 qr_doc = db_mongo.quiz_rooms.find_one({"room_code": clean_code})
+                ver_doc = db_mongo.exam_versions.find_one({"room_code": clean_code})
+                org_id_hint = (qr_doc or {}).get("organization_id")
+                if org_id_hint:
+                    org_doc = db_mongo.organizations.find_one({"_id": str(org_id_hint)})
+                    if org_doc:
+                        o_kw = _deserialize_doc_for_model(Organization, org_doc)
+                        if o_kw.get("id"):
+                            db.merge(Organization(**o_kw))
+                if ver_doc and ver_doc.get("exam_id"):
+                    ex_doc = db_mongo.exams.find_one({"_id": str(ver_doc["exam_id"])})
+                    if ex_doc:
+                        e_kw = _deserialize_doc_for_model(Exam, ex_doc)
+                        if e_kw.get("id"):
+                            db.merge(Exam(**e_kw))
                 if qr_doc:
                     kwargs = _deserialize_doc_for_model(QuizRoom, qr_doc)
                     if kwargs.get("id"):
@@ -43,7 +57,6 @@ def _resolve_room_and_version(db: Session, clean_code: str):
                             p_kw = _deserialize_doc_for_model(QuizParticipant, p_doc)
                             if p_kw.get("id"):
                                 db.merge(QuizParticipant(**p_kw))
-                ver_doc = db_mongo.exam_versions.find_one({"room_code": clean_code})
                 if ver_doc:
                     v_kw = _deserialize_doc_for_model(ExamVersion, ver_doc)
                     if v_kw.get("id"):
@@ -187,12 +200,23 @@ def join_quick_quiz_room(
         db.add(user)
         db.flush()
 
+    # Resolve valid organization_id to satisfy FK constraint on ExamAttempt
+    resolved_org_id = quiz_room.organization_id if quiz_room and quiz_room.organization_id else None
+    if not resolved_org_id and version:
+        parent_exam = db.query(Exam).filter(Exam.id == version.exam_id).first()
+        if parent_exam:
+            resolved_org_id = parent_exam.organization_id
+    if not resolved_org_id:
+        any_org = db.query(Organization).first()
+        resolved_org_id = any_org.id if any_org else None
+
     # Create attempt session
     attempt = ExamAttempt(
         assignment_id="quick_quiz_assignment",
+        exam_version_id=version.id if version else None,
         candidate_id=user.id,
         candidate_name=req.nickname,
-        organization_id="quick_quiz_org",
+        organization_id=resolved_org_id,
         started_at=datetime.now(timezone.utc),
         deadline_at=datetime.now(timezone.utc),
         status="in_progress",

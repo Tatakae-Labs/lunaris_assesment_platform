@@ -264,12 +264,14 @@ export default function ExamCreationWizard({
     }));
   }
 
-  // Define steps list dynamically based on mode (Proctoring step ONLY for Proctored CBT)
+  // Define steps list dynamically based on mode (Proctoring step ONLY for Proctored CBT, no Enrollment for Quick Quiz)
   const isProctorMode = mode === "proctored_cbt";
+  const isQuickQuizMode = mode === "quick_quiz";
+  const isStandardQuizMode = mode === "standard_quiz";
   const stepDefinitions = [
     { num: 1, key: "basic", label: "Basic Details" },
     { num: 2, key: "mode", label: "Exam Mode" },
-    { num: 3, key: "questions", label: "Questions & PIC" },
+    { num: 3, key: "questions", label: isStandardQuizMode ? "Questions & PIC" : "Questions" },
     {
       num: 4,
       key: "config",
@@ -279,10 +281,10 @@ export default function ExamCreationWizard({
         ? "Quiz Config"
         : "CBT Config"
     },
-    { num: 5, key: "enrollment", label: "Enrollment" },
+    ...(!isQuickQuizMode ? [{ num: 5, key: "enrollment", label: "Enrollment" }] : []),
     ...(isProctorMode ? [{ num: 6, key: "proctoring", label: "Proctoring Telemetry" }] : []),
-    { num: isProctorMode ? 7 : 6, key: "entitlement", label: "Entitlements" },
-    { num: isProctorMode ? 8 : 7, key: "publish", label: "Preview & Publish" }
+    { num: isProctorMode ? 7 : isQuickQuizMode ? 5 : 6, key: "entitlement", label: "Entitlements" },
+    { num: isProctorMode ? 8 : isQuickQuizMode ? 6 : 7, key: "publish", label: "Preview & Publish" }
   ];
 
   const totalSteps = stepDefinitions.length;
@@ -302,6 +304,13 @@ export default function ExamCreationWizard({
       }
     }
 
+    // Step jumping for Quick Quiz (skip Enrollment Step 5 and Proctoring Step 6)
+    if (isQuickQuizMode && currentStep === 4) {
+      validateSubscription();
+      setCurrentStep(7);
+      return;
+    }
+
     // Step jumping if proctoring is skipped
     if (!isProctorMode && currentStep === 5) {
       // Skip proctoring (Step 6) and go straight to entitlement check (Step 7)
@@ -319,6 +328,10 @@ export default function ExamCreationWizard({
 
   function prevStep() {
     setErrorMsg("");
+    if (isQuickQuizMode && currentStep === 7) {
+      setCurrentStep(4);
+      return;
+    }
     if (!isProctorMode && currentStep === 7) {
       // Step backwards from entitlement directly to enrollment
       setCurrentStep(5);
@@ -404,46 +417,48 @@ export default function ExamCreationWizard({
       // Publish version
       await api.publishExam(examRes.id);
 
-      // Generate enrollments
-      if (enrollmentType === "classroom" && selectedClassroomCourse) {
-        await api.importClassroomStudents(selectedClassroomCourse, examRes.id, classroomStudents);
-        if (classroomAutoPublish) {
-          try {
-            await api.publishToClassroom({
-              organization_id: organizationId,
-              exam_id: examRes.id,
-              course_id: selectedClassroomCourse,
-              max_points: 100
-            });
-          } catch (pubErr) {
-            console.warn("Classroom stream auto-publish notice:", pubErr);
+      // Generate enrollments (not needed for Quick Quiz open room / QR join)
+      if (!isQuickQuizMode) {
+        if (enrollmentType === "classroom" && selectedClassroomCourse) {
+          await api.importClassroomStudents(selectedClassroomCourse, examRes.id, classroomStudents);
+          if (classroomAutoPublish) {
+            try {
+              await api.publishToClassroom({
+                organization_id: organizationId,
+                exam_id: examRes.id,
+                course_id: selectedClassroomCourse,
+                max_points: 100
+              });
+            } catch (pubErr) {
+              console.warn("Classroom stream auto-publish notice:", pubErr);
+            }
           }
+        } else if (enrollmentType === "uid_batch") {
+          await api.bulkGenerateEnrollments(examRes.id, {
+            count: candidateCount,
+            max_attempts: maxAttempts
+          });
+        } else if (enrollmentType === "csv_import" && csvCandidatesText.trim()) {
+          const rows = csvCandidatesText.split("\n").slice(1);
+          const parsed = rows
+            .map((r) => r.split(","))
+            .filter((parts) => parts.length >= 1 && parts[0].trim())
+            .map((parts) => ({
+              name: parts[0].trim(),
+              email: parts[1]?.trim() || ""
+            }));
+          await api.bulkGenerateEnrollments(examRes.id, {
+            candidates: parsed,
+            max_attempts: maxAttempts
+          });
         }
-      } else if (enrollmentType === "uid_batch") {
-        await api.bulkGenerateEnrollments(examRes.id, {
-          count: candidateCount,
-          max_attempts: maxAttempts
-        });
-      } else if (enrollmentType === "csv_import" && csvCandidatesText.trim()) {
-        const rows = csvCandidatesText.split("\n").slice(1);
-        const parsed = rows
-          .map((r) => r.split(","))
-          .filter((parts) => parts.length >= 1 && parts[0].trim())
-          .map((parts) => ({
-            name: parts[0].trim(),
-            email: parts[1]?.trim() || ""
-          }));
-        await api.bulkGenerateEnrollments(examRes.id, {
-          candidates: parsed,
-          max_attempts: maxAttempts
-        });
-      }
 
-      // Download candidate credentials sheet
-      try {
-        await api.downloadExamCredentialsPdf(examRes.id, examRes.room_code || "ROOM");
-      } catch (pdfErr) {
-        console.warn("Could not auto-download credentials PDF:", pdfErr);
+        // Download candidate credentials sheet
+        try {
+          await api.downloadExamCredentialsPdf(examRes.id, examRes.room_code || "ROOM");
+        } catch (pdfErr) {
+          console.warn("Could not auto-download credentials PDF:", pdfErr);
+        }
       }
 
       onExamCreated(examRes);
@@ -850,7 +865,8 @@ export default function ExamCreationWizard({
           {/* STEP 3: Questions & PIC Time Allocation */}
           {currentStep === 3 && (
             <div>
-              {/* PIC (Per-Item Clock) Global Configuration Card */}
+              {/* PIC (Per-Item Clock) Global Configuration Card - ONLY in Standard Quiz mode */}
+              {isStandardQuizMode && (
               <div style={{
                 padding: "16px 20px",
                 background: "#f8fafc",
@@ -916,6 +932,7 @@ export default function ExamCreationWizard({
                   </div>
                 </div>
               </div>
+              )}
 
               {/* Question Selection Header */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
@@ -924,7 +941,9 @@ export default function ExamCreationWizard({
                     Select Questions ({selectedQuestionIds.length} Selected)
                   </h3>
                   <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                    Configure per-question time limits (PIC) for individual questions where needed.
+                    {isStandardQuizMode
+                      ? "Configure per-question time limits (PIC) for individual questions where needed."
+                      : "Select the questions to include in this assessment."}
                   </span>
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
@@ -1032,7 +1051,8 @@ export default function ExamCreationWizard({
                         )}
                       </div>
 
-                      {/* Per-Question Time Allocation (PIC) Widget */}
+                      {/* Per-Question Time Allocation (PIC) Widget - ONLY in Standard Quiz mode */}
+                      {isStandardQuizMode && (
                       <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                         {isEditingThis ? (
                           <div style={{ display: "flex", alignItems: "center", gap: "4px", background: "#ffffff", padding: "4px 8px", borderRadius: "6px", border: "1px solid var(--accent-blue)" }}>
@@ -1078,6 +1098,7 @@ export default function ExamCreationWizard({
                           </button>
                         )}
                       </div>
+                      )}
                     </div>
                   );
                 })}
@@ -2056,7 +2077,9 @@ export default function ExamCreationWizard({
                   <span>Questions: <strong>{selectedQuestionIds.length}</strong></span>
                   <span>•</span>
                   <span>Candidates: <strong>
-                    {enrollmentType === "classroom"
+                    {isQuickQuizMode
+                      ? "Open Room Code & QR Join (No pre-enrollment needed)"
+                      : enrollmentType === "classroom"
                       ? `${classroomStudents.length} Students (Google Classroom)`
                       : enrollmentType === "uid_batch"
                       ? `${candidateCount} Auto-Generated UIDs`
