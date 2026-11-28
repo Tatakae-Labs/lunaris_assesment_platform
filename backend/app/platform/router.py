@@ -405,6 +405,15 @@ def purge_organization_data(db: Session, org_id_val: str) -> Optional[str]:
     db.query(ExamEnrollment).filter(ExamEnrollment.organization_id == org_id).delete(synchronize_session=False)
     db.query(ExamAssignment).filter(ExamAssignment.organization_id == org_id).delete(synchronize_session=False)
 
+    # 4.5. Clean up Generated Papers, Paper Templates & Template Versions (must precede Exams & Org)
+    from app.models import GeneratedPaper, TemplateVersion, QuestionPaperTemplate, OrganizationSubject
+    db.query(GeneratedPaper).filter(GeneratedPaper.organization_id == org_id_val).delete(synchronize_session=False)
+    tmpl_ids = [t[0] for t in db.query(QuestionPaperTemplate.id).filter(QuestionPaperTemplate.organization_id == org_id_val).all()]
+    if tmpl_ids:
+        db.query(TemplateVersion).filter(TemplateVersion.template_id.in_(tmpl_ids)).delete(synchronize_session=False)
+    db.query(QuestionPaperTemplate).filter(QuestionPaperTemplate.organization_id == org_id_val).delete(synchronize_session=False)
+    db.query(OrganizationSubject).filter(OrganizationSubject.organization_id == org_id_val).delete(synchronize_session=False)
+
     # 5. Clean up Exams and Exam Versions
     exams = db.query(Exam).filter(Exam.organization_id == org_id).all()
     exam_ids = [e.id for e in exams]
@@ -443,10 +452,13 @@ def purge_organization_data(db: Session, org_id_val: str) -> Optional[str]:
     try:
         from app.core.mongodb import get_collection
         for coll_name in [
-            "organizations", "organization_members", "subscriptions", "exams", "questions",
+            "organizations", "organization_members", "organization_invites", "organization_subjects",
+            "subscriptions", "payment_events", "usage_ledger", "exams", "exam_versions", "exam_enrollments",
+            "exam_assignments", "questions", "question_banks", "question_revisions", "ai_question_drafts",
+            "question_paper_templates", "template_versions", "generated_papers",
             "exam_attempts", "candidate_sessions", "attempt_answers", "proctor_sessions",
-            "proctor_events", "evidence_assets", "review_decisions", "quiz_rooms",
-            "quiz_participants", "audit_logs"
+            "proctor_events", "proctor_messages", "evidence_assets", "review_decisions", "quiz_rooms",
+            "quiz_participants", "audit_events", "audit_logs"
         ]:
             c = get_collection(coll_name)
             if c is not None:
@@ -537,9 +549,10 @@ def delete_organization_superadmin(
         db.query(CandidateSession).filter(CandidateSession.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
         # Attempt answers
         db.query(AttemptAnswer).filter(AttemptAnswer.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
-        # Result revisions
-        from app.models import ResultRevision
+        # Result revisions & Proctor messages
+        from app.models import ResultRevision, ProctorMessage
         db.query(ResultRevision).filter(ResultRevision.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
+        db.query(ProctorMessage).filter(ProctorMessage.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
         # Proctor events, evidence assets & review decisions
         events = db.query(ProctorEvent).filter(ProctorEvent.attempt_id.in_(attempt_ids)).all()
         event_ids = [ev.id for ev in events]
@@ -562,6 +575,15 @@ def delete_organization_superadmin(
         db.query(CandidateSession).filter(CandidateSession.enrollment_id.in_(enrollment_ids)).delete(synchronize_session=False)
     db.query(ExamEnrollment).filter(ExamEnrollment.organization_id == org_id_val).delete(synchronize_session=False)
     db.query(ExamAssignment).filter(ExamAssignment.organization_id == org_id_val).delete(synchronize_session=False)
+
+    # 4.5. Clean up Generated Papers, Paper Templates & Template Versions (must precede Exams & Org)
+    from app.models import GeneratedPaper, TemplateVersion, QuestionPaperTemplate, OrganizationSubject
+    db.query(GeneratedPaper).filter(GeneratedPaper.organization_id == org_id_val).delete(synchronize_session=False)
+    tmpl_ids = [t[0] for t in db.query(QuestionPaperTemplate.id).filter(QuestionPaperTemplate.organization_id == org_id_val).all()]
+    if tmpl_ids:
+        db.query(TemplateVersion).filter(TemplateVersion.template_id.in_(tmpl_ids)).delete(synchronize_session=False)
+    db.query(QuestionPaperTemplate).filter(QuestionPaperTemplate.organization_id == org_id_val).delete(synchronize_session=False)
+    db.query(OrganizationSubject).filter(OrganizationSubject.organization_id == org_id_val).delete(synchronize_session=False)
 
     # 5. Clean up Exams and Exam Versions
     exams = db.query(Exam).filter(Exam.organization_id == org_id_val).all()
@@ -610,10 +632,13 @@ def delete_organization_superadmin(
     try:
         from app.core.mongodb import get_collection
         for coll_name in [
-            "organizations", "organization_members", "subscriptions", "exams", "questions",
+            "organizations", "organization_members", "organization_invites", "organization_subjects",
+            "subscriptions", "payment_events", "usage_ledger", "exams", "exam_versions", "exam_enrollments",
+            "exam_assignments", "questions", "question_banks", "question_revisions", "ai_question_drafts",
+            "question_paper_templates", "template_versions", "generated_papers",
             "exam_attempts", "candidate_sessions", "attempt_answers", "proctor_sessions",
-            "proctor_events", "evidence_assets", "review_decisions", "quiz_rooms",
-            "quiz_participants", "audit_logs"
+            "proctor_events", "proctor_messages", "evidence_assets", "review_decisions", "quiz_rooms",
+            "quiz_participants", "audit_events", "audit_logs"
         ]:
             c = get_collection(coll_name)
             if c is not None:
