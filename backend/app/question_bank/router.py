@@ -119,6 +119,8 @@ def list_questions(
     db: Session = Depends(get_db)
 ):
     org = check_org_author_permission(db, current_user.id, organization_id)
+    from app.core.mongo_sync import reconcile_org_collection_deletions
+    reconcile_org_collection_deletions(db, Question, org.id)
 
     query = db.query(Question).filter(Question.organization_id == org.id)
     if subject and subject.strip():
@@ -173,6 +175,8 @@ def clear_org_questions(
 ):
     """Bulk deletes questions in an organization question bank (optionally filtered by subject)."""
     org = check_org_author_permission(db, current_user.id, organization_id)
+    from app.core.mongo_sync import reconcile_org_collection_deletions
+    reconcile_org_collection_deletions(db, Question, org.id)
     query = db.query(Question).filter(Question.organization_id == org.id)
     if subject and subject.strip():
         query = query.filter(Question.subject == subject.strip())
@@ -180,9 +184,13 @@ def clear_org_questions(
     # Cascade delete revisions first
     q_ids = [q.id for q in query.all()]
     if q_ids:
+        from app.core.mongo_sync import delete_documents_from_mongodb
+        rev_ids = [r[0] for r in db.query(QuestionRevision.id).filter(QuestionRevision.question_id.in_(q_ids)).all()]
         db.query(QuestionRevision).filter(QuestionRevision.question_id.in_(q_ids)).delete(synchronize_session=False)
         deleted_count = query.delete(synchronize_session=False)
         db.commit()
+        delete_documents_from_mongodb("question_revisions", rev_ids)
+        delete_documents_from_mongodb("questions", q_ids)
     else:
         deleted_count = 0
 
@@ -202,9 +210,12 @@ def delete_question(
     check_org_author_permission(db, current_user.id, question.organization_id)
     
     # Delete associated revisions
+    from app.core.mongo_sync import delete_documents_from_mongodb
+    rev_ids = [r[0] for r in db.query(QuestionRevision.id).filter(QuestionRevision.question_id == question.id).all()]
     db.query(QuestionRevision).filter(QuestionRevision.question_id == question.id).delete(synchronize_session=False)
     db.delete(question)
     db.commit()
+    delete_documents_from_mongodb("question_revisions", rev_ids)
     return {"message": "Question permanently deleted from Question Bank", "id": question_id}
 
 @router.put("/{question_id}")
@@ -369,6 +380,8 @@ def export_questions_csv(
 ):
     """Exports questions to downloadable CSV format."""
     org = check_org_author_permission(db, current_user.id, organization_id)
+    from app.core.mongo_sync import reconcile_org_collection_deletions
+    reconcile_org_collection_deletions(db, Question, org.id)
     query = db.query(Question).filter(Question.organization_id == org.id)
     if subject:
         query = query.filter(Question.subject == subject)

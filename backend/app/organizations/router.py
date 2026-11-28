@@ -830,9 +830,11 @@ def list_organization_candidates(
 ):
     """List all enrolled candidates, students, and members across the organization without duplicates."""
     from app.models import ExamEnrollment, Exam
+    from app.core.mongo_sync import reconcile_org_collection_deletions
     org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
+    reconcile_org_collection_deletions(db, ExamEnrollment, org.id)
 
     query = db.query(
         ExamEnrollment,
@@ -987,24 +989,38 @@ def cascade_delete_enrollments(db: Session, enrollment_ids: List[str]):
         CandidateSession, ExamAttempt, AttemptAnswer, ProctorSession,
         ProctorEvent, EvidenceAsset, ResultRevision
     )
+    from app.core.mongo_sync import delete_documents_from_mongodb
     # 1. Delete CandidateSessions
+    cs_ids = [r[0] for r in db.query(CandidateSession.id).filter(CandidateSession.enrollment_id.in_(enrollment_ids)).all()]
     db.query(CandidateSession).filter(CandidateSession.enrollment_id.in_(enrollment_ids)).delete(synchronize_session=False)
+    delete_documents_from_mongodb("candidate_sessions", cs_ids)
 
     # 2. Find and delete ExamAttempts and their child records
     attempts = db.query(ExamAttempt).filter(ExamAttempt.enrollment_id.in_(enrollment_ids)).all()
     att_ids = [a.id for a in attempts]
     if att_ids:
+        ans_ids = [r[0] for r in db.query(AttemptAnswer.id).filter(AttemptAnswer.attempt_id.in_(att_ids)).all()]
+        ps_ids = [r[0] for r in db.query(ProctorSession.id).filter(ProctorSession.attempt_id.in_(att_ids)).all()]
+        rr_ids = [r[0] for r in db.query(ResultRevision.id).filter(ResultRevision.attempt_id.in_(att_ids)).all()]
         db.query(AttemptAnswer).filter(AttemptAnswer.attempt_id.in_(att_ids)).delete(synchronize_session=False)
         db.query(ProctorSession).filter(ProctorSession.attempt_id.in_(att_ids)).delete(synchronize_session=False)
         db.query(ResultRevision).filter(ResultRevision.attempt_id.in_(att_ids)).delete(synchronize_session=False)
 
         events = db.query(ProctorEvent).filter(ProctorEvent.attempt_id.in_(att_ids)).all()
         ev_ids = [ev.id for ev in events]
+        ea_ids = []
         if ev_ids:
+            ea_ids = [r[0] for r in db.query(EvidenceAsset.id).filter(EvidenceAsset.event_id.in_(ev_ids)).all()]
             db.query(EvidenceAsset).filter(EvidenceAsset.event_id.in_(ev_ids)).delete(synchronize_session=False)
             db.query(ProctorEvent).filter(ProctorEvent.id.in_(ev_ids)).delete(synchronize_session=False)
 
         db.query(ExamAttempt).filter(ExamAttempt.id.in_(att_ids)).delete(synchronize_session=False)
+        delete_documents_from_mongodb("attempt_answers", ans_ids)
+        delete_documents_from_mongodb("proctor_sessions", ps_ids)
+        delete_documents_from_mongodb("result_revisions", rr_ids)
+        delete_documents_from_mongodb("evidence_assets", ea_ids)
+        delete_documents_from_mongodb("proctor_events", ev_ids)
+        delete_documents_from_mongodb("exam_attempts", att_ids)
 
 
 @router.delete("/{org_id}/candidates/{enrollment_id}")
@@ -1043,6 +1059,8 @@ def delete_organization_candidate(
 
     deleted_count = delete_q.delete(synchronize_session=False)
     db.commit()
+    from app.core.mongo_sync import delete_documents_from_mongodb
+    delete_documents_from_mongodb("exam_enrollments", matching_ids)
 
     candidates_count = db.query(func.count(func.distinct(ExamEnrollment.candidate_uid))).filter(ExamEnrollment.organization_id == org.id).scalar() or 0
     return {
@@ -1108,6 +1126,8 @@ def bulk_delete_organization_candidates(
     ).delete(synchronize_session=False)
 
     db.commit()
+    from app.core.mongo_sync import delete_documents_from_mongodb
+    delete_documents_from_mongodb("exam_enrollments", matching_ids)
 
     candidates_count = db.query(func.count(func.distinct(ExamEnrollment.candidate_uid))).filter(ExamEnrollment.organization_id == org.id).scalar() or 0
     return {

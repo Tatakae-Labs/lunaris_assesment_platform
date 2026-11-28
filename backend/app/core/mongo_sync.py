@@ -548,3 +548,42 @@ def hydrate_attempt_events_from_mongodb(db: Session, attempt_id: str):
         print(f"On-demand MongoDB attempt events hydration error: {exc}")
     finally:
         _hydrating_from_mongo = False
+
+
+def delete_documents_from_mongodb(table_name: str, doc_ids: list) -> None:
+    """Explicitly deletes bulk-deleted SQLite rows from MongoDB (since Query.delete bypasses ORM hooks)."""
+    if not doc_ids:
+        return
+    db_mongo = get_mongodb()
+    if db_mongo is None:
+        return
+    try:
+        str_ids = [str(i) for i in doc_ids if i is not None]
+        if str_ids:
+            db_mongo[table_name].delete_many({"_id": {"$in": str_ids}})
+    except Exception as exc:
+        print(f"MongoDB bulk delete error in {table_name}: {exc}")
+
+
+def reconcile_org_collection_deletions(db: Session, model_cls: Any, org_id: str) -> None:
+    """On serverless (Vercel), removes local SQLite rows that were deleted from MongoDB by another instance."""
+    import os
+    if not os.environ.get("VERCEL"):
+        return
+    db_mongo = get_mongodb()
+    if db_mongo is None:
+        return
+    table_name = getattr(model_cls, "__tablename__", None)
+    if not table_name:
+        return
+    try:
+        coll = db_mongo[table_name]
+        mongo_ids = {str(d["_id"]) for d in coll.find({"organization_id": str(org_id)}, {"_id": 1})}
+        local_rows = db.query(model_cls.id).filter(model_cls.organization_id == org_id).all()
+        stale_ids = [str(r[0]) for r in local_rows if str(r[0]) not in mongo_ids]
+        if stale_ids:
+            db.query(model_cls).filter(model_cls.id.in_(stale_ids)).delete(synchronize_session=False)
+            db.commit()
+    except Exception as exc:
+        db.rollback()
+        print(f"MongoDB deletion reconciliation warning for {table_name}: {exc}")

@@ -148,6 +148,8 @@ def list_exams(
     db: Session = Depends(get_db)
 ):
     org = check_org_permission(db, current_user.id, organization_id)
+    from app.core.mongo_sync import reconcile_org_collection_deletions
+    reconcile_org_collection_deletions(db, Exam, org.id)
     exams = db.query(Exam).filter(Exam.organization_id == org.id).order_by(Exam.created_at.desc()).all()
     return [
         {
@@ -243,22 +245,28 @@ def delete_exam(
 ):
     """Permanently delete an exam and cleanly cascade all its enrollments, attempts, and versions."""
     from app.models import ExamEnrollment, ExamVersion, ExamAttempt, AttemptAnswer, ProctorEvent, EvidenceAsset, ProctorSession, CandidateSession, ExamAssignment
+    from app.core.mongo_sync import delete_documents_from_mongodb
 
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
     check_org_permission(db, current_user.id, exam.organization_id)
 
+    cs_ids, ans_ids, ps_ids, ea_ids, assign_ids = [], [], [], [], []
     # 1. Delete all enrollments, candidate sessions, and exam attempts
     enrollments = db.query(ExamEnrollment).filter(ExamEnrollment.exam_id == exam.id).all()
     for enr in enrollments:
+        cs_ids.extend([r[0] for r in db.query(CandidateSession.id).filter(CandidateSession.enrollment_id == enr.id).all()])
         db.query(CandidateSession).filter(CandidateSession.enrollment_id == enr.id).delete(synchronize_session=False)
         attempts = db.query(ExamAttempt).filter(ExamAttempt.enrollment_id == enr.id).all()
         for att in attempts:
+            ans_ids.extend([r[0] for r in db.query(AttemptAnswer.id).filter(AttemptAnswer.attempt_id == att.id).all()])
+            ps_ids.extend([r[0] for r in db.query(ProctorSession.id).filter(ProctorSession.attempt_id == att.id).all()])
             db.query(AttemptAnswer).filter(AttemptAnswer.attempt_id == att.id).delete(synchronize_session=False)
             db.query(ProctorSession).filter(ProctorSession.attempt_id == att.id).delete(synchronize_session=False)
             events = db.query(ProctorEvent).filter(ProctorEvent.attempt_id == att.id).all()
             for ev in events:
+                ea_ids.extend([r[0] for r in db.query(EvidenceAsset.id).filter(EvidenceAsset.event_id == ev.id).all()])
                 db.query(EvidenceAsset).filter(EvidenceAsset.event_id == ev.id).delete(synchronize_session=False)
                 db.delete(ev)
             db.delete(att)
@@ -267,13 +275,17 @@ def delete_exam(
     # 2. Delete all versions and assignments
     versions = db.query(ExamVersion).filter(ExamVersion.exam_id == exam.id).all()
     for ver in versions:
+        assign_ids.extend([r[0] for r in db.query(ExamAssignment.id).filter(ExamAssignment.exam_version_id == ver.id).all()])
         db.query(ExamAssignment).filter(ExamAssignment.exam_version_id == ver.id).delete(synchronize_session=False)
         attempts = db.query(ExamAttempt).filter(ExamAttempt.exam_version_id == ver.id).all()
         for att in attempts:
+            ans_ids.extend([r[0] for r in db.query(AttemptAnswer.id).filter(AttemptAnswer.attempt_id == att.id).all()])
+            ps_ids.extend([r[0] for r in db.query(ProctorSession.id).filter(ProctorSession.attempt_id == att.id).all()])
             db.query(AttemptAnswer).filter(AttemptAnswer.attempt_id == att.id).delete(synchronize_session=False)
             db.query(ProctorSession).filter(ProctorSession.attempt_id == att.id).delete(synchronize_session=False)
             events = db.query(ProctorEvent).filter(ProctorEvent.attempt_id == att.id).all()
             for ev in events:
+                ea_ids.extend([r[0] for r in db.query(EvidenceAsset.id).filter(EvidenceAsset.event_id == ev.id).all()])
                 db.query(EvidenceAsset).filter(EvidenceAsset.event_id == ev.id).delete(synchronize_session=False)
                 db.delete(ev)
             db.delete(att)
@@ -282,6 +294,11 @@ def delete_exam(
     # 3. Delete the exam record
     db.delete(exam)
     db.commit()
+    delete_documents_from_mongodb("candidate_sessions", cs_ids)
+    delete_documents_from_mongodb("attempt_answers", ans_ids)
+    delete_documents_from_mongodb("proctor_sessions", ps_ids)
+    delete_documents_from_mongodb("evidence_assets", ea_ids)
+    delete_documents_from_mongodb("exam_assignments", assign_ids)
     return {"message": "Exam and all associated data permanently deleted", "id": exam_id}
 
 def auto_sync_classroom_for_exam(db: Session, exam: Exam, user: User) -> tuple:
