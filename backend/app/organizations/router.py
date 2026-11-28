@@ -10,6 +10,53 @@ from app.core.email import send_organization_invite_email
 
 router = APIRouter(prefix="/organizations", tags=["Organizations"])
 
+
+def _resolve_org(db: Session, org_id: str) -> Optional[Organization]:
+    """Find org by id or slug in SQLite; fall back to MongoDB hydration on cross-container miss."""
+    org = db.query(Organization).filter(
+        (Organization.id == org_id) | (Organization.slug == org_id)
+    ).first()
+    if org:
+        return org
+    # Cross-container miss: hydrate from MongoDB
+    try:
+        from app.core.mongodb import get_mongodb
+        from app.core.mongo_sync import _deserialize_doc_for_model
+        import app.core.mongo_sync as mongo_sync
+        db_mongo = get_mongodb()
+        if db_mongo is not None:
+            org_doc = (
+                db_mongo.organizations.find_one({"_id": str(org_id)}) or
+                db_mongo.organizations.find_one({"slug": str(org_id)})
+            )
+            if org_doc:
+                mongo_sync._hydrating_from_mongo = True
+                try:
+                    kw = _deserialize_doc_for_model(Organization, org_doc)
+                    if kw.get("id"):
+                        db.merge(Organization(**kw))
+                        # Also hydrate members for this org
+                        for m_doc in db_mongo.organization_members.find({"organization_id": str(kw["id"])}):
+                            from app.models import OrganizationMember as OM
+                            m_kw = _deserialize_doc_for_model(OM, m_doc)
+                            if m_kw.get("id"):
+                                db.merge(OM(**m_kw))
+                        db.commit()
+                finally:
+                    mongo_sync._hydrating_from_mongo = False
+                org = db.query(Organization).filter(Organization.id == kw.get("id", org_id)).first()
+    except Exception as exc:
+        db.rollback()
+        print(f"Org MongoDB hydration note: {exc}")
+    return org
+
+
+def _resolve_org_or_404(db: Session, org_id: str, detail: str = "Organization not found") -> Organization:
+    org = _resolve_org(db, org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail=detail)
+    return org
+
 class CreateOrgRequest(BaseModel):
     name: str
 
@@ -75,9 +122,7 @@ def update_organization(
     if not clean_name:
         raise HTTPException(status_code=400, detail="Organization name cannot be empty.")
 
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found.")
+    org = _resolve_org_or_404(db, org_id, "Organization not found.")
 
     if not current_user.is_superadmin:
         member = db.query(OrganizationMember).filter(
@@ -139,9 +184,7 @@ def get_organization_services(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     return {
         "organization_id": org.id,
@@ -161,9 +204,7 @@ def get_org_invite_code(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
     
     code = f"ORG-{org.slug.upper()}"
     return {
@@ -245,9 +286,7 @@ def invite_member(
     db: Session = Depends(get_db)
 ):
     # Verify current user is owner or admin in this org
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     membership = db.query(OrganizationMember).filter(
         OrganizationMember.organization_id == org.id,
@@ -339,9 +378,7 @@ def get_organization_members(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     memberships = (
         db.query(OrganizationMember, User)
@@ -378,9 +415,7 @@ def get_organization_usage(
     db: Session = Depends(get_db)
 ):
     from app.models import Exam, Question, ExamAttempt, ExamEnrollment, ProctorSession
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     members_count = db.query(OrganizationMember).filter(OrganizationMember.organization_id == org.id).count()
     exams_count = db.query(Exam).filter(Exam.organization_id == org.id).count()
@@ -497,9 +532,7 @@ def remove_member(
     db: Session = Depends(get_db)
 ):
     """Remove a team member / student from an organization workspace."""
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     caller_membership = db.query(OrganizationMember).filter(
         OrganizationMember.organization_id == org.id,
@@ -587,9 +620,7 @@ def list_org_subjects(
     Returns all custom curriculum subjects configured for this organization.
     If none exist yet, automatically provisions starter subjects.
     """
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     subjects = db.query(OrganizationSubject).filter(
         OrganizationSubject.organization_id == org.id
@@ -618,9 +649,7 @@ def create_org_subject(
     db: Session = Depends(get_db)
 ):
     """Creates a new custom subject for this organization."""
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     clean_name = req.name.strip()
     if not clean_name:
@@ -716,9 +745,7 @@ def clear_all_org_subjects(
     db: Session = Depends(get_db)
 ):
     """Deletes all subjects in an organization so the user can start completely fresh."""
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     deleted_count = db.query(OrganizationSubject).filter(
         OrganizationSubject.organization_id == org.id
@@ -738,9 +765,7 @@ def seed_subject_preset_pack(
     """
     Imports a curated subject curriculum pack (e.g. Computer Science, Medical, Law, Commerce, STEM).
     """
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     pack_key = pack_name.lower().strip()
     if pack_key not in DEFAULT_SUBJECT_PRESETS:
@@ -785,9 +810,7 @@ def update_candidate_capacity(
 ):
     """Set and edit the organization's maximum candidate capacity. Strictly restricted to Super Admins."""
     from app.models import ExamEnrollment
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     # Strictly check if current user is superadmin
     if not current_user.is_superadmin:
@@ -831,9 +854,7 @@ def list_organization_candidates(
     """List all enrolled candidates, students, and members across the organization without duplicates."""
     from app.models import ExamEnrollment, Exam
     from app.core.mongo_sync import reconcile_org_collection_deletions
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
     reconcile_org_collection_deletions(db, ExamEnrollment, org.id)
 
     query = db.query(
@@ -917,9 +938,7 @@ def add_organization_candidate(
     import random
     from datetime import datetime, timezone, timedelta
     from app.models import ExamEnrollment, Exam, ExamVersion
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     caller_membership = db.query(OrganizationMember).filter(
         OrganizationMember.organization_id == org.id,
@@ -1033,9 +1052,7 @@ def delete_organization_candidate(
     """Revoke or delete an enrolled candidate seat, freeing capacity."""
     from app.models import ExamEnrollment
     from sqlalchemy import func
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     enrollment = db.query(ExamEnrollment).filter(
         (ExamEnrollment.id == enrollment_id) | (ExamEnrollment.candidate_uid == enrollment_id),
@@ -1085,9 +1102,7 @@ def bulk_delete_organization_candidates(
     """Revoke or delete multiple candidate seats in bulk, freeing candidate capacity."""
     from app.models import ExamEnrollment
     from sqlalchemy import func, or_
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
 
     if not req.candidate_ids:
         candidates_count = db.query(func.count(func.distinct(ExamEnrollment.candidate_uid))).filter(ExamEnrollment.organization_id == org.id).scalar() or 0
@@ -1150,9 +1165,7 @@ def get_organization_branding(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
     props = {}
     if org.properties_json:
         try:
@@ -1175,9 +1188,7 @@ def update_organization_branding(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _resolve_org_or_404(db, org_id)
     props = {}
     if org.properties_json:
         try:
