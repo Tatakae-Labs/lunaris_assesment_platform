@@ -237,23 +237,12 @@ def update_exam(
         "settings": json.loads(exam.settings_json) if exam.settings_json else {}
     }
 
-@router.delete("/{exam_id}")
-def delete_exam(
-    exam_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Permanently delete an exam and cleanly cascade all its enrollments, attempts, and versions."""
+def _cascade_delete_exam(db: Session, exam: Exam):
+    """Deletes an exam and all its enrollments, versions, attempts, and proctoring assets."""
     from app.models import ExamEnrollment, ExamVersion, ExamAttempt, AttemptAnswer, ProctorEvent, EvidenceAsset, ProctorSession, CandidateSession, ExamAssignment
     from app.core.mongo_sync import delete_documents_from_mongodb
 
-    exam = db.query(Exam).filter(Exam.id == exam_id).first()
-    if not exam:
-        raise HTTPException(status_code=404, detail="Exam not found")
-    check_org_permission(db, current_user.id, exam.organization_id)
-
     cs_ids, ans_ids, ps_ids, ea_ids, assign_ids = [], [], [], [], []
-    # 1. Delete all enrollments, candidate sessions, and exam attempts
     enrollments = db.query(ExamEnrollment).filter(ExamEnrollment.exam_id == exam.id).all()
     for enr in enrollments:
         cs_ids.extend([r[0] for r in db.query(CandidateSession.id).filter(CandidateSession.enrollment_id == enr.id).all()])
@@ -272,7 +261,6 @@ def delete_exam(
             db.delete(att)
         db.delete(enr)
 
-    # 2. Delete all versions and assignments
     versions = db.query(ExamVersion).filter(ExamVersion.exam_id == exam.id).all()
     for ver in versions:
         assign_ids.extend([r[0] for r in db.query(ExamAssignment.id).filter(ExamAssignment.exam_version_id == ver.id).all()])
@@ -291,8 +279,67 @@ def delete_exam(
             db.delete(att)
         db.delete(ver)
 
-    # 3. Delete the exam record
     db.delete(exam)
+    return cs_ids, ans_ids, ps_ids, ea_ids, assign_ids
+
+
+class BulkDeleteExamsRequest(BaseModel):
+    exam_ids: List[str]
+
+
+@router.post("/bulk-delete")
+def bulk_delete_exams(
+    req: BulkDeleteExamsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Permanently delete multiple exams and all associated records in one batch."""
+    from app.core.mongo_sync import delete_documents_from_mongodb
+    if not req.exam_ids:
+        return {"deleted_count": 0, "message": "No exams selected"}
+
+    exams = db.query(Exam).filter(Exam.id.in_(req.exam_ids)).all()
+    if not exams:
+        return {"deleted_count": 0, "message": "No matching exams found"}
+
+    for ex in exams:
+        check_org_permission(db, current_user.id, ex.organization_id)
+
+    all_cs, all_ans, all_ps, all_ea, all_assign = [], [], [], [], []
+    deleted_ids = []
+    for ex in exams:
+        cs, ans, ps, ea, assign = _cascade_delete_exam(db, ex)
+        all_cs.extend(cs)
+        all_ans.extend(ans)
+        all_ps.extend(ps)
+        all_ea.extend(ea)
+        all_assign.extend(assign)
+        deleted_ids.append(ex.id)
+
+    db.commit()
+    delete_documents_from_mongodb("candidate_sessions", all_cs)
+    delete_documents_from_mongodb("attempt_answers", all_ans)
+    delete_documents_from_mongodb("proctor_sessions", all_ps)
+    delete_documents_from_mongodb("evidence_assets", all_ea)
+    delete_documents_from_mongodb("exam_assignments", all_assign)
+    return {"deleted_count": len(deleted_ids), "deleted_ids": deleted_ids, "message": f"Deleted {len(deleted_ids)} exam(s)"}
+
+
+@router.delete("/{exam_id}")
+def delete_exam(
+    exam_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Permanently delete an exam and cleanly cascade all its enrollments, attempts, and versions."""
+    from app.core.mongo_sync import delete_documents_from_mongodb
+
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    check_org_permission(db, current_user.id, exam.organization_id)
+
+    cs_ids, ans_ids, ps_ids, ea_ids, assign_ids = _cascade_delete_exam(db, exam)
     db.commit()
     delete_documents_from_mongodb("candidate_sessions", cs_ids)
     delete_documents_from_mongodb("attempt_answers", ans_ids)

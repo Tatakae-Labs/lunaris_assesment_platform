@@ -213,6 +213,7 @@ export const api = {
   getExam: (exam_id) => request(`/exams/${exam_id}`),
   updateExam: (exam_id, data) => request(`/exams/${exam_id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteExam: (exam_id) => request(`/exams/${exam_id}`, { method: "DELETE" }),
+  bulkDeleteExams: (exam_ids) => request("/exams/bulk-delete", { method: "POST", body: JSON.stringify({ exam_ids }) }),
   publishExam: (exam_id) => request(`/exams/${exam_id}/publish`, { method: "POST" }),
   downloadExamCredentialsPdf: async (exam_id, room_code = "Exam") => {
     const token = localStorage.getItem("lunaris_token");

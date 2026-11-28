@@ -320,6 +320,8 @@ export default function OrgDashboard({
   const [examModeFilter, setExamModeFilter] = useState("all");
   const [examStatusFilter, setExamStatusFilter] = useState("all");
   const [copiedExamId, setCopiedExamId] = useState(null);
+  const [selectedExamIds, setSelectedExamIds] = useState([]);
+  const [bulkDeletingExams, setBulkDeletingExams] = useState(false);
   const [questionSearchQuery, setQuestionSearchQuery] = useState("");
   const [calibrationMap, setCalibrationMap] = useState({});
   const [sendingInvitesExamId, setSendingInvitesExamId] = useState(null);
@@ -783,13 +785,33 @@ export default function OrgDashboard({
     try {
       await api.deleteExam(examToDelete.id);
       setExams((prev) => prev.filter((e) => e.id !== examToDelete.id));
+      setSelectedExamIds((prev) => prev.filter((id) => id !== examToDelete.id));
       toast.success(`Exam "${examToDelete.title}" deleted successfully`);
       setExamToDelete(null);
-      loadUsage();
+      api.getOrgUsage(activeOrgId).then((u) => u && setOrgUsage(u)).catch(() => {});
     } catch (err) {
       toast.error("Failed to delete exam: " + err.message);
     } finally {
       setDeletingExam(false);
+    }
+  }
+
+  async function handleBulkDeleteExams() {
+    if (selectedExamIds.length === 0) return;
+    if (!window.confirm(`Permanently delete ${selectedExamIds.length} selected exam(s) and all their enrollments, attempts, and proctoring logs? This cannot be undone.`)) {
+      return;
+    }
+    setBulkDeletingExams(true);
+    try {
+      await api.bulkDeleteExams(selectedExamIds);
+      setExams((prev) => prev.filter((e) => !selectedExamIds.includes(e.id)));
+      toast.success(`Deleted ${selectedExamIds.length} exam(s) successfully`);
+      setSelectedExamIds([]);
+      api.getOrgUsage(activeOrgId).then((u) => u && setOrgUsage(u)).catch(() => {});
+    } catch (err) {
+      toast.error("Failed to bulk delete exams: " + err.message);
+    } finally {
+      setBulkDeletingExams(false);
     }
   }
 
@@ -1890,7 +1912,26 @@ export default function OrgDashboard({
                   </p>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                  {selectedExamIds.length > 0 && (
+                    <button
+                      type="button"
+                      disabled={bulkDeletingExams}
+                      onClick={handleBulkDeleteExams}
+                      style={{
+                        padding: "7px 14px",
+                        background: "#dc2626",
+                        color: "#ffffff",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        border: "none",
+                        cursor: bulkDeletingExams ? "not-allowed" : "pointer"
+                      }}
+                    >
+                      {bulkDeletingExams ? "Deleting..." : `Delete Selected (${selectedExamIds.length})`}
+                    </button>
+                  )}
                   <span style={{
                     fontSize: "12px",
                     fontWeight: "600",
@@ -2038,6 +2079,21 @@ export default function OrgDashboard({
                 <table className="dash-table">
                   <thead>
                     <tr>
+                      <th style={{ width: "36px" }}>
+                        <input
+                          type="checkbox"
+                          checked={pagedExams.length > 0 && pagedExams.every((ex) => selectedExamIds.includes(ex.id))}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedExamIds(Array.from(new Set([...selectedExamIds, ...pagedExams.map((ex) => ex.id)])));
+                            } else {
+                              const pageIds = new Set(pagedExams.map((ex) => ex.id));
+                              setSelectedExamIds((prev) => prev.filter((id) => !pageIds.has(id)));
+                            }
+                          }}
+                          title="Select all exams on this page"
+                        />
+                      </th>
                       <th>Exam Title and Format</th>
                       <th>Room / Subject</th>
                       <th>Duration</th>
@@ -2048,7 +2104,7 @@ export default function OrgDashboard({
                   <tbody>
                     {filteredExams.length === 0 ? (
                       <tr>
-                        <td colSpan="5" style={{ textAlign: "center", padding: "48px 24px", color: "var(--text-muted)" }}>
+                        <td colSpan="6" style={{ textAlign: "center", padding: "48px 24px", color: "var(--text-muted)" }}>
                           <div style={{ maxWidth: "360px", margin: "0 auto" }}>
                             <p style={{ fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px", fontSize: "15px" }}>
                               {exams.length === 0 ? "No examinations created yet" : "No examinations match your filter"}
@@ -2079,6 +2135,19 @@ export default function OrgDashboard({
                     ) : (
                       pagedExams.map((ex) => (
                         <tr key={ex.id}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={selectedExamIds.includes(ex.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedExamIds((prev) => [...prev, ex.id]);
+                                } else {
+                                  setSelectedExamIds((prev) => prev.filter((id) => id !== ex.id));
+                                }
+                              }}
+                            />
+                          </td>
                           <td>
                             <div style={{ fontWeight: "700", color: "#0f172a", fontSize: "14px", marginBottom: "4px" }}>
                               {ex.title}
