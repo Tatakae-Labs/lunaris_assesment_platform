@@ -14,16 +14,43 @@ from app.models import (
 
 router = APIRouter(prefix="/quick-quiz", tags=["Quick Quiz Engine"])
 
+ROOM_INIT_COOLDOWN_SECONDS = 5
+
+
 def generate_room_code() -> str:
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     return "".join(random.choices(alphabet, k=6))
 
 
-def _resolve_room_and_version(db: Session, clean_code: str):
+def _hydrate_participants_from_mongo(db: Session, db_mongo: Any, room_id: str) -> None:
+    """Merges QuizParticipant documents for a room from MongoDB into the active SQLite session."""
+    from app.core.mongo_sync import _deserialize_doc_for_model
+    for p_doc in db_mongo.quiz_participants.find({"room_id": str(room_id)}):
+        p_kw = _deserialize_doc_for_model(QuizParticipant, p_doc)
+        if p_kw.get("id"):
+            db.merge(QuizParticipant(**p_kw))
+
+
+def _resolve_room_and_version(db: Session, clean_code: str, sync_participants: bool = False):
     """Finds QuizRoom / ExamVersion in SQLite, hydrating from MongoDB across serverless instances if missing."""
     version = db.query(ExamVersion).filter(ExamVersion.room_code == clean_code).first()
     quiz_room = db.query(QuizRoom).filter(QuizRoom.room_code == clean_code).first()
     if version or quiz_room:
+        if sync_participants and quiz_room:
+            try:
+                from app.core.mongodb import get_mongodb
+                import app.core.mongo_sync as mongo_sync
+                db_mongo = get_mongodb()
+                if db_mongo is not None:
+                    mongo_sync._hydrating_from_mongo = True
+                    try:
+                        _hydrate_participants_from_mongo(db, db_mongo, quiz_room.id)
+                        db.commit()
+                    finally:
+                        mongo_sync._hydrating_from_mongo = False
+            except Exception as exc:
+                db.rollback()
+                print(f"Quick Quiz participant sync note: {exc}")
         return quiz_room, version
 
     try:
@@ -53,10 +80,7 @@ def _resolve_room_and_version(db: Session, clean_code: str):
                     kwargs = _deserialize_doc_for_model(QuizRoom, qr_doc)
                     if kwargs.get("id"):
                         db.merge(QuizRoom(**kwargs))
-                        for p_doc in db_mongo.quiz_participants.find({"room_id": str(kwargs["id"])}):
-                            p_kw = _deserialize_doc_for_model(QuizParticipant, p_doc)
-                            if p_kw.get("id"):
-                                db.merge(QuizParticipant(**p_kw))
+                        _hydrate_participants_from_mongo(db, db_mongo, kwargs["id"])
                 if ver_doc:
                     v_kw = _deserialize_doc_for_model(ExamVersion, ver_doc)
                     if v_kw.get("id"):
@@ -71,6 +95,41 @@ def _resolve_room_and_version(db: Session, clean_code: str):
     version = db.query(ExamVersion).filter(ExamVersion.room_code == clean_code).first()
     quiz_room = db.query(QuizRoom).filter(QuizRoom.room_code == clean_code).first()
     return quiz_room, version
+
+
+def _resolve_room_or_404(
+    db: Session,
+    room_code: str,
+    *,
+    require_room: bool = False,
+    check_cooldown: bool = False,
+    sync_participants: bool = False,
+    not_found_detail: str = "Room not found",
+):
+    """Unified Quick Quiz room resolver with optional initialization cooldown enforcement."""
+    clean_code = room_code.strip().upper()
+    quiz_room, version = _resolve_room_and_version(
+        db, clean_code, sync_participants=sync_participants
+    )
+
+    if require_room and not quiz_room:
+        raise HTTPException(status_code=404, detail=not_found_detail)
+    if not require_room and not quiz_room and not version:
+        raise HTTPException(status_code=404, detail=not_found_detail)
+
+    if check_cooldown and quiz_room and quiz_room.created_at and ROOM_INIT_COOLDOWN_SECONDS > 0:
+        created = quiz_room.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        elapsed = (datetime.now(timezone.utc) - created).total_seconds()
+        if elapsed < ROOM_INIT_COOLDOWN_SECONDS:
+            remaining = max(1, int(round(ROOM_INIT_COOLDOWN_SECONDS - elapsed)))
+            raise HTTPException(
+                status_code=status.HTTP_425_TOO_EARLY,
+                detail=f"Room initializing, please wait {remaining}s..."
+            )
+
+    return clean_code, quiz_room, version
 
 class QuickQuizJoinRequest(BaseModel):
     nickname: str
@@ -173,7 +232,8 @@ def create_quick_quiz_room(
         "room_id": quiz_room.id,
         "exam_title": exam.title,
         "per_question_seconds": effective_per_q,
-        "total_questions": len(snapshot_questions)
+        "total_questions": len(snapshot_questions),
+        "cooldown_seconds": ROOM_INIT_COOLDOWN_SECONDS
     }
 
 @router.post("/rooms/{room_code}/join")
@@ -182,11 +242,12 @@ def join_quick_quiz_room(
     req: QuickQuizJoinRequest,
     db: Session = Depends(get_db)
 ):
-    clean_code = room_code.strip().upper()
-    quiz_room, version = _resolve_room_and_version(db, clean_code)
-
-    if not version and not quiz_room:
-        raise HTTPException(status_code=404, detail="Invalid room code. Check the code and try again.")
+    clean_code, quiz_room, version = _resolve_room_or_404(
+        db,
+        room_code,
+        check_cooldown=True,
+        not_found_detail="Invalid room code. Check the code and try again.",
+    )
 
     # Create player user
     temp_email = req.email.lower() if req.email else f"player_{generate_uuid()[:8]}@quickquiz.local"
@@ -276,11 +337,9 @@ def submit_quick_quiz_answer(
     req: QuickQuizAnswerRequest,
     db: Session = Depends(get_db)
 ):
-    clean_code = room_code.strip().upper()
-    quiz_room, version = _resolve_room_and_version(db, clean_code)
-
-    if not quiz_room and not version:
-        raise HTTPException(status_code=404, detail="Room not found")
+    clean_code, quiz_room, version = _resolve_room_or_404(
+        db, room_code, check_cooldown=True
+    )
 
     attempt = db.query(ExamAttempt).filter(ExamAttempt.id == req.session_id).first()
     if not attempt:
@@ -337,7 +396,7 @@ def finish_quick_quiz(
     req: QuickQuizFinishRequest,
     db: Session = Depends(get_db)
 ):
-    clean_code = room_code.strip().upper()
+    clean_code, quiz_room, _ = _resolve_room_or_404(db, room_code)
     attempt = db.query(ExamAttempt).filter(ExamAttempt.id == req.session_id).first()
     if not attempt:
         raise HTTPException(status_code=404, detail="Attempt session not found")
@@ -346,7 +405,6 @@ def finish_quick_quiz(
     attempt.status = "completed"
     attempt.submitted_at = now
 
-    quiz_room = db.query(QuizRoom).filter(QuizRoom.room_code == clean_code).first()
     if quiz_room:
         participant = db.query(QuizParticipant).filter(QuizParticipant.id == req.session_id).first()
         if participant:
@@ -365,11 +423,9 @@ def get_quick_quiz_leaderboard(
     room_code: str,
     db: Session = Depends(get_db)
 ):
-    clean_code = room_code.strip().upper()
-    quiz_room, version = _resolve_room_and_version(db, clean_code)
-
-    if not quiz_room and not version:
-        raise HTTPException(status_code=404, detail="Room not found")
+    clean_code, quiz_room, version = _resolve_room_or_404(
+        db, room_code, sync_participants=True
+    )
 
     # Fetch top participants
     if quiz_room:
@@ -425,10 +481,9 @@ def reconnect_quick_quiz_player(
     db: Session = Depends(get_db)
 ):
     """Allows players to reconnect after refresh without losing their score or streak (Phase 7)."""
-    clean_code = room_code.strip().upper()
-    quiz_room, _ = _resolve_room_and_version(db, clean_code)
-    if not quiz_room:
-        raise HTTPException(status_code=404, detail="Room not found")
+    clean_code, quiz_room, _ = _resolve_room_or_404(
+        db, room_code, require_room=True, sync_participants=True
+    )
 
     participant = db.query(QuizParticipant).filter(
         QuizParticipant.room_id == quiz_room.id,
@@ -456,10 +511,9 @@ def get_quick_quiz_room_state(
     db: Session = Depends(get_db)
 ):
     """Real-time room state polling endpoint."""
-    clean_code = room_code.strip().upper()
-    quiz_room, _ = _resolve_room_and_version(db, clean_code)
-    if not quiz_room:
-        raise HTTPException(status_code=404, detail="Room not found")
+    clean_code, quiz_room, _ = _resolve_room_or_404(
+        db, room_code, require_room=True, sync_participants=True
+    )
 
     participant_count = db.query(QuizParticipant).filter(
         QuizParticipant.room_id == quiz_room.id,

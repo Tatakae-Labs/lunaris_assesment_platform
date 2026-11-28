@@ -303,6 +303,8 @@ export default function OrgDashboard({
   // Quick Quiz Room Hosting state
   const [hostedRoomModal, setHostedRoomModal] = useState(null);
   const [hostingRoom, setHostingRoom] = useState(false);
+  const [hostedRoomLeaderboard, setHostedRoomLeaderboard] = useState([]);
+  const [hostedRoomCooldown, setHostedRoomCooldown] = useState(0);
 
   // Exam Edit & Delete State
   const [editingExam, setEditingExam] = useState(null);
@@ -885,6 +887,8 @@ export default function OrgDashboard({
     setHostingRoom(true);
     try {
       const res = await api.createQuickQuizRoom(examId, 20);
+      setHostedRoomLeaderboard([]);
+      setHostedRoomCooldown(res.cooldown_seconds ?? 5);
       setHostedRoomModal(res);
       loadAllData();
     } catch (err) {
@@ -893,6 +897,35 @@ export default function OrgDashboard({
       setHostingRoom(false);
     }
   }
+
+  useEffect(() => {
+    if (!hostedRoomModal?.room_code) return;
+    let active = true;
+    const fetchLeaderboard = async () => {
+      try {
+        const res = await api.getQuickQuizLeaderboard(hostedRoomModal.room_code);
+        if (active) {
+          setHostedRoomLeaderboard(res.leaderboard || []);
+        }
+      } catch {
+        // Ignore transient polling errors while room is open
+      }
+    };
+    fetchLeaderboard();
+    const pollId = setInterval(fetchLeaderboard, 3000);
+    return () => {
+      active = false;
+      clearInterval(pollId);
+    };
+  }, [hostedRoomModal?.room_code]);
+
+  useEffect(() => {
+    if (!hostedRoomModal || hostedRoomCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setHostedRoomCooldown((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [hostedRoomModal, hostedRoomCooldown]);
 
   function handleOpenEditExam(ex) {
     setEditingExam(ex);
@@ -3430,9 +3463,11 @@ export default function OrgDashboard({
           padding: "20px"
         }}>
           <div style={{
-            maxWidth: "460px",
+            maxWidth: "500px",
             width: "100%",
-            padding: "32px",
+            maxHeight: "90vh",
+            overflowY: "auto",
+            padding: "28px",
             textAlign: "center",
             background: "#ffffff",
             borderRadius: "16px",
@@ -3497,6 +3532,67 @@ export default function OrgDashboard({
               </div>
             </div>
 
+            {/* Live Leaderboard */}
+            <div style={{
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: "12px",
+              padding: "14px 16px",
+              marginBottom: "18px",
+              textAlign: "left"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+                <span style={{ fontSize: "12px", fontWeight: "700", color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Live Leaderboard
+                </span>
+                <span style={{ fontSize: "11px", fontWeight: "600", color: "#2563eb", background: "#eff6ff", padding: "2px 8px", borderRadius: "999px" }}>
+                  {hostedRoomLeaderboard.length} {hostedRoomLeaderboard.length === 1 ? "player" : "players"}
+                </span>
+              </div>
+              {hostedRoomLeaderboard.length === 0 ? (
+                <div style={{ fontSize: "12px", color: "#64748b", textAlign: "center", padding: "10px 0" }}>
+                  Waiting for students to join via code or QR...
+                </div>
+              ) : (
+                <div style={{ maxHeight: "170px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {hostedRoomLeaderboard.map((p) => (
+                    <div
+                      key={p.session_id || `${p.rank}-${p.nickname}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "7px 10px",
+                        borderRadius: "8px",
+                        background: "#ffffff",
+                        border: "1px solid #e2e8f0",
+                        fontSize: "13px"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                        <span style={{ fontWeight: "800", color: p.rank <= 3 ? "#2563eb" : "#64748b", width: "22px" }}>
+                          #{p.rank}
+                        </span>
+                        <span style={{ fontWeight: "600", color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {p.nickname}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+                        {p.streak > 0 && (
+                          <span style={{ fontSize: "11px", fontWeight: "700", color: "#d97706", background: "#fef3c7", padding: "1px 6px", borderRadius: "6px" }}>
+                            {p.streak}x
+                          </span>
+                        )}
+                        <span style={{ fontWeight: "800", color: "#0f172a", fontFamily: "var(--font-mono, monospace)" }}>
+                          {p.score} pts
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button
@@ -3555,6 +3651,7 @@ export default function OrgDashboard({
               {onTakeQuickQuiz && (
                 <button
                   type="button"
+                  disabled={hostedRoomCooldown > 0}
                   onClick={() => {
                     const code = hostedRoomModal.room_code;
                     setHostedRoomModal(null);
@@ -3562,17 +3659,19 @@ export default function OrgDashboard({
                   }}
                   style={{
                     padding: "11px 18px",
-                    background: "var(--accent-blue)",
+                    background: hostedRoomCooldown > 0 ? "#94a3b8" : "var(--accent-blue)",
                     color: "#ffffff",
                     borderRadius: "8px",
                     border: "none",
                     fontSize: "14px",
                     fontWeight: "700",
-                    cursor: "pointer",
-                    boxShadow: "0 2px 8px rgba(37,99,235,0.25)"
+                    cursor: hostedRoomCooldown > 0 ? "not-allowed" : "pointer",
+                    boxShadow: hostedRoomCooldown > 0 ? "none" : "0 2px 8px rgba(37,99,235,0.25)"
                   }}
                 >
-                  Enter Room in Quick Quiz Arena
+                  {hostedRoomCooldown > 0
+                    ? `Initializing room (${hostedRoomCooldown}s)...`
+                    : "Enter Room in Quick Quiz Arena"}
                 </button>
               )}
 

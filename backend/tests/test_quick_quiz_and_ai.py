@@ -5,7 +5,9 @@ from tests.conftest import get_superadmin_token
 
 client = TestClient(app)
 
-def test_quick_quiz_room_and_leaderboard():
+def test_quick_quiz_room_and_leaderboard(monkeypatch):
+    from app.quick_quiz import router as qq_router
+
     # 1. First seed the demo to have questions and exam available
     sa_token = get_superadmin_token(client)
     seed_res = client.post("/api/v1/seed/jee-demo", headers={"Authorization": f"Bearer {sa_token}"})
@@ -19,8 +21,18 @@ def test_quick_quiz_room_and_leaderboard():
     room_data = create_room_res.json()
     room_code = room_data["room_code"]
     assert len(room_code) == 6
+    assert room_data.get("cooldown_seconds", 0) >= 1
 
-    # 3. Join the room as a student
+    # 2b. Immediate join during initialization cooldown returns 425 Too Early
+    early_join_res = client.post(f"/api/v1/quick-quiz/rooms/{room_code}/join", json={
+        "nickname": "TooEarly",
+        "email": "early@lunaris.org"
+    })
+    assert early_join_res.status_code == 425
+    assert "initializing" in early_join_res.json()["detail"].lower()
+
+    # 3. Bypass cooldown for functional join/answer/leaderboard assertions
+    monkeypatch.setattr(qq_router, "ROOM_INIT_COOLDOWN_SECONDS", 0)
     join_res = client.post(f"/api/v1/quick-quiz/rooms/{room_code}/join", json={
         "nickname": "Topper_Rohan",
         "email": "rohan@lunaris.org"
