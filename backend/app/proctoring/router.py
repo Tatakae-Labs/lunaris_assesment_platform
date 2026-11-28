@@ -216,6 +216,75 @@ def list_proctor_sessions(
 
     return results
 
+
+@router.delete("/sessions")
+def clear_proctor_sessions(
+    organization_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Clears all live proctor sessions, CCTV frames, alerts, and evidence for an organization."""
+    org = db.query(Organization).filter((Organization.id == organization_id) | (Organization.slug == organization_id)).first()
+    target_org_id = org.id if org else organization_id
+
+    if not getattr(current_user, "is_superadmin", False):
+        allowed_roles = ["owner", "admin", "proctor", "exam_author", "faculty", "reviewer"]
+        membership = db.query(OrganizationMember).filter(
+            OrganizationMember.organization_id == target_org_id,
+            OrganizationMember.user_id == current_user.id,
+            OrganizationMember.role.in_(allowed_roles)
+        ).first()
+        if not membership:
+            raise HTTPException(status_code=403, detail="Insufficient proctoring permissions")
+
+    from app.models import ProctorSession, AttemptAnswer
+    attempts = db.query(ExamAttempt).filter(ExamAttempt.organization_id == target_org_id).all()
+    attempt_ids = [a.id for a in attempts]
+
+    if attempt_ids:
+        events = db.query(ProctorEvent).filter(ProctorEvent.attempt_id.in_(attempt_ids)).all()
+        event_ids = [e.id for e in events]
+        storage_keys = []
+        if event_ids:
+            assets = db.query(EvidenceAsset).filter(EvidenceAsset.event_id.in_(event_ids)).all()
+            storage_keys = [a.storage_key for a in assets if a.storage_key]
+            db.query(ReviewDecision).filter(ReviewDecision.event_id.in_(event_ids)).delete(synchronize_session=False)
+            db.query(EvidenceAsset).filter(EvidenceAsset.event_id.in_(event_ids)).delete(synchronize_session=False)
+            db.query(ProctorEvent).filter(ProctorEvent.id.in_(event_ids)).delete(synchronize_session=False)
+
+        db.query(ProctorSession).filter(ProctorSession.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
+        db.query(AttemptAnswer).filter(AttemptAnswer.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
+        db.query(ExamAttempt).filter(ExamAttempt.id.in_(attempt_ids)).delete(synchronize_session=False)
+        db.commit()
+
+        # Clear in-memory stream_hub frames
+        for aid in attempt_ids:
+            try:
+                stream_hub._frames.pop(aid, None)
+                stream_hub._frame_times.pop(aid, None)
+            except Exception:
+                pass
+
+        # Clear corresponding MongoDB collections
+        try:
+            from app.core.mongodb import get_mongodb
+            db_mongo = get_mongodb()
+            if db_mongo is not None:
+                db_mongo.live_frames.delete_many({"_id": {"$in": attempt_ids}})
+                db_mongo.exam_attempts.delete_many({"organization_id": str(target_org_id)})
+                db_mongo.proctor_sessions.delete_many({"attempt_id": {"$in": attempt_ids}})
+                db_mongo.attempt_answers.delete_many({"attempt_id": {"$in": attempt_ids}})
+                if event_ids:
+                    db_mongo.proctor_events.delete_many({"attempt_id": {"$in": attempt_ids}})
+                    db_mongo.evidence_assets.delete_many({"event_id": {"$in": event_ids}})
+                    db_mongo.review_decisions.delete_many({"event_id": {"$in": event_ids}})
+                if storage_keys:
+                    db_mongo.evidence_blobs.delete_many({"_id": {"$in": storage_keys}})
+        except Exception:
+            pass
+
+    return {"status": "cleared", "cleared_attempts": len(attempt_ids)}
+
 @router.get("/attempts/{attempt_id}/live-stream")
 async def stream_candidate_live_video(
     attempt_id: str,

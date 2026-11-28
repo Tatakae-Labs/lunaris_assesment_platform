@@ -336,6 +336,8 @@ export const api = {
 
   // Proctor Console & Human Review
   getProctorSessions: (organization_id) => request(`/proctor/sessions?organization_id=${organization_id}`),
+  clearProctorSessions: (organization_id) =>
+    request(`/proctor/sessions?organization_id=${organization_id}`, { method: "DELETE" }),
   getIncidentTimeline: (attempt_id) => request(`/proctor/attempts/${attempt_id}/timeline`),
   recordReview: (event_id, decision, reason) =>
     request(`/proctor/events/${event_id}/review`, { method: "POST", body: JSON.stringify({ decision, reason }) }),

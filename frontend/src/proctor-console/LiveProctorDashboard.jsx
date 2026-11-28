@@ -304,6 +304,20 @@ export default function LiveProctorDashboard({ organizationId }) {
     }
   }
 
+  async function handleClearProctor() {
+    if (!window.confirm("Clear all live proctoring feeds, alerts, and recorded sessions for this organization?")) return;
+    try {
+      await api.clearProctorSessions(organizationId);
+      setSessions([]);
+      setSelectedAttemptId(null);
+      setTimeline([]);
+      setZoomedCandidate(null);
+      setRefreshKey(Date.now());
+    } catch (e) {
+      alert("Failed to clear Live Proctor: " + e.message);
+    }
+  }
+
   const activeCount = sessions.filter((s) => s.status === "in_progress").length;
   const totalIncidents = sessions.reduce((acc, s) => acc + (s.total_incidents || 0), 0);
   const criticalIncidents = sessions.reduce((acc, s) => acc + (s.critical_incidents || 0), 0);
@@ -646,6 +660,22 @@ export default function LiveProctorDashboard({ organizationId }) {
               <span style={{ color: "#64748b", fontFamily: "var(--font-mono)", fontWeight: "600" }}>
                 Showing {filteredSessions.length} feeds
               </span>
+              <button
+                type="button"
+                onClick={handleClearProctor}
+                style={{
+                  background: "#fef2f2",
+                  color: "#dc2626",
+                  border: "1px solid #fecaca",
+                  borderRadius: "6px",
+                  padding: "5px 10px",
+                  fontSize: "12px",
+                  fontWeight: "700",
+                  cursor: "pointer"
+                }}
+              >
+                Clear Live Proctor
+              </button>
             </div>
           </div>
 
