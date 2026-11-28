@@ -55,11 +55,25 @@ function AppRoutes() {
     }
   });
 
-  // Enforce consistent pure white theme
+  // Enforce consistent pure white theme & handle legacy ?mode=candidate QR links
   useEffect(() => {
     document.body.setAttribute("data-theme", "light");
     document.documentElement.style.backgroundColor = "#ffffff";
-  }, []);
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("mode") === "candidate") {
+      const slug = params.get("slug") || params.get("room") || params.get("room_code") || params.get("exam_id");
+      const uid = params.get("uid") || params.get("id");
+      const pin = params.get("pin") || params.get("password");
+      if (slug) {
+        const qs = new URLSearchParams();
+        if (uid) qs.set("uid", uid);
+        if (pin) qs.set("pin", pin);
+        navigate(`/exam/${encodeURIComponent(slug)}${qs.toString() ? `?${qs.toString()}` : ""}`, { replace: true });
+      } else {
+        navigate("/candidate/login", { replace: true });
+      }
+    }
+  }, [navigate]);
 
   // Handle unauthorized / expired session
   useEffect(() => {

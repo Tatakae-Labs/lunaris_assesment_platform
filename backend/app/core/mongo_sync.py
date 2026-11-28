@@ -566,8 +566,9 @@ def delete_documents_from_mongodb(table_name: str, doc_ids: list) -> None:
 
 
 def reconcile_org_collection_deletions(db: Session, model_cls: Any, org_id: str) -> None:
-    """On serverless (Vercel), removes local SQLite rows that were deleted from MongoDB by another instance."""
+    """On serverless (Vercel), syncs additions and deletions from MongoDB for an organization."""
     import os
+    global _hydrating_from_mongo
     if not os.environ.get("VERCEL"):
         return
     db_mongo = get_mongodb()
@@ -576,14 +577,23 @@ def reconcile_org_collection_deletions(db: Session, model_cls: Any, org_id: str)
     table_name = getattr(model_cls, "__tablename__", None)
     if not table_name:
         return
+    _hydrating_from_mongo = True
     try:
         coll = db_mongo[table_name]
-        mongo_ids = {str(d["_id"]) for d in coll.find({"organization_id": str(org_id)}, {"_id": 1})}
+        mongo_docs = list(coll.find({"organization_id": str(org_id)}))
+        mongo_ids = set()
+        for doc in mongo_docs:
+            kwargs = _deserialize_doc_for_model(model_cls, doc)
+            if kwargs.get("id"):
+                mongo_ids.add(str(kwargs["id"]))
+                db.merge(model_cls(**kwargs))
         local_rows = db.query(model_cls.id).filter(model_cls.organization_id == org_id).all()
         stale_ids = [str(r[0]) for r in local_rows if str(r[0]) not in mongo_ids]
         if stale_ids:
             db.query(model_cls).filter(model_cls.id.in_(stale_ids)).delete(synchronize_session=False)
-            db.commit()
+        db.commit()
     except Exception as exc:
         db.rollback()
-        print(f"MongoDB deletion reconciliation warning for {table_name}: {exc}")
+        print(f"MongoDB sync reconciliation warning for {table_name}: {exc}")
+    finally:
+        _hydrating_from_mongo = False

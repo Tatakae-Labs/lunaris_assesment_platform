@@ -60,8 +60,18 @@ def create_quick_quiz_room(
     exam.speed_scoring = True
     exam.status = "published"
 
-    # Fetch questions and snapshot
-    questions = db.query(Question).filter(Question.organization_id == exam.organization_id).all()
+    # Fetch questions linked to this exam (or fallback to organization bank)
+    exam_settings = json.loads(exam.settings_json) if exam.settings_json else {}
+    selected_q_ids = exam_settings.get("question_ids") or []
+    if selected_q_ids:
+        raw_qs = db.query(Question).filter(
+            Question.organization_id == exam.organization_id,
+            Question.id.in_(selected_q_ids)
+        ).all()
+        q_map = {q.id: q for q in raw_qs}
+        questions = [q_map[qid] for qid in selected_q_ids if qid in q_map]
+    else:
+        questions = db.query(Question).filter(Question.organization_id == exam.organization_id).all()
     snapshot_questions = []
     for q in questions:
         content = json.loads(q.content_json)

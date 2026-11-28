@@ -287,14 +287,27 @@ export default function EnrollmentManagerModal({
     }
   }
 
+  function getJoinBaseUrl() {
+    if (exam?.mode === "quick_quiz" && exam?.room_code) {
+      return `${window.location.origin}/quiz/${encodeURIComponent(exam.room_code)}`;
+    }
+    return `${window.location.origin}/exam/${encodeURIComponent(examIdentifier)}`;
+  }
+
   function handleCopyInviteLink(e) {
-    const directUrl = `${window.location.origin}/?mode=candidate&slug=${encodeURIComponent(examIdentifier)}&uid=${encodeURIComponent(e.candidate_uid)}&pin=${encodeURIComponent(e.access_pin || '')}`;
+    const base = getJoinBaseUrl();
+    const directUrl = exam?.mode === "quick_quiz"
+      ? base
+      : `${base}?uid=${encodeURIComponent(e.candidate_uid)}&pin=${encodeURIComponent(e.access_pin || '')}`;
     navigator.clipboard.writeText(directUrl);
     setStatusMsg(`Copied direct exam link for ${e.candidate_name}!`);
   }
 
   function handleCopyFullInvite(e) {
-    const directUrl = `${window.location.origin}/?mode=candidate&slug=${encodeURIComponent(examIdentifier)}&uid=${encodeURIComponent(e.candidate_uid)}&pin=${encodeURIComponent(e.access_pin || '')}`;
+    const base = getJoinBaseUrl();
+    const directUrl = exam?.mode === "quick_quiz"
+      ? base
+      : `${base}?uid=${encodeURIComponent(e.candidate_uid)}&pin=${encodeURIComponent(e.access_pin || '')}`;
     const text = `Dear ${e.candidate_name},
 
 You have been invited to take the examination:
@@ -318,7 +331,10 @@ Important Instructions:
     if (enrollments.length === 0) return;
     const header = "Candidate Name,Candidate UID,Access PIN,Direct Exam URL,Attempts Used,Max Attempts,Status\n";
     const rows = enrollments.map((e) => {
-      const directUrl = `${window.location.origin}/?mode=candidate&slug=${encodeURIComponent(examIdentifier)}&uid=${encodeURIComponent(e.candidate_uid)}&pin=${encodeURIComponent(e.access_pin || '')}`;
+      const base = getJoinBaseUrl();
+      const directUrl = exam?.mode === "quick_quiz"
+        ? base
+        : `${base}?uid=${encodeURIComponent(e.candidate_uid)}&pin=${encodeURIComponent(e.access_pin || '')}`;
       return `"${e.candidate_name}","${e.candidate_uid}","${e.access_pin || ''}","${directUrl}",${e.attempts_used},${e.max_attempts},"${e.status}"`;
     }).join("\n");
 
@@ -401,7 +417,7 @@ Important Instructions:
               placeItems: "center"
             }}>
               <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=90x90&data=${encodeURIComponent(`${window.location.origin}/?mode=candidate&slug=${examIdentifier}`)}`}
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=90x90&data=${encodeURIComponent(getJoinBaseUrl())}`}
                 alt="Student Exam QR Code"
                 style={{ width: "90px", height: "90px", display: "block" }}
               />
@@ -420,7 +436,7 @@ Important Instructions:
                 Candidate Examination Link & Mobile QR Pass
               </div>
               <code style={{ background: "#ffffff", padding: "4px 8px", borderRadius: "4px", border: "1px solid var(--border-subtle)", fontSize: "12px", color: "var(--accent-blue)" }}>
-                {window.location.origin}/?mode=candidate&slug={examIdentifier}
+                {getJoinBaseUrl()}
               </code>
             </div>
           </div>
@@ -430,7 +446,7 @@ Important Instructions:
               type="button"
               className="btn-primary"
               onClick={() => {
-                const url = `${window.location.origin}/?mode=candidate&slug=${examIdentifier}`;
+                const url = getJoinBaseUrl();
                 navigator.clipboard.writeText(url);
                 setStatusMsg("Copied direct student exam link to clipboard!");
               }}

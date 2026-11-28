@@ -113,6 +113,8 @@ def create_exam(
         settings["timing_model"] = req.timing_model
     if req.question_times:
         settings["question_times"] = req.question_times
+    if req.question_ids:
+        settings["question_ids"] = req.question_ids
 
     exam = Exam(
         organization_id=org.id,
@@ -542,14 +544,22 @@ def publish_exam(
         raise HTTPException(status_code=404, detail="Exam not found")
     check_org_permission(db, current_user.id, exam.organization_id)
 
-    # Fetch all questions configured for this organization (or linked to exam)
-    questions = db.query(Question).filter(Question.organization_id == exam.organization_id).all()
+    exam_settings = json.loads(exam.settings_json) if exam.settings_json else {}
+    selected_q_ids = exam_settings.get("question_ids") or []
+    if selected_q_ids:
+        raw_qs = db.query(Question).filter(
+            Question.organization_id == exam.organization_id,
+            Question.id.in_(selected_q_ids)
+        ).all()
+        q_map = {q.id: q for q in raw_qs}
+        questions = [q_map[qid] for qid in selected_q_ids if qid in q_map]
+    else:
+        questions = db.query(Question).filter(Question.organization_id == exam.organization_id).all()
     if not questions:
         raise HTTPException(status_code=400, detail="Cannot publish an exam with no questions available")
 
     # Snapshot questions with points
     snapshot_questions = []
-    exam_settings = json.loads(exam.settings_json) if exam.settings_json else {}
     q_times = exam_settings.get("question_times", {})
     for q in questions:
         content = json.loads(q.content_json)

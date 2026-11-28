@@ -88,7 +88,7 @@ class Settings(BaseSettings):
             if is_serverless:
                 self.LOCAL_STORAGE_DIR = "/tmp/storage_assets"
                 tmp_db = "/tmp/lunaris.db"
-                if not os.path.exists(tmp_db):
+                if not os.path.exists(tmp_db) and not self.MONGODB_ENABLED:
                     for cand in [_DEFAULT_DB_PATH, os.path.join(_BACKEND_DIR, "lunaris.db"), os.path.join(_ROOT_DIR, "lunaris.db")]:
                         if os.path.exists(cand):
                             try:
