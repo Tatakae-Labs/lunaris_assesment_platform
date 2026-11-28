@@ -321,6 +321,10 @@ export default function OrgDashboard({
   const [examStatusFilter, setExamStatusFilter] = useState("all");
   const [copiedExamId, setCopiedExamId] = useState(null);
   const [questionSearchQuery, setQuestionSearchQuery] = useState("");
+  const [calibrationMap, setCalibrationMap] = useState({});
+  const [sendingInvitesExamId, setSendingInvitesExamId] = useState(null);
+  const [brandingForm, setBrandingForm] = useState({ brand_logo_url: "", brand_primary_color: "#2563eb", brand_tagline: "" });
+  const [savingBranding, setSavingBranding] = useState(false);
 
   function handleCopyExamLink(examId) {
     const url = `${window.location.origin}/exam/${examId}`;
@@ -368,9 +372,25 @@ export default function OrgDashboard({
       const examsData = await api.getExams(activeOrgId).catch(() => []);
       setExams(examsData);
 
-      // 4. Load questions
-      const qData = await api.getQuestions(activeOrgId, selectedSubject).catch(() => []);
+      // 4. Load questions & calibration
+      const [qData, calData, brandData] = await Promise.all([
+        api.getQuestions(activeOrgId, selectedSubject).catch(() => []),
+        api.getQuestionCalibration(activeOrgId).catch(() => []),
+        api.getOrgBranding(activeOrgId).catch(() => null),
+      ]);
       setQuestions(qData);
+      if (Array.isArray(calData)) {
+        const cmap = {};
+        calData.forEach((c) => { cmap[c.question_id] = c; });
+        setCalibrationMap(cmap);
+      }
+      if (brandData) {
+        setBrandingForm({
+          brand_logo_url: brandData.brand_logo_url || "",
+          brand_primary_color: brandData.brand_primary_color || "#2563eb",
+          brand_tagline: brandData.brand_tagline || "",
+        });
+      }
 
       // 5. Load real organization members from backend
       const membersData = await api.getOrgMembers(activeOrgId).catch(() => null);
@@ -2210,6 +2230,30 @@ export default function OrgDashboard({
                                 Edit
                               </button>
 
+                              {/* Send Scheduled Email Invites */}
+                              <button
+                                type="button"
+                                disabled={sendingInvitesExamId === ex.id}
+                                onClick={async () => {
+                                  setSendingInvitesExamId(ex.id);
+                                  try {
+                                    const res = await api.sendExamInvites(ex.id);
+                                    toast.success(res.message || `Sent ${res.sent || 0} email invites!`);
+                                  } catch (err) {
+                                    toast.error(err.message || "Failed to send invites");
+                                  } finally {
+                                    setSendingInvitesExamId(null);
+                                  }
+                                }}
+                                title="Send Email Invites to Enrolled Candidates"
+                                style={{
+                                  color: "#059669",
+                                  fontWeight: "600"
+                                }}
+                              >
+                                {sendingInvitesExamId === ex.id ? "Sending..." : "Email Invites"}
+                              </button>
+
                               {/* Dedicated Live Proctor Console Shortcut */}
                               {ex.mode === "proctored_cbt" && (
                                 <button
@@ -2575,6 +2619,21 @@ export default function OrgDashboard({
                           </div>
 
                           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            {calibrationMap[q.id] && (
+                              <span
+                                title={`Accuracy: ${calibrationMap[q.id].accuracy_pct}% across ${calibrationMap[q.id].total_attempts} attempts`}
+                                style={{
+                                  fontSize: "11px",
+                                  fontWeight: "700",
+                                  padding: "2px 8px",
+                                  borderRadius: "4px",
+                                  background: calibrationMap[q.id].calibrated_difficulty === "Hard" ? "#fef2f2" : calibrationMap[q.id].calibrated_difficulty === "Easy" ? "#ecfdf5" : "#fffbeb",
+                                  color: calibrationMap[q.id].calibrated_difficulty === "Hard" ? "#dc2626" : calibrationMap[q.id].calibrated_difficulty === "Easy" ? "#059669" : "#d97706"
+                                }}
+                              >
+                                {calibrationMap[q.id].calibrated_difficulty} ({calibrationMap[q.id].accuracy_pct}% acc • {calibrationMap[q.id].avg_time_sec}s avg)
+                              </span>
+                            )}
                             <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600" }}>
                               Item #{idx + 1}
                             </span>
@@ -2935,6 +2994,80 @@ export default function OrgDashboard({
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              {/* White-Label Institution Branding Card */}
+              <div style={{
+                marginTop: "24px",
+                background: "#ffffff",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "10px",
+                padding: "20px"
+              }}>
+                <h3 style={{ fontSize: "15px", fontWeight: "800", color: "#0f172a", marginBottom: "4px" }}>
+                  White-Label Institution Branding
+                </h3>
+                <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "14px" }}>
+                  Customize your institution logo, accent color, and tagline displayed on the Candidate Exam Portal and Scorecards.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 1fr auto", gap: "12px", alignItems: "end" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>Logo URL</label>
+                    <input
+                      type="url"
+                      value={brandingForm.brand_logo_url}
+                      onChange={(e) => setBrandingForm((b) => ({ ...b, brand_logo_url: e.target.value }))}
+                      placeholder="https://your-academy.edu/logo.png"
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid var(--border-subtle)", fontSize: "13px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>Primary Color</label>
+                    <input
+                      type="color"
+                      value={brandingForm.brand_primary_color || "#2563eb"}
+                      onChange={(e) => setBrandingForm((b) => ({ ...b, brand_primary_color: e.target.value }))}
+                      style={{ width: "100%", height: "36px", padding: "2px", borderRadius: "6px", border: "1px solid var(--border-subtle)", cursor: "pointer" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>Portal Tagline</label>
+                    <input
+                      type="text"
+                      value={brandingForm.brand_tagline}
+                      onChange={(e) => setBrandingForm((b) => ({ ...b, brand_tagline: e.target.value }))}
+                      placeholder="Official Examination Portal"
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid var(--border-subtle)", fontSize: "13px" }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={savingBranding}
+                    onClick={async () => {
+                      setSavingBranding(true);
+                      try {
+                        await api.updateOrgBranding(activeOrgId, brandingForm);
+                        toast.success("Institution branding saved!");
+                      } catch (err) {
+                        toast.error(err.message || "Failed to save branding");
+                      } finally {
+                        setSavingBranding(false);
+                      }
+                    }}
+                    style={{
+                      padding: "9px 16px",
+                      background: "var(--accent-blue)",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "13px",
+                      fontWeight: "700",
+                      cursor: "pointer"
+                    }}
+                  >
+                    {savingBranding ? "Saving..." : "Save Branding"}
+                  </button>
+                </div>
               </div>
             </div>
           )}

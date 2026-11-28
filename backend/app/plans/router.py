@@ -558,3 +558,40 @@ def sweep_and_process_renewals(db: Session = Depends(get_db)):
         "downgraded_to_free": downgraded
     }
 
+
+class ValidateCouponRequest(BaseModel):
+    code: str
+    amount_inr: int = 0
+
+
+@router.post("/validate-coupon")
+def validate_coupon_code(req: ValidateCouponRequest, db: Session = Depends(get_db)):
+    """Validates a promo/discount coupon code and returns the discounted INR amount."""
+    from datetime import datetime, timezone
+    from app.models import Coupon
+    clean_code = (req.code or "").strip().upper()
+    if not clean_code:
+        raise HTTPException(status_code=400, detail="Coupon code is required.")
+
+    coupon = db.query(Coupon).filter(Coupon.code == clean_code, Coupon.is_active == True).first()
+    if not coupon:
+        raise HTTPException(status_code=404, detail="Invalid or inactive coupon code.")
+
+    if coupon.max_uses is not None and (coupon.used_count or 0) >= coupon.max_uses:
+        raise HTTPException(status_code=400, detail="This coupon has reached its maximum usage limit.")
+
+    if coupon.expires_at:
+        exp = coupon.expires_at.replace(tzinfo=timezone.utc) if coupon.expires_at.tzinfo is None else coupon.expires_at
+        if exp < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="This coupon has expired.")
+
+    pct = max(1, min(95, int(coupon.discount_percent or 0)))
+    discounted_inr = max(1, round(req.amount_inr * (100 - pct) / 100)) if req.amount_inr > 0 else 0
+    return {
+        "valid": True,
+        "code": coupon.code,
+        "discount_percent": pct,
+        "original_amount_inr": req.amount_inr,
+        "discounted_amount_inr": discounted_inr,
+    }
+

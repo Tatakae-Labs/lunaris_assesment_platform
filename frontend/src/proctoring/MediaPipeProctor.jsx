@@ -341,6 +341,44 @@ export default function MediaPipeProctor({
     };
   }, [cameraActive, candidateSessionToken, attemptId]);
 
+  // 3b. Multi-Screen / Extended Display Detection
+  useEffect(() => {
+    if (!candidateSessionToken && !attemptId) return;
+    let lastMultiAlert = 0;
+    const checkMultiScreen = () => {
+      try {
+        if (window.screen && window.screen.isExtended) {
+          const now = Date.now();
+          if (now - lastMultiAlert > 30000) {
+            lastMultiAlert = now;
+            if (candidateSessionToken) {
+              api.sendCandidateProctorEvent(candidateSessionToken, {
+                event_type: "multi_screen_detected",
+                severity: "high",
+                source: "browser_event",
+                metadata: { detail: "Extended secondary monitor detected" }
+              }).catch(() => {});
+            } else if (attemptId) {
+              api.sendProctorEvent(attemptId, {
+                event_type: "multi_screen_detected",
+                severity: "high",
+                metadata: { detail: "Extended secondary monitor detected" }
+              }).catch(() => {});
+            }
+            if (onEventLogged) {
+              onEventLogged({ event_type: "multi_screen_detected", severity: "high" });
+            }
+          }
+        }
+      } catch {
+        // Ignore browser permission restrictions
+      }
+    };
+    checkMultiScreen();
+    const timer = setInterval(checkMultiScreen, 15000);
+    return () => clearInterval(timer);
+  }, [candidateSessionToken, attemptId]);
+
   // 4. High-Frequency Computer Vision & Telemetry Engine (Runs every 500ms)
   useEffect(() => {
     if (!cameraActive) return;

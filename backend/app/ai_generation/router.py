@@ -905,3 +905,69 @@ async def ingest_question_file(
         "message": f"Successfully analyzed '{filename}' and extracted {len(created_drafts)} categorized questions!",
         "drafts": created_drafts
     }
+
+
+class SubjectiveGradeRequest(BaseModel):
+    question_text: str
+    rubric: str
+    student_answer: str
+    max_marks: float = 5.0
+    groq_api_key: Optional[str] = None
+
+
+@router.post("/grade-subjective")
+async def grade_subjective_answer(
+    req: SubjectiveGradeRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Grades a subjective/short-answer response against a faculty rubric via Groq LLM (with deterministic fallback)."""
+    api_key = (req.groq_api_key or settings.GROQ_API_KEY or "").strip()
+    if api_key:
+        try:
+            prompt = (
+                f"Grade the student's answer strictly against the rubric.\n"
+                f"Question: {req.question_text}\n"
+                f"Rubric: {req.rubric}\n"
+                f"Max Marks: {req.max_marks}\n"
+                f"Student Answer: {req.student_answer}\n\n"
+                f'Return ONLY valid JSON: {{"score": number, "feedback": string, "criteria_met": [string]}}'
+            )
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": settings.LLM_MODEL or "llama-3.3-70b-versatile",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.1,
+                        "response_format": {"type": "json_object"},
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                    parsed = json.loads(content)
+                    score = max(0.0, min(req.max_marks, float(parsed.get("score", 0.0))))
+                    return {
+                        "score": round(score, 2),
+                        "max_marks": req.max_marks,
+                        "feedback": parsed.get("feedback", ""),
+                        "criteria_met": parsed.get("criteria_met", []),
+                        "engine": "groq_ai",
+                    }
+        except Exception:
+            pass
+
+    # Deterministic keyword-overlap rubric fallback
+    rubric_words = {w.strip(".,;:!?").lower() for w in req.rubric.split() if len(w.strip(".,;:!?")) > 3}
+    ans_words = {w.strip(".,;:!?").lower() for w in req.student_answer.split() if len(w.strip(".,;:!?")) > 3}
+    matched = sorted(rubric_words.intersection(ans_words))
+    ratio = (len(matched) / len(rubric_words)) if rubric_words else 0.0
+    score = round(min(req.max_marks, req.max_marks * min(1.0, ratio * 1.4)), 2)
+    return {
+        "score": score,
+        "max_marks": req.max_marks,
+        "feedback": f"Matched {len(matched)} key rubric concept(s): {', '.join(matched[:6]) or 'none'}.",
+        "criteria_met": matched[:6],
+        "engine": "rubric_keyword_fallback",
+    }

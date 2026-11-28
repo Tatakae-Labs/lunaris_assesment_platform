@@ -34,6 +34,7 @@ class SaveAnswerRequest(BaseModel):
     answer: Dict[str, Any]
     revision: int = 1
     sequence_number: Optional[int] = 1
+    time_spent_sec: Optional[int] = 0
 
 class IngestCandidateProctorEventRequest(BaseModel):
     event_type: str  # face_not_detected, multiple_faces, head_turned, tab_switch, fullscreen_exit, mobile_hint, audio_spike
@@ -190,13 +191,54 @@ def verify_candidate_access(
     db.add(cand_session)
     db.commit()
 
-    # Extract proctoring settings from exam
+    # Extract proctoring & scheduling settings from exam
     exam_settings = {}
     if exam.settings_json:
         try:
             exam_settings = json.loads(exam.settings_json)
         except Exception:
             exam_settings = {}
+
+    # Enforce exam-level scheduled window if configured
+    sched_start = exam_settings.get("scheduled_start_at")
+    sched_end = exam_settings.get("scheduled_end_at")
+    if sched_start:
+        try:
+            s_dt = datetime.fromisoformat(sched_start.replace("Z", "+00:00"))
+            if s_dt.tzinfo is None:
+                s_dt = s_dt.replace(tzinfo=timezone.utc)
+            if now < s_dt:
+                raise HTTPException(status_code=403, detail=f"This examination opens at {s_dt.strftime('%Y-%m-%d %H:%M UTC')}.")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+    if sched_end:
+        try:
+            e_dt = datetime.fromisoformat(sched_end.replace("Z", "+00:00"))
+            if e_dt.tzinfo is None:
+                e_dt = e_dt.replace(tzinfo=timezone.utc)
+            if now > e_dt:
+                raise HTTPException(status_code=403, detail="This examination's scheduled window has closed.")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    # Extract White-Label Institution Branding from Organization
+    org = db.query(Organization).filter(Organization.id == exam.organization_id).first()
+    org_props = {}
+    if org and org.properties_json:
+        try:
+            org_props = json.loads(org.properties_json)
+        except Exception:
+            org_props = {}
+    branding = {
+        "org_name": org.name if org else "Lunaris Assessment Platform",
+        "logo_url": org_props.get("brand_logo_url") or "",
+        "primary_color": org_props.get("brand_primary_color") or "#2563eb",
+        "tagline": org_props.get("brand_tagline") or ""
+    }
 
     return {
         "session_token": session_token,
@@ -205,6 +247,7 @@ def verify_candidate_access(
         "candidate_name": enrollment.candidate_name,
         "candidate_email": enrollment.candidate_email,
         "attempts_remaining": max(0, enrollment.max_attempts - enrollment.attempts_used),
+        "branding": branding,
         "exam": {
             "id": exam.id,
             "title": exam.title,
@@ -212,6 +255,7 @@ def verify_candidate_access(
             "duration_minutes": exam.duration_minutes,
             "mode": exam.mode,
             "proctoring_enabled": exam.mode == "proctored_cbt",
+            "require_screen_share": bool(exam_settings.get("require_screen_share", False)),
             "proctoring_checks": exam_settings.get("proctoring_checks", [
                 "face_not_detected",
                 "multiple_faces",
@@ -385,17 +429,31 @@ def get_candidate_paper(
         raise HTTPException(status_code=404, detail="Exam version snapshot not found")
 
     snapshot = json.loads(version.snapshot_json)
+    exam_settings = json.loads(exam.settings_json) if exam.settings_json else {}
+
+    # Deterministic Question Pool & Shuffling per attempt/session
+    import random as _random
+    rng = _random.Random(str(session.attempt_id or session.id))
+    pool_size = int(exam_settings.get("pool_size") or 0)
+    if pool_size > 0 and pool_size < len(snapshot):
+        snapshot = rng.sample(snapshot, pool_size)
+    elif exam_settings.get("shuffle_questions"):
+        snapshot = list(snapshot)
+        rng.shuffle(snapshot)
 
     # Sanitize each question
     sanitized = []
     for q in snapshot:
         raw_content = q.get("content", {})
+        opts = [
+            {"id": opt["id"], "text": opt.get("text", "")}
+            for opt in raw_content.get("options", [])
+        ]
+        if exam_settings.get("shuffle_options") and len(opts) > 1:
+            rng.shuffle(opts)
         safe_content = {
             "text": raw_content.get("text", ""),
-            "options": [
-                {"id": opt["id"], "text": opt.get("text", "")}
-                for opt in raw_content.get("options", [])
-            ]
+            "options": opts
         }
         sanitized.append({
             "id": q["id"],
@@ -469,6 +527,8 @@ def save_candidate_answer(
         existing_ans.answer_json = json.dumps(req.answer)
         existing_ans.revision += 1
         existing_ans.sequence_number = seq
+        if req.time_spent_sec and req.time_spent_sec > 0:
+            existing_ans.time_spent_sec = max(existing_ans.time_spent_sec or 0, req.time_spent_sec)
         existing_ans.saved_at = now
     else:
         new_ans = AttemptAnswer(
@@ -477,6 +537,7 @@ def save_candidate_answer(
             answer_json=json.dumps(req.answer),
             revision=1,
             sequence_number=seq,
+            time_spent_sec=req.time_spent_sec or 0,
             saved_at=now
         )
         db.add(new_ans)
@@ -801,4 +862,152 @@ def submit_candidate_appeal(
     db.commit()
     db.refresh(appeal)
     return {"message": "Appeal submitted successfully for proctor review", "appeal_id": appeal.id}
+
+
+@router.get("/attempts/{attempt_id}/scorecard-pdf")
+def download_candidate_scorecard_pdf(
+    attempt_id: str,
+    session: CandidateSession = Depends(get_candidate_session),
+    db: Session = Depends(get_db)
+):
+    """Generates and downloads a verified PDF Scorecard & Certificate with QR verification."""
+    from fastapi.responses import Response
+    from app.reports.scorecard_pdf import generate_scorecard_pdf
+
+    attempt = db.query(ExamAttempt).filter(
+        ExamAttempt.id == attempt_id,
+        ExamAttempt.enrollment_id == session.enrollment_id
+    ).first()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+    if attempt.status == "in_progress":
+        raise HTTPException(status_code=400, detail="Scorecard is available after exam submission.")
+
+    enrollment = session.enrollment
+    exam = db.query(Exam).filter(Exam.id == enrollment.exam_id).first()
+    org = db.query(Organization).filter(Organization.id == attempt.organization_id).first()
+
+    events = db.query(ProctorEvent).filter(
+        ProctorEvent.attempt_id == attempt.id,
+        ProctorEvent.event_type != "cctv_frame"
+    ).all()
+    high_cnt = sum(1 for e in events if e.severity in ("suspicious", "high"))
+    adv_cnt = max(0, len(events) - high_cnt)
+    integrity_score = max(0, min(100, 100 - (high_cnt * 18) - (adv_cnt * 4)))
+
+    score_details = {}
+    max_score = 0.0
+    if attempt.score_details_json:
+        try:
+            score_details = json.loads(attempt.score_details_json)
+            max_score = float(score_details.get("max_score", 0.0) or 0.0)
+        except Exception:
+            pass
+    if max_score <= 0 and attempt.exam_version_id:
+        ver = db.query(ExamVersion).filter(ExamVersion.id == attempt.exam_version_id).first()
+        if ver and ver.snapshot_json:
+            try:
+                snap = json.loads(ver.snapshot_json)
+                max_score = sum(float(q.get("points_positive", 4.0) or 4.0) for q in snap)
+            except Exception:
+                max_score = 100.0
+    if max_score <= 0:
+        max_score = 100.0
+
+    pdf_bytes = generate_scorecard_pdf(
+        candidate_name=attempt.candidate_name or enrollment.candidate_name or "Candidate",
+        candidate_uid=enrollment.candidate_uid,
+        exam_title=exam.title if exam else "Lunaris Assessment",
+        org_name=org.name if org else "Lunaris Assessment Platform",
+        score_total=float(attempt.score_total or 0.0),
+        max_score=max_score,
+        integrity_score=integrity_score,
+        submitted_at=attempt.submitted_at,
+        attempt_id=attempt.id,
+        subject_breakdown=score_details.get("sections") if isinstance(score_details, dict) else None,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=lunaris_scorecard_{attempt.id[:8]}.pdf"}
+    )
+
+
+class CandidateChatMessageRequest(BaseModel):
+    message: str
+
+
+@router.get("/chat")
+def get_candidate_chat_messages(
+    session: CandidateSession = Depends(get_candidate_session),
+    db: Session = Depends(get_db)
+):
+    """Returns two-way chat messages between the candidate and proctor."""
+    attempt_id = session.attempt_id
+    if not attempt_id:
+        return {"messages": []}
+    from app.models import ProctorMessage
+    from app.core.mongodb import get_mongodb
+    db_mongo = get_mongodb()
+    if db_mongo is not None:
+        try:
+            for doc in db_mongo.proctor_messages.find({"attempt_id": str(attempt_id)}):
+                msg_id = doc.get("id") or doc.get("_id")
+                if msg_id and not db.query(ProctorMessage).filter(ProctorMessage.id == str(msg_id)).first():
+                    db.merge(ProctorMessage(
+                        id=str(msg_id),
+                        attempt_id=doc["attempt_id"],
+                        sender_role=doc["sender_role"],
+                        sender_name=doc.get("sender_name"),
+                        message=doc["message"],
+                    ))
+            db.commit()
+        except Exception:
+            db.rollback()
+    msgs = db.query(ProctorMessage).filter(
+        ProctorMessage.attempt_id == attempt_id
+    ).order_by(ProctorMessage.created_at.asc()).all()
+    return {
+        "messages": [
+            {
+                "id": m.id,
+                "sender_role": m.sender_role,
+                "sender_name": m.sender_name,
+                "message": m.message,
+                "created_at": m.created_at.isoformat() if m.created_at else None
+            }
+            for m in msgs
+        ]
+    }
+
+
+@router.post("/chat")
+def send_candidate_chat_message(
+    req: CandidateChatMessageRequest,
+    session: CandidateSession = Depends(get_candidate_session),
+    db: Session = Depends(get_db)
+):
+    """Candidate sends a support/clarification message to the live proctor."""
+    if not session.attempt_id:
+        raise HTTPException(status_code=400, detail="Start the exam attempt before sending messages.")
+    text = (req.message or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    from app.models import ProctorMessage
+    msg = ProctorMessage(
+        attempt_id=session.attempt_id,
+        sender_role="candidate",
+        sender_name=session.enrollment.candidate_name or session.enrollment.candidate_uid,
+        message=text[:1000]
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+    return {
+        "id": msg.id,
+        "sender_role": msg.sender_role,
+        "sender_name": msg.sender_name,
+        "message": msg.message,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None
+    }
 

@@ -121,6 +121,7 @@ export default function CandidateEntryPortal({
       setSessionToken(res.session_token);
       setCandidateName(res.candidate_name);
       setExamDetails(res.exam);
+      if (res.branding) setOrgBranding(res.branding);
       if (res.exam?.mode === "standard_quiz") {
         setCameraVerified(true);
         setConsentChecked(true);
@@ -138,6 +139,58 @@ export default function CandidateEntryPortal({
   const [fullscreenViolation, setFullscreenViolation] = useState(false);
   const [copyWarning, setCopyWarning] = useState(false);
   const [proctorToast, setProctorToast] = useState(null);
+  const [orgBranding, setOrgBranding] = useState(null);
+  const [candChatOpen, setCandChatOpen] = useState(false);
+  const [candChatMessages, setCandChatMessages] = useState([]);
+  const [candChatInput, setCandChatInput] = useState("");
+  const [sendingCandChat, setSendingCandChat] = useState(false);
+
+  useEffect(() => {
+    if (step !== "attempt" || !sessionToken) return;
+    let active = true;
+    const pollChat = async () => {
+      try {
+        const res = await api.getCandidateChat(sessionToken);
+        if (active && res?.messages) setCandChatMessages(res.messages);
+      } catch {}
+    };
+    pollChat();
+    const t = setInterval(pollChat, 4000);
+    return () => { active = false; clearInterval(t); };
+  }, [step, sessionToken]);
+
+  async function handleSendCandidateChat(e) {
+    e.preventDefault();
+    if (!candChatInput.trim() || !sessionToken) return;
+    setSendingCandChat(true);
+    try {
+      const msg = await api.sendCandidateChat(sessionToken, candChatInput.trim());
+      setCandChatMessages((prev) => [...prev, msg]);
+      setCandChatInput("");
+    } catch {} finally {
+      setSendingCandChat(false);
+    }
+  }
+
+  async function handleDownloadScorecardPdf() {
+    if (!attemptId || !sessionToken) return;
+    try {
+      const { API_BASE_URL } = await import("../shared/api");
+      const res = await fetch(`${API_BASE_URL}/candidate/attempts/${attemptId}/scorecard-pdf`, {
+        headers: { Authorization: `Bearer ${sessionToken}` }
+      });
+      if (!res.ok) throw new Error("Failed to download scorecard");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `lunaris_scorecard_${attemptId.slice(0, 8)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err.message || "Could not download PDF scorecard.");
+    }
+  }
 
   // 2. Submit Preflight Consent and Start Attempt
   async function handleStartExam() {
@@ -1095,7 +1148,7 @@ export default function CandidateEntryPortal({
           <header style={{
             minHeight: "56px",
             background: "#ffffff",
-            borderBottom: "1px solid var(--border-subtle)",
+            borderBottom: `2px solid ${orgBranding?.brand_primary_color || "var(--border-subtle)"}`,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -1105,20 +1158,29 @@ export default function CandidateEntryPortal({
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
               <img
-                src="/logo.png"
-                alt="Lunaris"
-                style={{ width: "26px", height: "26px", objectFit: "contain", borderRadius: "50%" }}
+                src={orgBranding?.brand_logo_url || "/logo.png"}
+                alt={orgBranding?.organization_name || "Lunaris"}
+                style={{ width: "28px", height: "28px", objectFit: "contain", borderRadius: "6px" }}
               />
-              <span style={{ fontWeight: "800", fontSize: "16px", color: "var(--text-primary)" }}>
-                {paper?.title || "Computer-Based Examination"}
-              </span>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: "800", fontSize: "16px", color: orgBranding?.brand_primary_color || "var(--text-primary)" }}>
+                    {paper?.title || "Computer-Based Examination"}
+                  </span>
+                  {orgBranding?.brand_tagline && (
+                    <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600" }}>
+                      — {orgBranding.brand_tagline}
+                    </span>
+                  )}
+                </div>
+              </div>
               <span style={{
                 fontSize: "11px",
                 fontWeight: "700",
                 padding: "2px 8px",
                 borderRadius: "4px",
                 background: isStandardQuiz ? "var(--accent-blue-subtle)" : "rgba(37, 99, 235, 0.1)",
-                color: isStandardQuiz ? "var(--accent-blue)" : "#2563eb"
+                color: orgBranding?.brand_primary_color || (isStandardQuiz ? "var(--accent-blue)" : "#2563eb")
               }}>
                 {isStandardQuiz ? "Standard Practice Quiz" : "Proctored Computer-Based Assessment"}
               </span>
@@ -2430,15 +2492,103 @@ export default function CandidateEntryPortal({
               </button>
             </div>
 
+            <div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
+              <button
+                type="button"
+                onClick={handleDownloadScorecardPdf}
+                style={{
+                  flex: 1,
+                  height: "42px",
+                  background: "#0f172a",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  fontWeight: "700",
+                  cursor: "pointer"
+                }}
+              >
+                Download Verified Scorecard PDF
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={onExit}
+                style={{ flex: 1, height: "42px" }}
+              >
+                Back to Home
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Two-Way Proctor Chat Widget during Exam */}
+      {step === "attempt" && (
+        <div style={{ position: "fixed", bottom: "18px", right: "18px", zIndex: 90 }}>
+          {candChatOpen ? (
+            <div style={{
+              width: "300px",
+              background: "#ffffff",
+              border: "1px solid #cbd5e1",
+              borderRadius: "12px",
+              boxShadow: "0 12px 30px rgba(15, 23, 42, 0.2)",
+              overflow: "hidden"
+            }}>
+              <div style={{ background: orgBranding?.primary_color || "#2563eb", color: "#ffffff", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", fontWeight: "700" }}>
+                <span>Proctor Support Chat</span>
+                <button type="button" onClick={() => setCandChatOpen(false)} style={{ background: "none", border: "none", color: "#ffffff", cursor: "pointer", fontWeight: "800" }}>×</button>
+              </div>
+              <div style={{ height: "180px", overflowY: "auto", padding: "10px", display: "flex", flexDirection: "column", gap: "6px", background: "#f8fafc" }}>
+                {candChatMessages.length === 0 ? (
+                  <div style={{ fontSize: "11px", color: "#94a3b8", textAlign: "center", marginTop: "60px" }}>Ask your proctor a question if needed.</div>
+                ) : candChatMessages.map((m) => (
+                  <div key={m.id} style={{
+                    alignSelf: m.sender_role === "candidate" ? "flex-end" : "flex-start",
+                    background: m.sender_role === "candidate" ? (orgBranding?.primary_color || "#2563eb") : "#ffffff",
+                    color: m.sender_role === "candidate" ? "#ffffff" : "#0f172a",
+                    border: m.sender_role === "candidate" ? "none" : "1px solid #cbd5e1",
+                    padding: "6px 10px",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    maxWidth: "85%"
+                  }}>
+                    {m.message}
+                  </div>
+                ))}
+              </div>
+              <form onSubmit={handleSendCandidateChat} style={{ display: "flex", gap: "6px", padding: "8px", borderTop: "1px solid #e2e8f0" }}>
+                <input
+                  type="text"
+                  value={candChatInput}
+                  onChange={(e) => setCandChatInput(e.target.value)}
+                  placeholder="Message proctor..."
+                  style={{ flex: 1, padding: "6px 8px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "12px" }}
+                />
+                <button type="submit" disabled={sendingCandChat || !candChatInput.trim()} style={{ padding: "6px 10px", background: orgBranding?.primary_color || "#2563eb", color: "#ffffff", border: "none", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}>
+                  Send
+                </button>
+              </form>
+            </div>
+          ) : (
             <button
               type="button"
-              className="btn-primary"
-              onClick={onExit}
-              style={{ width: "100%", height: "42px" }}
+              onClick={() => setCandChatOpen(true)}
+              style={{
+                padding: "10px 16px",
+                borderRadius: "999px",
+                background: orgBranding?.primary_color || "#2563eb",
+                color: "#ffffff",
+                border: "none",
+                fontWeight: "700",
+                fontSize: "12px",
+                boxShadow: "0 6px 18px rgba(37, 99, 235, 0.35)",
+                cursor: "pointer"
+              }}
             >
-              Back to Home
+              Proctor Chat {candChatMessages.length > 0 ? `(${candChatMessages.length})` : ""}
             </button>
-          </div>
+          )}
         </div>
       )}
     </div>

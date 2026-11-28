@@ -466,5 +466,45 @@ export const api = {
   getPublicSiteSettings: () => request("/platform/public-settings"),
   updatePublicSiteSettings: (data) =>
     request("/platform/public-settings", { method: "PUT", body: JSON.stringify(data) }),
-  getPublicStats: () => request("/platform/public-stats")
+  getPublicStats: () => request("/platform/public-stats"),
+
+  // Verified Scorecards, Analytics & Calibration
+  verifyScorecardPublic: (attempt_id) => request(`/reports/verify/${attempt_id}`),
+  getAttemptAnalytics: (attempt_id) => request(`/reports/attempts/${attempt_id}/analytics`),
+  getQuestionCalibration: (org_id) => request(`/questions/calibration?organization_id=${org_id}`),
+
+  // Two-Way Proctor <-> Candidate Chat
+  getCandidateChat: (session_token) =>
+    request("/candidate/chat", { headers: { Authorization: `Bearer ${session_token}` } }),
+  sendCandidateChat: (session_token, message) =>
+    request("/candidate/chat", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session_token}` },
+      body: JSON.stringify({ message })
+    }),
+  getProctorChat: (attempt_id) => request(`/proctor/attempts/${attempt_id}/chat`),
+  sendProctorChat: (attempt_id, message) =>
+    request(`/proctor/attempts/${attempt_id}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ message })
+    }),
+
+  // Exam Email Invites & AI Subjective Rubric Grading
+  sendExamInvites: (exam_id) => request(`/exams/${exam_id}/send-invites`, { method: "POST" }),
+  gradeSubjectiveAnswer: (data) =>
+    request("/ai/grade-subjective", { method: "POST", body: JSON.stringify(data) }),
+
+  // White-Label Institution Branding
+  getOrgBranding: (org_id) => request(`/organizations/${org_id}/branding`),
+  updateOrgBranding: (org_id, data) =>
+    request(`/organizations/${org_id}/branding`, { method: "PUT", body: JSON.stringify(data) }),
+
+  // Discount Coupons
+  validateCoupon: (code, amount_inr) =>
+    request("/plans/validate-coupon", { method: "POST", body: JSON.stringify({ code, amount_inr }) }),
+  getPlatformCoupons: () => request("/platform/coupons"),
+  createPlatformCoupon: (data) =>
+    request("/platform/coupons", { method: "POST", body: JSON.stringify(data) }),
+  deletePlatformCoupon: (coupon_id) =>
+    request(`/platform/coupons/${coupon_id}`, { method: "DELETE" })
 };

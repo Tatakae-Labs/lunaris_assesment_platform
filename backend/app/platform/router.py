@@ -2336,3 +2336,74 @@ def inspect_mongodb_collection(
         "documents": docs
     }
 
+
+class CreateCouponRequest(BaseModel):
+    code: str
+    discount_percent: int
+    max_uses: Optional[int] = None
+
+
+@router.get("/coupons")
+def list_coupons_superadmin(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    check_superadmin(current_user)
+    from app.models import Coupon
+    coupons = db.query(Coupon).order_by(Coupon.created_at.desc()).all()
+    return [
+        {
+            "id": c.id,
+            "code": c.code,
+            "discount_percent": c.discount_percent,
+            "max_uses": c.max_uses,
+            "used_count": c.used_count or 0,
+            "is_active": c.is_active,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        }
+        for c in coupons
+    ]
+
+
+@router.post("/coupons")
+def create_coupon_superadmin(
+    req: CreateCouponRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    check_superadmin(current_user)
+    from app.models import Coupon
+    clean_code = (req.code or "").strip().upper()
+    if not clean_code:
+        raise HTTPException(status_code=400, detail="Coupon code cannot be empty.")
+    if db.query(Coupon).filter(Coupon.code == clean_code).first():
+        raise HTTPException(status_code=400, detail=f"Coupon '{clean_code}' already exists.")
+    pct = max(1, min(95, int(req.discount_percent)))
+    coupon = Coupon(
+        code=clean_code,
+        discount_percent=pct,
+        max_uses=req.max_uses,
+        used_count=0,
+        is_active=True,
+    )
+    db.add(coupon)
+    db.commit()
+    db.refresh(coupon)
+    return {"id": coupon.id, "code": coupon.code, "discount_percent": coupon.discount_percent}
+
+
+@router.delete("/coupons/{coupon_id}")
+def delete_coupon_superadmin(
+    coupon_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    check_superadmin(current_user)
+    from app.models import Coupon
+    coupon = db.query(Coupon).filter(Coupon.id == coupon_id).first()
+    if not coupon:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    db.delete(coupon)
+    db.commit()
+    return {"status": "deleted"}
+

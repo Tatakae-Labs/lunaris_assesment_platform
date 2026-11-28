@@ -133,7 +133,9 @@ def attach_mongodb_sync_listeners():
         models.PlanEntitlement,
         models.Subscription,
         models.PaymentEvent,
-        models.UsageLedger
+        models.UsageLedger,
+        models.Coupon,
+        models.ProctorMessage
     ]
 
     for cls in model_classes:
@@ -266,6 +268,8 @@ def hydrate_sqlite_from_mongodb(db: Session) -> Dict[str, int]:
         (models.AuditEvent, "audit_logs"),
         (models.QuizRoom, "quiz_rooms"),
         (models.QuizParticipant, "quiz_participants"),
+        (models.Coupon, "coupons"),
+        (models.ProctorMessage, "proctor_messages"),
     ]
 
     summary = {}

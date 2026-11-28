@@ -1062,3 +1062,53 @@ def bulk_delete_student_enrollments(
     db.commit()
     return {"status": "success", "deleted_count": deleted_count, "message": f"Successfully removed {deleted_count} candidate enrollment(s)"}
 
+
+@router.post("/{exam_id}/send-invites")
+def send_exam_email_invites(
+    exam_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Emails Room Code, Candidate UID, PIN, and portal link to all enrolled candidates with an email."""
+    from app.models import ExamEnrollment, Organization
+    from app.core.email import send_email
+
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    org = db.query(Organization).filter(Organization.id == exam.organization_id).first()
+    org_name = org.name if org else "Lunaris Assessment Platform"
+    frontend_url = os.getenv("FRONTEND_URL", "https://lunarisedu.tatakaelabs.tech").rstrip("/")
+    portal_link = f"{frontend_url}/candidate-login?room={exam.room_code}" if exam.room_code else f"{frontend_url}/candidate-login"
+
+    enrollments = db.query(ExamEnrollment).filter(ExamEnrollment.exam_id == exam.id).all()
+    sent = 0
+    for enr in enrollments:
+        if not enr.candidate_email or "@" not in enr.candidate_email:
+            continue
+        pin_text = enr.access_pin_plain or "(Provided by instructor)"
+        html = f"""
+        <div style="font-family: Inter, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <h2 style="margin: 0 0 8px 0; color: #0f172a;">Exam Invitation: {exam.title}</h2>
+          <p style="color: #475569; font-size: 14px;">Hello {enr.candidate_name or 'Candidate'}, you are enrolled for <strong>{exam.title}</strong> hosted by <strong>{org_name}</strong>.</p>
+          <div style="background: #f8fafc; padding: 14px; border-radius: 8px; margin: 16px 0; font-size: 13px; color: #0f172a;">
+            <div><strong>Room Code:</strong> {exam.room_code or exam.id}</div>
+            <div><strong>Candidate UID:</strong> {enr.candidate_uid}</div>
+            <div><strong>Access PIN:</strong> {pin_text}</div>
+            <div><strong>Duration:</strong> {exam.duration_minutes} minutes</div>
+          </div>
+          <a href="{portal_link}" style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 14px;">
+            Open Candidate Exam Portal →
+          </a>
+        </div>
+        """
+        send_email(
+            to_email=enr.candidate_email,
+            subject=f"[{org_name}] Exam Access Credentials: {exam.title}",
+            html_content=html,
+        )
+        sent += 1
+
+    return {"status": "success", "invites_dispatched": sent, "total_enrollments": len(enrollments)}
+

@@ -1117,3 +1117,62 @@ def bulk_delete_organization_candidates(
         "candidates_count": candidates_count
     }
 
+
+class OrgBrandingRequest(BaseModel):
+    brand_logo_url: Optional[str] = ""
+    brand_primary_color: Optional[str] = "#2563eb"
+    brand_tagline: Optional[str] = ""
+
+
+@router.get("/{org_id}/branding")
+def get_organization_branding(
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    props = {}
+    if org.properties_json:
+        try:
+            props = json.loads(org.properties_json)
+        except Exception:
+            props = {}
+    return {
+        "organization_id": org.id,
+        "org_name": org.name,
+        "brand_logo_url": props.get("brand_logo_url", ""),
+        "brand_primary_color": props.get("brand_primary_color", "#2563eb"),
+        "brand_tagline": props.get("brand_tagline", ""),
+    }
+
+
+@router.put("/{org_id}/branding")
+def update_organization_branding(
+    org_id: str,
+    req: OrgBrandingRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    props = {}
+    if org.properties_json:
+        try:
+            props = json.loads(org.properties_json)
+        except Exception:
+            props = {}
+    props["brand_logo_url"] = (req.brand_logo_url or "").strip()
+    props["brand_primary_color"] = (req.brand_primary_color or "#2563eb").strip()
+    props["brand_tagline"] = (req.brand_tagline or "").strip()
+    org.properties_json = json.dumps(props)
+    db.commit()
+    return {
+        "status": "updated",
+        "brand_logo_url": props["brand_logo_url"],
+        "brand_primary_color": props["brand_primary_color"],
+        "brand_tagline": props["brand_tagline"],
+    }
+

@@ -198,6 +198,43 @@ export default function LiveProctorDashboard({ organizationId }) {
   const [warningSending, setWarningSending] = useState(false);
   const [warningSuccess, setWarningSuccess] = useState(null);
 
+  // Two-Way Proctor <-> Candidate Chat
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [sendingChat, setSendingChat] = useState(false);
+
+  useEffect(() => {
+    if (!zoomedCandidate?.attempt_id) {
+      setChatMessages([]);
+      return;
+    }
+    let active = true;
+    const fetchChat = async () => {
+      try {
+        const res = await api.getProctorChat(zoomedCandidate.attempt_id);
+        if (active && res?.messages) setChatMessages(res.messages);
+      } catch {}
+    };
+    fetchChat();
+    const timer = setInterval(fetchChat, 3500);
+    return () => { active = false; clearInterval(timer); };
+  }, [zoomedCandidate?.attempt_id]);
+
+  async function handleSendProctorChat(e) {
+    e.preventDefault();
+    if (!zoomedCandidate?.attempt_id || !chatInput.trim()) return;
+    setSendingChat(true);
+    try {
+      const msg = await api.sendProctorChat(zoomedCandidate.attempt_id, chatInput.trim());
+      setChatMessages((prev) => [...prev, msg]);
+      setChatInput("");
+    } catch (err) {
+      alert("Failed to send chat message: " + err.message);
+    } finally {
+      setSendingChat(false);
+    }
+  }
+
   useEffect(() => {
     loadSessions();
     loadAppeals();
@@ -763,8 +800,21 @@ export default function LiveProctorDashboard({ organizationId }) {
                         </span>
                       </div>
 
-                      <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "var(--accent-blue)", fontWeight: "600" }}>
-                        {cctvTime} · 720p 30fps
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{
+                          fontSize: "10px",
+                          fontWeight: "800",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          background: (s.integrity_score ?? 100) >= 80 ? "#ecfdf5" : (s.integrity_score ?? 100) >= 50 ? "#fffbeb" : "#fef2f2",
+                          color: (s.integrity_score ?? 100) >= 80 ? "#059669" : (s.integrity_score ?? 100) >= 50 ? "#b45309" : "#dc2626",
+                          border: `1px solid ${(s.integrity_score ?? 100) >= 80 ? "#a7f3d0" : (s.integrity_score ?? 100) >= 50 ? "#fde68a" : "#fecaca"}`
+                        }}>
+                          Trust: {s.integrity_score ?? 100}/100
+                        </span>
+                        <span style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "var(--accent-blue)", fontWeight: "600" }}>
+                          {cctvTime}
+                        </span>
                       </div>
                     </div>
 
@@ -1521,6 +1571,48 @@ export default function LiveProctorDashboard({ organizationId }) {
                        {warningSuccess}
                     </div>
                   )}
+
+                  {/* Two-Way Proctor <-> Candidate Live Chat */}
+                  <div style={{ marginTop: "14px", padding: "12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                    <div style={{ fontSize: "12px", fontWeight: "800", color: "#0f172a", marginBottom: "8px" }}>
+                      Two-Way Proctor Chat (Trust Score: {zoomedCandidate.integrity_score ?? 100}/100)
+                    </div>
+                    <div style={{ maxHeight: "120px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "6px", marginBottom: "8px" }}>
+                      {chatMessages.length === 0 ? (
+                        <div style={{ fontSize: "11px", color: "#94a3b8" }}>No messages yet.</div>
+                      ) : chatMessages.map((m) => (
+                        <div key={m.id} style={{
+                          alignSelf: m.sender_role === "proctor" ? "flex-end" : "flex-start",
+                          background: m.sender_role === "proctor" ? "#2563eb" : "#ffffff",
+                          color: m.sender_role === "proctor" ? "#ffffff" : "#0f172a",
+                          border: m.sender_role === "proctor" ? "none" : "1px solid #cbd5e1",
+                          padding: "5px 10px",
+                          borderRadius: "8px",
+                          fontSize: "12px",
+                          maxWidth: "85%"
+                        }}>
+                          <strong style={{ fontSize: "10px", opacity: 0.8, display: "block" }}>{m.sender_name || m.sender_role}</strong>
+                          {m.message}
+                        </div>
+                      ))}
+                    </div>
+                    <form onSubmit={handleSendProctorChat} style={{ display: "flex", gap: "6px" }}>
+                      <input
+                        type="text"
+                        placeholder="Reply to candidate..."
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        style={{ flex: 1, background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "6px", padding: "6px 10px", fontSize: "12px" }}
+                      />
+                      <button
+                        type="submit"
+                        disabled={sendingChat || !chatInput.trim()}
+                        style={{ padding: "6px 12px", background: "#2563eb", color: "#ffffff", border: "none", borderRadius: "6px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
+                      >
+                        Send
+                      </button>
+                    </form>
+                  </div>
                 </div>
               </div>
 

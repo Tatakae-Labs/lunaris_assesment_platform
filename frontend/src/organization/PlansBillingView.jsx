@@ -30,6 +30,12 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
   const [razorpayProcessing, setRazorpayProcessing] = useState(false);
   const [razorpayError, setRazorpayError] = useState(null);
 
+  // Discount Coupon State
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [couponError, setCouponError] = useState("");
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
+
   useEffect(() => {
     loadPlans();
     if (organizationId) {
@@ -118,6 +124,9 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
     setCopiedUpi(false);
     setCopiedLink(false);
     setRazorpayError(null);
+    setCouponCode("");
+    setAppliedCoupon(null);
+    setCouponError("");
     try {
       const info = await api.getUpiCheckoutInfo(organizationId, plan.code || plan.id);
       setCheckoutInfo(info);
@@ -144,7 +153,8 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
       return;
     }
 
-    const amountInr = checkoutInfo?.amount_inr || checkoutPlan.price_inr;
+    const baseAmountInr = checkoutInfo?.amount_inr || checkoutPlan.price_inr;
+    const amountInr = appliedCoupon?.valid ? appliedCoupon.final_amount_inr : baseAmountInr;
     const amountPaise = Math.round(Number(amountInr) * 100);
     if (!amountPaise || amountPaise < 100) {
       setRazorpayError("Minimum payable amount is ₹1.00 (100 paise).");
@@ -157,7 +167,8 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
         amount: amountPaise,
         currency: "INR",
         organization_id: organizationId,
-        plan_id: checkoutPlan.code || checkoutPlan.id
+        plan_id: checkoutPlan.code || checkoutPlan.id,
+        coupon_code: appliedCoupon?.valid ? appliedCoupon.code : undefined
       });
 
       const options = {
@@ -175,7 +186,8 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
               razorpay_signature: response.razorpay_signature,
               organization_id: organizationId,
               plan_id: checkoutPlan.code || checkoutPlan.id,
-              amount_inr: amountInr
+              amount_inr: amountInr,
+              coupon_code: appliedCoupon?.valid ? appliedCoupon.code : undefined
             });
 
             if (verifyRes?.verified) {
@@ -797,11 +809,70 @@ export default function PlansBillingView({ organizationId, currentPlanId, onPlan
                     Total Payable Amount
                   </div>
                   <div style={{ fontSize: "32px", fontWeight: "900", color: "#16a34a", margin: "4px 0" }}>
-                    ₹{checkoutInfo.amount_inr?.toLocaleString("en-IN")}
+                    ₹{(appliedCoupon?.valid ? appliedCoupon.final_amount_inr : checkoutInfo.amount_inr)?.toLocaleString("en-IN")}
                   </div>
+                  {appliedCoupon?.valid && (
+                    <div style={{ fontSize: "12px", color: "#059669", fontWeight: "700", marginBottom: "4px" }}>
+                      Promo {appliedCoupon.code} applied ({appliedCoupon.discount_percent}% OFF — Saved ₹{appliedCoupon.discount_amount_inr})
+                    </div>
+                  )}
                   <div style={{ fontSize: "12px", color: "var(--text-secondary, #64748b)" }}>
                     Payee: <strong>{checkoutInfo.payee_name}</strong>
                   </div>
+                </div>
+
+                {/* Promo / Discount Coupon Input */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <input
+                      type="text"
+                      value={couponCode}
+                      onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponError(""); }}
+                      placeholder="Promo code (optional)"
+                      style={{
+                        flex: 1,
+                        padding: "9px 12px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--border-subtle, #cbd5e1)",
+                        fontSize: "13px",
+                        fontWeight: "600",
+                        textTransform: "uppercase"
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={!couponCode.trim() || validatingCoupon}
+                      onClick={async () => {
+                        setValidatingCoupon(true);
+                        setCouponError("");
+                        try {
+                          const baseAmt = checkoutInfo?.amount_inr || checkoutPlan?.price_inr || 0;
+                          const res = await api.validateCoupon(couponCode.trim(), baseAmt);
+                          setAppliedCoupon(res);
+                        } catch (err) {
+                          setAppliedCoupon(null);
+                          setCouponError(err.message || "Invalid coupon code");
+                        } finally {
+                          setValidatingCoupon(false);
+                        }
+                      }}
+                      style={{
+                        padding: "9px 14px",
+                        borderRadius: "8px",
+                        background: "#0f172a",
+                        color: "#ffffff",
+                        border: "none",
+                        fontSize: "12px",
+                        fontWeight: "700",
+                        cursor: "pointer"
+                      }}
+                    >
+                      {validatingCoupon ? "Checking..." : "Apply"}
+                    </button>
+                  </div>
+                  {couponError && (
+                    <div style={{ fontSize: "12px", color: "#dc2626", fontWeight: "600" }}>{couponError}</div>
+                  )}
                 </div>
 
                 {/* Razorpay Standard Web Checkout */}

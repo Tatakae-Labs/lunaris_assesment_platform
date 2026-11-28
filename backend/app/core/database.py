@@ -114,6 +114,7 @@ def auto_migrate_sqlite(engine_instance):
             ("subscriptions", "trial_end", "TIMESTAMP"),
             ("subscriptions", "grace_period_end", "TIMESTAMP"),
             ("attempt_answers", "sequence_number", "INTEGER DEFAULT 1"),
+            ("attempt_answers", "time_spent_sec", "INTEGER DEFAULT 0"),
             ("exam_enrollments", "access_pin_hash", "VARCHAR(255)"),
             ("organizations", "features_json", "TEXT DEFAULT '{}'"),
             ("organizations", "properties_json", "TEXT DEFAULT '{}'"),

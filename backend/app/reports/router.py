@@ -352,3 +352,93 @@ def export_exam_results_csv(
 
     filename = f"lunaris_results_{exam.title.lower().replace(' ', '_')[:30]}.csv"
     return PlainTextResponse(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+@router.get("/verify/{attempt_id}")
+def verify_scorecard_public(attempt_id: str, db: Session = Depends(get_db)):
+    """Public QR verification endpoint for Lunaris PDF Scorecards & Certificates."""
+    from app.core.mongo_sync import hydrate_attempt_events_from_mongodb
+    try:
+        hydrate_attempt_events_from_mongodb(db, attempt_id)
+    except Exception:
+        pass
+
+    attempt = db.query(ExamAttempt).filter(ExamAttempt.id == attempt_id).first()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Scorecard verification record not found.")
+
+    exam = None
+    if attempt.exam_version_id:
+        ver = db.query(ExamVersion).filter(ExamVersion.id == attempt.exam_version_id).first()
+        if ver:
+            exam = db.query(Exam).filter(Exam.id == ver.exam_id).first()
+    org = db.query(Organization).filter(Organization.id == attempt.organization_id).first()
+
+    events = db.query(ProctorEvent).filter(
+        ProctorEvent.attempt_id == attempt.id,
+        ProctorEvent.event_type != "cctv_frame"
+    ).all()
+    high_cnt = sum(1 for e in events if e.severity in ("suspicious", "high"))
+    adv_cnt = max(0, len(events) - high_cnt)
+    integrity_score = max(0, min(100, 100 - (high_cnt * 18) - (adv_cnt * 4)))
+
+    return {
+        "verified": True,
+        "attempt_id": attempt.id,
+        "candidate_name": attempt.candidate_name or "Candidate",
+        "candidate_uid": attempt.candidate_identifier or "N/A",
+        "organization_name": org.name if org else "Lunaris Assessment Platform",
+        "exam_title": exam.title if exam else "Assessment",
+        "status": attempt.status,
+        "score_total": attempt.score_total or 0.0,
+        "integrity_score": integrity_score,
+        "submitted_at": attempt.submitted_at.isoformat() if attempt.submitted_at else None,
+    }
+
+
+@router.get("/attempts/{attempt_id}/analytics")
+def get_attempt_time_accuracy_analytics(
+    attempt_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Per-question time spent, accuracy breakdown, and cohort percentile for an attempt."""
+    attempt = db.query(ExamAttempt).filter(ExamAttempt.id == attempt_id).first()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+
+    answers = db.query(AttemptAnswer).filter(AttemptAnswer.attempt_id == attempt.id).all()
+    ans_map = {a.question_id: a for a in answers}
+
+    cohort_scores = [
+        a.score_total or 0.0
+        for a in db.query(ExamAttempt).filter(
+            ExamAttempt.organization_id == attempt.organization_id,
+            ExamAttempt.exam_version_id == attempt.exam_version_id,
+            ExamAttempt.status == "submitted"
+        ).all()
+    ]
+    my_score = attempt.score_total or 0.0
+    if cohort_scores:
+        below_or_equal = sum(1 for s in cohort_scores if s <= my_score)
+        percentile = round((below_or_equal / len(cohort_scores)) * 100, 1)
+    else:
+        percentile = 100.0
+
+    per_question = []
+    for qid, ans in ans_map.items():
+        per_question.append({
+            "question_id": qid,
+            "time_spent_sec": ans.time_spent_sec or 0,
+            "revision": ans.revision,
+            "saved_at": ans.saved_at.isoformat() if ans.saved_at else None
+        })
+
+    return {
+        "attempt_id": attempt.id,
+        "score_total": my_score,
+        "percentile": percentile,
+        "cohort_size": len(cohort_scores),
+        "total_time_spent_sec": sum(q["time_spent_sec"] for q in per_question),
+        "per_question": per_question,
+    }

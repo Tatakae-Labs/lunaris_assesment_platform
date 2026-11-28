@@ -197,6 +197,10 @@ def list_proctor_sessions(
             if frame_age < 60 and att.status == "in_progress":
                 is_camera_live = True
 
+        # Compute Automated Integrity Risk Score (0-100)
+        advisory_count = max(0, event_count - high_severity_count)
+        integrity_score = max(0, min(100, 100 - (high_severity_count * 18) - (advisory_count * 4)))
+
         results.append({
             "attempt_id": att.id,
             "candidate_name": att.candidate_name or (att.candidate.full_name if att.candidate else "Enrolled Candidate"),
@@ -206,6 +210,7 @@ def list_proctor_sessions(
             "deadline_at": att.deadline_at.isoformat() if att.deadline_at else None,
             "total_incidents": event_count,
             "critical_incidents": high_severity_count,
+            "integrity_score": integrity_score,
             "latest_event_type": latest_event.event_type if latest_event else None,
             "latest_event_time": latest_event.occurred_at.isoformat() if latest_event else None,
             "latest_snapshot_id": latest_evidence.id if latest_evidence else None,
@@ -659,4 +664,80 @@ def resolve_appeal(
 
     db.commit()
     return {"message": f"Appeal marked as {req.decision}", "appeal_id": appeal.id, "status": appeal.status}
+
+
+class ProctorChatSendRequest(BaseModel):
+    message: str
+
+
+@router.get("/attempts/{attempt_id}/chat")
+def get_proctor_chat_messages(
+    attempt_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Returns two-way chat messages between proctor and candidate."""
+    from app.models import ProctorMessage
+    from app.core.mongodb import get_mongodb
+    db_mongo = get_mongodb()
+    if db_mongo is not None:
+        try:
+            for doc in db_mongo.proctor_messages.find({"attempt_id": str(attempt_id)}):
+                msg_id = doc.get("id") or doc.get("_id")
+                if msg_id and not db.query(ProctorMessage).filter(ProctorMessage.id == str(msg_id)).first():
+                    db.merge(ProctorMessage(
+                        id=str(msg_id),
+                        attempt_id=doc["attempt_id"],
+                        sender_role=doc["sender_role"],
+                        sender_name=doc.get("sender_name"),
+                        message=doc["message"],
+                    ))
+            db.commit()
+        except Exception:
+            db.rollback()
+    msgs = db.query(ProctorMessage).filter(
+        ProctorMessage.attempt_id == attempt_id
+    ).order_by(ProctorMessage.created_at.asc()).all()
+    return {
+        "messages": [
+            {
+                "id": m.id,
+                "sender_role": m.sender_role,
+                "sender_name": m.sender_name,
+                "message": m.message,
+                "created_at": m.created_at.isoformat() if m.created_at else None
+            }
+            for m in msgs
+        ]
+    }
+
+
+@router.post("/attempts/{attempt_id}/chat")
+def send_proctor_chat_message(
+    attempt_id: str,
+    req: ProctorChatSendRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Proctor sends a live chat message to the candidate."""
+    text = (req.message or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    from app.models import ProctorMessage
+    msg = ProctorMessage(
+        attempt_id=attempt_id,
+        sender_role="proctor",
+        sender_name=current_user.full_name or "Proctor",
+        message=text[:1000]
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+    return {
+        "id": msg.id,
+        "sender_role": msg.sender_role,
+        "sender_name": msg.sender_name,
+        "message": msg.message,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None
+    }
 

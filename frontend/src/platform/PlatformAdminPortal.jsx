@@ -188,6 +188,9 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
   });
 
   const [editingPlan, setEditingPlan] = useState(null);
+  const [coupons, setCoupons] = useState([]);
+  const [couponForm, setCouponForm] = useState({ code: "", discount_percent: 20, max_uses: 100 });
+  const [creatingCoupon, setCreatingCoupon] = useState(false);
   const [planFormData, setPlanFormData] = useState({
     name: "",
     price_inr: 0,
@@ -254,8 +257,12 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
         const o = await api.getPlatformOrgs().catch(() => []);
         setOrgs(o);
       } else if (activeView === "plans") {
-        const p = await api.getPlatformPlans().catch(() => []);
+        const [p, c] = await Promise.all([
+          api.getPlatformPlans().catch(() => []),
+          api.getPlatformCoupons().catch(() => [])
+        ]);
         setPlans(p);
+        setCoupons(c || []);
       } else if (activeView === "payments") {
         const pay = await api.getPlatformPaymentSettings().catch(() => null);
         if (pay) setPaymentSettings(pay);
@@ -1871,6 +1878,130 @@ export default function PlatformAdminPortal({ onExit, onLogout, currentUser }) {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Discount Coupons & Promo Codes Section */}
+            <div style={{
+              marginTop: "28px",
+              background: "#ffffff",
+              border: "1px solid #e2e8f0",
+              borderRadius: "12px",
+              padding: "20px"
+            }}>
+              <h3 style={{ fontSize: "16px", fontWeight: "800", color: "#0f172a", marginBottom: "6px" }}>
+                Discount Coupons & Promo Codes
+              </h3>
+              <p style={{ fontSize: "13px", color: "#64748b", marginBottom: "16px" }}>
+                Create percentage discount promo codes that institutions can apply during Razorpay plan checkout.
+              </p>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!couponForm.code.trim()) return;
+                  setCreatingCoupon(true);
+                  try {
+                    const created = await api.createPlatformCoupon({
+                      code: couponForm.code.trim().toUpperCase(),
+                      discount_percent: Number(couponForm.discount_percent) || 10,
+                      max_uses: Number(couponForm.max_uses) || 100
+                    });
+                    setCoupons((prev) => [created, ...prev]);
+                    setCouponForm({ code: "", discount_percent: 20, max_uses: 100 });
+                    setActionNotice(`Promo code ${created.code} created.`);
+                  } catch (err) {
+                    alert("Failed to create coupon: " + (err.message || "Error"));
+                  } finally {
+                    setCreatingCoupon(false);
+                  }
+                }}
+                style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "16px", alignItems: "flex-end" }}
+              >
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#475569", marginBottom: "4px" }}>Code</label>
+                  <input
+                    type="text"
+                    required
+                    value={couponForm.code}
+                    onChange={(e) => setCouponForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
+                    placeholder="LAUNCH20"
+                    style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", width: "150px", textTransform: "uppercase" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#475569", marginBottom: "4px" }}>Discount %</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="90"
+                    value={couponForm.discount_percent}
+                    onChange={(e) => setCouponForm((f) => ({ ...f, discount_percent: e.target.value }))}
+                    style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", width: "100px" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#475569", marginBottom: "4px" }}>Max Uses</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={couponForm.max_uses}
+                    onChange={(e) => setCouponForm((f) => ({ ...f, max_uses: e.target.value }))}
+                    style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "13px", width: "100px" }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={creatingCoupon}
+                  style={{
+                    padding: "9px 16px",
+                    background: "#2563eb",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                    fontWeight: "700",
+                    cursor: "pointer"
+                  }}
+                >
+                  {creatingCoupon ? "Creating..." : "Create Coupon"}
+                </button>
+              </form>
+
+              {coupons.length === 0 ? (
+                <div style={{ fontSize: "13px", color: "#94a3b8" }}>No promo codes created yet.</div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                  {coupons.map((cp) => (
+                    <div
+                      key={cp.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                        padding: "8px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid #e2e8f0",
+                        background: "#f8fafc"
+                      }}
+                    >
+                      <div>
+                        <span style={{ fontWeight: "800", fontSize: "13px", color: "#0f172a" }}>{cp.code}</span>
+                        <span style={{ marginLeft: "8px", fontSize: "12px", color: "#059669", fontWeight: "700" }}>{cp.discount_percent}% OFF</span>
+                        <span style={{ marginLeft: "8px", fontSize: "11px", color: "#64748b" }}>({cp.used_count || 0}/{cp.max_uses} used)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await api.deletePlatformCoupon(cp.id);
+                          setCoupons((prev) => prev.filter((x) => x.id !== cp.id));
+                        }}
+                        style={{ background: "none", border: "none", color: "#dc2626", fontWeight: "700", cursor: "pointer", fontSize: "12px" }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

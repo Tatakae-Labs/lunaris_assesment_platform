@@ -448,3 +448,68 @@ def check_duplicate_questions(
         "is_duplicate": len(matches) > 0,
         "matches": matches[:5]
     }
+
+
+@router.get("/calibration")
+def get_question_difficulty_calibration(
+    organization_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Computes empirical difficulty calibration (Easy / Medium / Hard) and average
+    time spent per question from real candidate AttemptAnswers across the organization.
+    """
+    from app.models import AttemptAnswer, ExamAttempt
+    questions = db.query(Question).filter(Question.organization_id == organization_id).all()
+    attempts = db.query(ExamAttempt).filter(
+        ExamAttempt.organization_id == organization_id,
+        ExamAttempt.status == "submitted"
+    ).all()
+    attempt_ids = [a.id for a in attempts]
+    answers = db.query(AttemptAnswer).filter(AttemptAnswer.attempt_id.in_(attempt_ids)).all() if attempt_ids else []
+
+    stats_by_q: Dict[str, Dict[str, Any]] = {}
+    q_map = {q.id: q for q in questions}
+
+    for ans in answers:
+        q = q_map.get(ans.question_id)
+        if not q:
+            continue
+        entry = stats_by_q.setdefault(q.id, {"attempts": 0, "correct": 0, "time_sum": 0})
+        entry["attempts"] += 1
+        entry["time_sum"] += (ans.time_spent_sec or 0)
+        try:
+            ans_data = json.loads(ans.answer_json)
+            content = json.loads(q.content_json)
+            selected = ans_data.get("selected_options") or []
+            correct_opts = [o["id"] for o in content.get("options", []) if o.get("is_correct")]
+            if correct_opts and set(selected) == set(correct_opts):
+                entry["correct"] += 1
+            elif q.question_type == "numerical" and content.get("numerical_answer") is not None:
+                if str(ans_data.get("numerical_value", "")).strip() == str(content.get("numerical_answer")).strip():
+                    entry["correct"] += 1
+        except Exception:
+            pass
+
+    calibration = {}
+    for q in questions:
+        st = stats_by_q.get(q.id)
+        if not st or st["attempts"] == 0:
+            calibration[q.id] = {
+                "attempts": 0,
+                "solve_rate_pct": None,
+                "avg_time_sec": 0,
+                "calibrated_difficulty": q.difficulty or "medium"
+            }
+        else:
+            rate = round((st["correct"] / st["attempts"]) * 100, 1)
+            diff = "easy" if rate >= 70 else ("medium" if rate >= 35 else "hard")
+            calibration[q.id] = {
+                "attempts": st["attempts"],
+                "solve_rate_pct": rate,
+                "avg_time_sec": round(st["time_sum"] / st["attempts"]),
+                "calibrated_difficulty": diff
+            }
+
+    return {"organization_id": organization_id, "calibration": calibration}

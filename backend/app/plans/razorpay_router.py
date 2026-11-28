@@ -22,6 +22,7 @@ class CreateOrderRequest(BaseModel):
     receipt: Optional[str] = None
     organization_id: Optional[str] = None
     plan_id: Optional[str] = None
+    coupon_code: Optional[str] = None
 
 
 class VerifyPaymentRequest(BaseModel):
@@ -31,6 +32,7 @@ class VerifyPaymentRequest(BaseModel):
     organization_id: Optional[str] = None
     plan_id: Optional[str] = None
     amount_inr: Optional[int] = None
+    coupon_code: Optional[str] = None
 
 
 def _get_razorpay_credentials():
@@ -44,12 +46,21 @@ def _get_razorpay_credentials():
     return key_id, key_secret
 
 
-def _create_order_impl(req: CreateOrderRequest):
+def _create_order_impl(req: CreateOrderRequest, db: Session = None):
     if req.amount is None or req.amount < 100:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Minimum order amount is 100 paise (INR 1.00).",
         )
+
+    final_amount = req.amount
+    if req.coupon_code and db is not None:
+        from app.models import Coupon
+        clean_code = req.coupon_code.strip().upper()
+        coupon = db.query(Coupon).filter(Coupon.code == clean_code, Coupon.is_active == True).first()
+        if coupon and (coupon.max_uses is None or (coupon.used_count or 0) < coupon.max_uses):
+            pct = max(1, min(95, int(coupon.discount_percent or 0)))
+            final_amount = max(100, round(req.amount * (100 - pct) / 100))
 
     key_id, key_secret = _get_razorpay_credentials()
     receipt = req.receipt or f"lun_{uuid.uuid4().hex[:12]}"
@@ -57,7 +68,7 @@ def _create_order_impl(req: CreateOrderRequest):
     try:
         client = razorpay.Client(auth=(key_id, key_secret))
         order_payload = {
-            "amount": req.amount,
+            "amount": final_amount,
             "currency": (req.currency or "INR").upper(),
             "receipt": receipt[:40],
         }
@@ -151,6 +162,11 @@ def _verify_payment_impl(req: VerifyPaymentRequest, db: Session):
                     admin_note=f"Razorpay verified order {req.razorpay_order_id}",
                 )
                 db.add(payment_event)
+            if req.coupon_code:
+                from app.models import Coupon
+                coupon = db.query(Coupon).filter(Coupon.code == req.coupon_code.strip().upper()).first()
+                if coupon:
+                    coupon.used_count = (coupon.used_count or 0) + 1
             db.commit()
 
     return {
@@ -162,13 +178,13 @@ def _verify_payment_impl(req: VerifyPaymentRequest, db: Session):
 
 
 @router.post("/api/create-order")
-def create_order_root(req: CreateOrderRequest):
-    return _create_order_impl(req)
+def create_order_root(req: CreateOrderRequest, db: Session = Depends(get_db)):
+    return _create_order_impl(req, db)
 
 
 @router.post("/api/v1/plans/razorpay/create-order")
-def create_order_v1(req: CreateOrderRequest):
-    return _create_order_impl(req)
+def create_order_v1(req: CreateOrderRequest, db: Session = Depends(get_db)):
+    return _create_order_impl(req, db)
 
 
 @router.post("/api/verify-payment")

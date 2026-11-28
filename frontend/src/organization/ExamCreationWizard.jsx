@@ -62,6 +62,10 @@ export default function ExamCreationWizard({
   const [durationMinutes, setDurationMinutes] = useState(45);
   const [negativeMarking, setNegativeMarking] = useState(false);
   const [shuffleQuestions, setShuffleQuestions] = useState(true);
+  const [shuffleOptions, setShuffleOptions] = useState(true);
+  const [poolSize, setPoolSize] = useState("");
+  const [scheduledStartAt, setScheduledStartAt] = useState("");
+  const [scheduledEndAt, setScheduledEndAt] = useState("");
   const [sections, setSections] = useState([]);
   const [passPercentage, setPassPercentage] = useState(40);
 
@@ -385,6 +389,10 @@ export default function ExamCreationWizard({
           mandatory_preflight: mandatoryPreflight,
           negative_marking: negativeMarking,
           shuffle_questions: shuffleQuestions,
+          shuffle_options: shuffleOptions,
+          pool_size: poolSize ? Number(poolSize) : null,
+          scheduled_start_at: scheduledStartAt ? new Date(scheduledStartAt).toISOString() : null,
+          scheduled_end_at: scheduledEndAt ? new Date(scheduledEndAt).toISOString() : null,
           sections,
           pass_percentage: passPercentage,
           proctoring_checks: mode === "proctored_cbt" ? Object.keys(proctoringChecks).filter((k) => proctoringChecks[k]) : [],
@@ -1557,6 +1565,51 @@ export default function ExamCreationWizard({
                       />
                       <span>Shuffle Question Order</span>
                     </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={shuffleOptions}
+                        onChange={(e) => setShuffleOptions(e.target.checked)}
+                      />
+                      <span>Shuffle Option Order (Per-Candidate Variant)</span>
+                    </label>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginTop: "6px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                          Question Pool Size (Optional)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={poolSize}
+                          onChange={(e) => setPoolSize(e.target.value)}
+                          placeholder="All selected"
+                          style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid var(--border-subtle)", fontSize: "12px" }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                          Scheduled Start (Optional)
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={scheduledStartAt}
+                          onChange={(e) => setScheduledStartAt(e.target.value)}
+                          style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid var(--border-subtle)", fontSize: "12px" }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                          Scheduled End (Optional)
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={scheduledEndAt}
+                          onChange={(e) => setScheduledEndAt(e.target.value)}
+                          style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid var(--border-subtle)", fontSize: "12px" }}
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

@@ -429,6 +429,7 @@ class AttemptAnswer(Base):
     answer_json = Column(Text, nullable=False)  # { selected_options: [...], numerical_value: "3.14", state: "answered" }
     revision = Column(Integer, default=1)
     sequence_number = Column(Integer, default=1)
+    time_spent_sec = Column(Integer, default=0)
     saved_at = Column(DateTime(timezone=True), default=utcnow)
 
     attempt = relationship("ExamAttempt", back_populates="answers")
@@ -725,3 +726,29 @@ class GeneratedPaper(Base):
     organization = relationship("Organization")
     exam = relationship("Exam")
     creator = relationship("User", foreign_keys=[created_by])
+
+
+class Coupon(Base):
+    """Discount coupons for Razorpay & UPI plan checkouts."""
+    __tablename__ = "coupons"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    code = Column(String(50), unique=True, index=True, nullable=False)
+    discount_percent = Column(Integer, nullable=False, default=10)
+    max_uses = Column(Integer, nullable=True)
+    used_count = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class ProctorMessage(Base):
+    """Two-way real-time chat messages between proctor and candidate during an attempt."""
+    __tablename__ = "proctor_messages"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    attempt_id = Column(String(36), ForeignKey("exam_attempts.id"), nullable=False, index=True)
+    sender_role = Column(String(20), nullable=False)  # "proctor" | "candidate"
+    sender_name = Column(String(120), nullable=True)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
