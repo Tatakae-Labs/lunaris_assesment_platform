@@ -3479,36 +3479,78 @@ export default function OrgDashboard({
               }}>
                 {hostedRoomModal.room_code}
               </div>
-              <div style={{ fontSize: "12px", color: "#64748b" }}>
+              <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "14px" }}>
                 {hostedRoomModal.per_question_seconds}s per question · Speed Bonus Scoring Active
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", paddingTop: "12px", borderTop: "1px dashed #cbd5e1" }}>
+                <div style={{ background: "#ffffff", padding: "8px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`${window.location.origin}/quiz/${hostedRoomModal.room_code}`)}`}
+                    alt="Quick Quiz Join QR Code"
+                    style={{ width: "140px", height: "140px", display: "block" }}
+                  />
+                </div>
+                <div style={{ fontSize: "11px", color: "#475569", fontWeight: "600" }}>
+                  Scan QR to join directly on mobile
+                </div>
               </div>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(hostedRoomModal.room_code);
-                  toast.success(`Copied room code ${hostedRoomModal.room_code} to clipboard`);
-                }}
-                style={{
-                  padding: "10px 16px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--border-subtle)",
-                  background: "#ffffff",
-                  color: "#334155",
-                  fontSize: "13px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "6px"
-                }}
-              >
-                <CopyIcon size={14} />
-                <span>Copy Room Code</span>
-              </button>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(hostedRoomModal.room_code);
+                    toast.success(`Copied room code ${hostedRoomModal.room_code} to clipboard`);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "10px 14px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--border-subtle)",
+                    background: "#ffffff",
+                    color: "#334155",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px"
+                  }}
+                >
+                  <CopyIcon size={14} />
+                  <span>Copy Code</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const joinUrl = `${window.location.origin}/quiz/${hostedRoomModal.room_code}`;
+                    navigator.clipboard.writeText(joinUrl);
+                    toast.success("Copied Quick Quiz join link to clipboard");
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "10px 14px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--border-subtle)",
+                    background: "#ffffff",
+                    color: "var(--accent-blue)",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px"
+                  }}
+                >
+                  <CopyIcon size={14} />
+                  <span>Copy Join Link</span>
+                </button>
+              </div>
 
               {onTakeQuickQuiz && (
                 <button
