@@ -73,14 +73,29 @@ def list_proctor_sessions(
     org = db.query(Organization).filter((Organization.id == organization_id) | (Organization.slug == organization_id)).first()
     target_org_id = org.id if org else organization_id
 
-    # Verify user has proctor/admin/owner role
-    membership = db.query(OrganizationMember).filter(
-        OrganizationMember.organization_id == target_org_id,
-        OrganizationMember.user_id == current_user.id,
-        OrganizationMember.role.in_(["owner", "admin", "proctor"])
-    ).first()
-    if not membership:
-        raise HTTPException(status_code=403, detail="Insufficient proctoring permissions")
+    # Verify user has proctor/staff/admin/owner role (or is SuperAdmin)
+    if not getattr(current_user, "is_superadmin", False):
+        allowed_roles = ["owner", "admin", "proctor", "exam_author", "faculty", "reviewer"]
+        membership = db.query(OrganizationMember).filter(
+            OrganizationMember.organization_id == target_org_id,
+            OrganizationMember.user_id == current_user.id,
+            OrganizationMember.role.in_(allowed_roles)
+        ).first()
+        if not membership:
+            try:
+                from app.core.mongo_sync import hydrate_user_context_from_mongodb
+                hydrate_user_context_from_mongodb(db, current_user.id)
+                org = db.query(Organization).filter((Organization.id == organization_id) | (Organization.slug == organization_id)).first()
+                target_org_id = org.id if org else organization_id
+                membership = db.query(OrganizationMember).filter(
+                    OrganizationMember.organization_id == target_org_id,
+                    OrganizationMember.user_id == current_user.id,
+                    OrganizationMember.role.in_(allowed_roles)
+                ).first()
+            except Exception:
+                pass
+        if not membership:
+            raise HTTPException(status_code=403, detail="Insufficient proctoring permissions")
 
     try:
         from app.core.mongo_sync import hydrate_proctor_org_from_mongodb
