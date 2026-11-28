@@ -47,9 +47,24 @@ def check_main_superadmin(current_user: User):
         )
 
 def ensure_superadmin_seeded(db: Session):
+    import uuid as _uuid
     admin = db.query(User).filter(User.email == "superadmin@lunaris.com").first()
     if not admin:
+        # Check MongoDB first so all serverless containers share the exact same canonical superadmin ID
+        canonical_id = None
+        try:
+            from app.core.mongodb import get_collection
+            c_users = get_collection("users")
+            if c_users is not None:
+                m_doc = c_users.find_one({"email": "superadmin@lunaris.com"})
+                if m_doc:
+                    canonical_id = str(m_doc.get("id") or m_doc.get("_id") or "")
+        except Exception:
+            pass
+        if not canonical_id:
+            canonical_id = str(_uuid.uuid5(_uuid.NAMESPACE_DNS, "superadmin@lunaris.com"))
         admin = User(
+            id=canonical_id,
             email="superadmin@lunaris.com",
             full_name="Platform Super Administrator",
             password_hash=get_password_hash("SuperAdmin123!"),
@@ -523,6 +538,13 @@ def delete_organization_superadmin(
 ):
     check_main_superadmin(current_user)
     org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+    if not org:
+        try:
+            from app.core.mongo_sync import hydrate_sqlite_from_mongodb
+            hydrate_sqlite_from_mongodb(db)
+            org = db.query(Organization).filter((Organization.id == org_id) | (Organization.slug == org_id)).first()
+        except Exception:
+            pass
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 

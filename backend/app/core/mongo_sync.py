@@ -283,6 +283,14 @@ def hydrate_sqlite_from_mongodb(db: Session) -> Dict[str, int]:
                 for doc in docs:
                     kwargs = _deserialize_doc_for_model(model_cls, doc)
                     if kwargs.get("id"):
+                        if model_cls is models.User and kwargs.get("email"):
+                            stale = db.query(models.User).filter(
+                                models.User.email == kwargs["email"],
+                                models.User.id != kwargs["id"],
+                            ).first()
+                            if stale is not None:
+                                db.delete(stale)
+                                db.flush()
                         db.merge(model_cls(**kwargs))
                         count += 1
                 if count:
@@ -315,6 +323,14 @@ def hydrate_user_context_from_mongodb(db: Session, user_id: str):
             return None
 
         user_kwargs = _deserialize_doc_for_model(models.User, user_doc)
+        if user_kwargs.get("email") and user_kwargs.get("id"):
+            stale = db.query(models.User).filter(
+                models.User.email == user_kwargs["email"],
+                models.User.id != user_kwargs["id"],
+            ).first()
+            if stale is not None:
+                db.delete(stale)
+                db.flush()
         user_obj = db.merge(models.User(**user_kwargs))
 
         # Pull memberships & organizations for this user

@@ -35,13 +35,6 @@ except Exception as _schema_exc:
     print(f"Startup database initialization warning: {_schema_exc}")
 from app.core.database import SessionLocal
 
-try:
-    with SessionLocal() as _db_init:
-        ensure_plans_seeded(_db_init)
-        ensure_superadmin_seeded(_db_init)
-except Exception as _seed_exc:
-    print(f"Startup superadmin/plan seed note: {_seed_exc}")
-
 # Initialize MongoDB Engine, Collections, Indexes, and Real-Time CDC Replication
 from app.core.mongodb import init_mongodb_indexes
 from app.core.mongo_sync import (
@@ -58,6 +51,13 @@ except Exception as _hydrate_exc:
     print(f"MongoDB startup hydration warning: {_hydrate_exc}")
 
 attach_mongodb_sync_listeners()
+
+try:
+    with SessionLocal() as _db_init:
+        ensure_plans_seeded(_db_init)
+        ensure_superadmin_seeded(_db_init)
+except Exception as _seed_exc:
+    print(f"Startup superadmin/plan seed note: {_seed_exc}")
 
 if not os.environ.get("VERCEL"):
     try:

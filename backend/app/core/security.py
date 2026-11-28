@@ -183,6 +183,17 @@ def _make_get_current_user(require_active: bool = True):
                 except Exception:
                     pass
         if not user:
+            # Guard against cross-container UUID mismatch for the singleton primary superadmin
+            token_email = (payload.get("email") or "").lower().strip()
+            if token_email == "superadmin@lunaris.com":
+                user = db.query(User).filter(User.email == "superadmin@lunaris.com").first()
+                if not user:
+                    try:
+                        from app.platform.router import ensure_superadmin_seeded
+                        user = ensure_superadmin_seeded(db)
+                    except Exception:
+                        user = None
+        if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         if require_active and user.status != "active":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is not active")
