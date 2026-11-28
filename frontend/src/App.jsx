@@ -8,6 +8,7 @@ import {
   useParams
 } from "react-router-dom";
 import PublicWebsite from "./public/PublicWebsite";
+import ScorecardVerifyView from "./public/ScorecardVerifyView";
 import PlatformAdminPortal from "./platform/PlatformAdminPortal";
 import CandidateEntryPortal from "./candidate/CandidateEntryPortal";
 import OrgDashboard from "./organization/OrgDashboard";
@@ -316,6 +317,9 @@ function AppRoutes() {
           />
         }
       />
+
+      {/* Public Scorecard Verification Route */}
+      <Route path="/verify/:attemptId" element={<ScorecardVerifyView />} />
 
       {/* Catch-all redirect */}
       <Route path="*" element={<Navigate to="/" replace />} />

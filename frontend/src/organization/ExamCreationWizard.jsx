@@ -951,10 +951,12 @@ export default function ExamCreationWizard({
               <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "330px", overflowY: "auto" }}>
                 {availableQuestions.map((q, idx) => {
                   const isChecked = selectedQuestionIds.includes(q.id);
-                  let parsedContent = {};
-                  try {
-                    parsedContent = JSON.parse(q.content_json);
-                  } catch (e) {}
+                  let parsedContent = q.content || {};
+                  if (!q.content && q.content_json) {
+                    try {
+                      parsedContent = JSON.parse(q.content_json);
+                    } catch (e) {}
+                  }
 
                   const itemTime = questionTimes[q.id] || perQuestionSeconds;
                   const isEditingThis = editingQuestionId === q.id;
@@ -997,9 +999,37 @@ export default function ExamCreationWizard({
                             Q{idx + 1} • {q.question_type}
                           </span>
                         </div>
-                        <div style={{ fontSize: "13px", color: "var(--text-primary)" }}>
-                          {parsedContent.text || "Question content"}
+                        <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: "500" }}>
+                          {parsedContent.text || parsedContent.prompt || "Question content"}
                         </div>
+                        {Array.isArray(parsedContent.options) && parsedContent.options.length > 0 && (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "6px" }}>
+                            {parsedContent.options.map((opt, oIdx) => {
+                              const isCorr = opt.id === parsedContent.correct_option_id;
+                              return (
+                                <span
+                                  key={opt.id || oIdx}
+                                  style={{
+                                    fontSize: "11px",
+                                    padding: "2px 7px",
+                                    borderRadius: "4px",
+                                    background: isCorr ? "#ecfdf5" : "#f1f5f9",
+                                    color: isCorr ? "#059669" : "#475569",
+                                    fontWeight: isCorr ? "700" : "500",
+                                    border: `1px solid ${isCorr ? "#a7f3d0" : "#e2e8f0"}`
+                                  }}
+                                >
+                                  {String.fromCharCode(65 + oIdx)}. {opt.text}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {q.question_type === "numerical" && parsedContent.numerical_answer !== undefined && (
+                          <div style={{ fontSize: "11px", color: "#059669", fontWeight: "600", marginTop: "4px" }}>
+                            Answer: {parsedContent.numerical_answer} (±{parsedContent.tolerance || 0.01})
+                          </div>
+                        )}
                       </div>
 
                       {/* Per-Question Time Allocation (PIC) Widget */}

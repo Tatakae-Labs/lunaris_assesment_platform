@@ -1148,7 +1148,7 @@ export default function CandidateEntryPortal({
           <header style={{
             minHeight: "56px",
             background: "#ffffff",
-            borderBottom: `2px solid ${orgBranding?.brand_primary_color || "var(--border-subtle)"}`,
+            borderBottom: `2px solid ${orgBranding?.primary_color || "var(--border-subtle)"}`,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -1158,18 +1158,18 @@ export default function CandidateEntryPortal({
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
               <img
-                src={orgBranding?.brand_logo_url || "/logo.png"}
-                alt={orgBranding?.organization_name || "Lunaris"}
+                src={orgBranding?.logo_url || "/logo.png"}
+                alt={orgBranding?.org_name || "Lunaris"}
                 style={{ width: "28px", height: "28px", objectFit: "contain", borderRadius: "6px" }}
               />
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: "800", fontSize: "16px", color: orgBranding?.brand_primary_color || "var(--text-primary)" }}>
+                  <span style={{ fontWeight: "800", fontSize: "16px", color: orgBranding?.primary_color || "var(--text-primary)" }}>
                     {paper?.title || "Computer-Based Examination"}
                   </span>
-                  {orgBranding?.brand_tagline && (
+                  {orgBranding?.tagline && (
                     <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600" }}>
-                      — {orgBranding.brand_tagline}
+                      — {orgBranding.tagline}
                     </span>
                   )}
                 </div>
@@ -1180,7 +1180,7 @@ export default function CandidateEntryPortal({
                 padding: "2px 8px",
                 borderRadius: "4px",
                 background: isStandardQuiz ? "var(--accent-blue-subtle)" : "rgba(37, 99, 235, 0.1)",
-                color: orgBranding?.brand_primary_color || (isStandardQuiz ? "var(--accent-blue)" : "#2563eb")
+                color: orgBranding?.primary_color || (isStandardQuiz ? "var(--accent-blue)" : "#2563eb")
               }}>
                 {isStandardQuiz ? "Standard Practice Quiz" : "Proctored Computer-Based Assessment"}
               </span>

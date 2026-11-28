@@ -1142,10 +1142,22 @@ export default function OrgDashboard({
             ) : (
               <div style={{
                 background: "#f8fafc",
-                border: "1px solid var(--border-subtle)",
+                border: `1.5px solid ${brandingForm.brand_primary_color || "var(--border-subtle)"}`,
                 borderRadius: "8px",
                 padding: "8px 10px"
               }}>
+                {(brandingForm.brand_logo_url || brandingForm.brand_tagline) && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px", paddingBottom: "6px", borderBottom: "1px solid #e2e8f0" }}>
+                    {brandingForm.brand_logo_url && (
+                      <img src={brandingForm.brand_logo_url} alt="Logo" style={{ width: "22px", height: "22px", objectFit: "contain", borderRadius: "4px" }} />
+                    )}
+                    {brandingForm.brand_tagline && (
+                      <span style={{ fontSize: "11px", fontWeight: "700", color: brandingForm.brand_primary_color || "#2563eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {brandingForm.brand_tagline}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
                   <span style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-muted)" }}>
                     Active Academy
